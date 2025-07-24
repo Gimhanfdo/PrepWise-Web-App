@@ -3,7 +3,7 @@ import { Routes, Route } from 'react-router-dom'
 import Login from './pages/Login'
 import EmailVerify from './pages/EmailVerify'
 import ResetPassword from './pages/ResetPassword'
-import Register from './pages/register'
+import Register from './pages/Register'
 import {ToastContainer} from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import TrainerDashboard from './pages/TrainerDashboard';
