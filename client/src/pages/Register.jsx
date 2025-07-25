@@ -43,7 +43,7 @@ const Register = () => {
         const {data} = await axios.post(backendUrl + '/api/auth/register', {name, email, password, phoneNumber, accountType})
 
         if(data.success){
-            setIsLoggedin(true)
+            // setIsLoggedin(true)
             await sendVerificationOtp();
         }
 
