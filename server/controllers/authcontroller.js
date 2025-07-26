@@ -4,6 +4,7 @@ import userModel from "../models/userModel.js";
 import transporter from "../config/nodemailer.js";
 import { EMAIL_VERIFY_TEMPLATE, PASSWORD_RESET_TEMPLATE } from "../config/emailTemplates.js";
 
+//Register functionality
 export const register = async (req, res) => {
   const { name, email, password, phoneNumber, accountType } = req.body;
 
@@ -15,6 +16,13 @@ export const register = async (req, res) => {
     return res.json({ success: false, message: "Invalid account type" });
   }
 
+  if (!/^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{6,}$/.test(password)) {
+    return res.json({
+      success: false,
+      message: "Password must be at least 6 characters long, include one uppercase letter, one number, and one special character",
+    });
+  }
+  
   if (!/^\d{10}$/.test(phoneNumber)) {
     return res.json({
       success: false,
@@ -80,6 +88,7 @@ Team Prepwise`,
   }
 };
 
+//Login functionality
 export const login = async (req, res) => {
   const { email, password } = req.body;
 
@@ -92,10 +101,18 @@ export const login = async (req, res) => {
 
   try {
     const user = await userModel.findOne({ email });
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password. Please try again",
+      });
+    }
+
     const isMatch = await bcrypt.compare(password, user.password);
 
-    if (!user || !isMatch) {
-      return res.json({
+    if (!isMatch) {
+      return res.status(401).json({
         success: false,
         message: "Invalid email or password. Please try again",
       });
@@ -122,6 +139,7 @@ export const login = async (req, res) => {
   }
 };
 
+//Logout functionality
 export const logout = async (req, res) => {
   try {
     res.clearCookie("token", {
@@ -171,6 +189,7 @@ export const sendVerifyOtp = async (req, res) => {
   }
 };
 
+//Email verification
 export const verifyEmail = async (req, res) => {
   const { otp } = req.body;
   const userId = req.user.id;
