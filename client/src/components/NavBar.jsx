@@ -32,7 +32,7 @@ const NavBar = () => {
 
       <div className="flex items-center gap-4 text-gray-700 text-base font-medium">
         <div>
-          Hey {userData ? userData.name : "Guest"}!
+          {userData ? userData.name : "Guest"}
         </div>
 
         <div className="w-8 h-8 flex justify-center items-center rounded-full bg-blue-950 text-white relative group">
