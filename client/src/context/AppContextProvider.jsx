@@ -12,16 +12,27 @@ export const AppContextProvider = (props)=>{
     const [userData, setUserData] = useState(false)
 
     const getAuthState = async () => {
-        try {
-            const {data} = await axios.get(backendUrl + '/api/auth/is-auth')
-            if(data.success){
-                setIsLoggedin(true)
-                getUserData()
-            }
-        } catch (error) {
-            toast.error(error.message)
+    try {
+        const { data } = await axios.get(backendUrl + '/api/auth/is-auth');
+        if (data.success) {
+        setIsLoggedin(true);
+        getUserData();
+        } else {
+        setIsLoggedin(false);
+        setUserData(null);
         }
+    } catch (error) {
+        // Only show error toast if it's not a 401 (Unauthorized)
+        if (error.response?.status !== 401) {
+        toast.error(error.message);
+        }
+
+        // Ensure logout state is reflected in the UI
+        setIsLoggedin(false);
+        setUserData(null);
     }
+    };
+
 
     const getUserData = async() =>{
         try {
