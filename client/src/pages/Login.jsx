@@ -38,8 +38,9 @@ const Login = () => {
         }
       }
     } catch (error) {
-      toast.error(error.message);
-    }
+  const msg = error.response?.data?.message || error.message || "Login failed";
+  toast.error(msg);
+}
   };
 
   return (
@@ -63,7 +64,7 @@ const Login = () => {
               <input
                 onChange={(e) => setEmail(e.target.value)}
                 value={email}
-                type="text"
+                type="email"
                 placeholder="Enter your email address"
                 required
                 className="bg-transparent w-full outline-none text-sm"
