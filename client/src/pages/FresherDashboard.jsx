@@ -2,6 +2,7 @@ import React from "react";
 import NavBar from "../components/NavBar";
 import { Link } from "react-router-dom";
 import { FaRobot, FaFileAlt, FaBullhorn, FaChartBar } from "react-icons/fa";
+import SavedAnalysis from "../components/SavedAnalysis";
 
 const FresherDashboard = () => {
   const cards = [
@@ -58,6 +59,8 @@ const FresherDashboard = () => {
             </Link>
           ))}
         </div>
+
+        <SavedAnalysis />
       </div>
     </div>
   );
