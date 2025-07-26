@@ -23,7 +23,7 @@ const NavBar = () => {
   }
 
   return (
-    <div className="flex items-center justify-between px-16 py-4 bg-white shadow-md">
+    <div className="px-4 flex items-center justify-between sm:px-16 py-4 bg-white shadow-md">
 
       <div className="flex items-center gap-2">
         <img src={assets.logo} alt="Logo" className="h-20 w-20" />
@@ -35,7 +35,7 @@ const NavBar = () => {
           Hey {userData ? userData.name : "Guest"}!
         </div>
 
-        <div className="w-8 h-8 flex justify-center items-center rounded-full bg-black text-white relative group">
+        <div className="w-8 h-8 flex justify-center items-center rounded-full bg-blue-950 text-white relative group">
           {userData?.name?.[0]?.toUpperCase() || ''}
           <div className="absolute hidden group-hover:block top-0 right-0 z-10 text-black rounded pt-10 min-w-[150px]">
             <ul className="list-none m-0 p-2 bg-gray-100 text-sm rounded shadow-lg">
