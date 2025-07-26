@@ -1,10 +1,18 @@
 import React, { useState, useCallback } from "react";
 
 const CircularProgress = ({ percentage, label, colorIndex = 0 }) => {
-  const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4'];
+  const colors = [
+    "#3B82F6",
+    "#10B981",
+    "#F59E0B",
+    "#EF4444",
+    "#8B5CF6",
+    "#06B6D4",
+  ];
   const color = colors[colorIndex % colors.length];
   const strokeDasharray = 2 * Math.PI * 45;
-  const strokeDashoffset = strokeDasharray - (strokeDasharray * percentage) / 100;
+  const strokeDashoffset =
+    strokeDasharray - (strokeDasharray * percentage) / 100;
 
   return (
     <div className="flex flex-col items-center p-4">
@@ -53,16 +61,16 @@ const CVAnalyzer = () => {
   // File validation
   const validateFile = (file) => {
     if (!file) return { valid: false, error: "No file selected" };
-    
-    if (file.type !== 'application/pdf') {
+
+    if (file.type !== "application/pdf") {
       return { valid: false, error: "Only PDF files are allowed" };
     }
-    
+
     // 10MB limit
     if (file.size > 10 * 1024 * 1024) {
       return { valid: false, error: "File size must be less than 10MB" };
     }
-    
+
     return { valid: true };
   };
 
@@ -74,7 +82,7 @@ const CVAnalyzer = () => {
       setResumeFile(null);
       return;
     }
-    
+
     setError(null);
     setResumeFile(file);
   };
@@ -94,7 +102,7 @@ const CVAnalyzer = () => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    
+
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFileChange(e.dataTransfer.files[0]);
     }
@@ -104,7 +112,7 @@ const CVAnalyzer = () => {
     const updated = [...jobDescriptions];
     updated[index] = value;
     setJobDescriptions(updated);
-    
+
     // Clear error when user starts typing
     if (error && value.trim()) {
       setError(null);
@@ -112,7 +120,8 @@ const CVAnalyzer = () => {
   };
 
   const addJD = () => {
-    if (jobDescriptions.length < 5) { // Limit to 5 job descriptions
+    if (jobDescriptions.length < 5) {
+      // Limit to 5 job descriptions
       setJobDescriptions([...jobDescriptions, ""]);
     }
   };
@@ -145,7 +154,7 @@ const CVAnalyzer = () => {
 
   const handleAnalyze = async () => {
     setError(null);
-    
+
     if (!validateForm()) return;
 
     setLoading(true);
@@ -162,13 +171,13 @@ const CVAnalyzer = () => {
         body: formData,
         signal: AbortSignal.timeout(60000), // 60 second timeout
       });
-      
+
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
-      
+
       const data = await res.json();
-      
+
       if (data?.analysis) {
         setResults(data.analysis);
       } else {
@@ -176,24 +185,58 @@ const CVAnalyzer = () => {
       }
     } catch (err) {
       console.error("Analyze Error:", err);
-      
+
       let errorMessage = "Failed to analyze resume. ";
-      
-      if (err.name === 'AbortError') {
+
+      if (err.name === "AbortError") {
         errorMessage += "Request timed out. Please try again.";
-      } else if (err.message.includes('413')) {
+      } else if (err.message.includes("413")) {
         errorMessage += "File too large.";
-      } else if (err.message.includes('429')) {
+      } else if (err.message.includes("429")) {
         errorMessage += "Too many requests. Please wait a moment.";
       } else {
         errorMessage += "Please check your connection and try again.";
       }
-      
+
       setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
+
+  const [savedIndices, setSavedIndices] = useState([]);
+
+  const handleSaveIndividualAnalysis = async (index) => {
+  if (!resumeFile || !results[index] || savedIndices.includes(index)) return;
+
+  const payload = {
+    resumeName: resumeFile.name,
+    jobDescriptions: [jobDescriptions[index]],
+    results: [results[index]],
+  };
+
+  try {
+    const res = await fetch(`/api/analyze/save`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+      setSavedIndices((prev) => [...prev, index]);
+    } else {
+      throw new Error(data.message || "Failed to save analysis.");
+    }
+  } catch (err) {
+    console.error("Save error:", err);
+    alert("Error saving analysis. Please try again.");
+  }
+};
+
 
   // Clear all data
   const handleClear = () => {
@@ -204,15 +247,23 @@ const CVAnalyzer = () => {
   };
 
   return (
-    <div className="flex p-6 gap-6 min-h-screen bg-gray-50 text-gray-800">
+    <div className="flex flex-col lg:flex-row p-6 gap-6 min-h-screen bg-gray-50 text-gray-800">
       {/* Left Column */}
-      <div className="w-1/3 space-y-6">
+      <div className="w-full lg:w-1/3 space-y-6">
         {/* Error Display */}
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
             <div className="flex items-center">
-              <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              <svg
+                className="w-5 h-5 mr-2"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                  clipRule="evenodd"
+                />
               </svg>
               <span className="text-sm">{error}</span>
             </div>
@@ -243,11 +294,19 @@ const CVAnalyzer = () => {
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               onChange={(e) => handleFileChange(e.target.files[0])}
             />
-            
+
             {resumeFile ? (
               <div className="space-y-2">
-                <svg className="w-8 h-8 mx-auto text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                <svg
+                  className="w-8 h-8 mx-auto text-green-600"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                    clipRule="evenodd"
+                  />
                 </svg>
                 <p className="font-medium text-green-700">{resumeFile.name}</p>
                 <p className="text-sm text-green-600">
@@ -256,11 +315,24 @@ const CVAnalyzer = () => {
               </div>
             ) : (
               <div className="space-y-2">
-                <svg className="w-8 h-8 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                <svg
+                  className="w-8 h-8 mx-auto text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                  />
                 </svg>
                 <p className="text-gray-600">
-                  <span className="font-medium text-blue-600">Click to upload</span> or drag and drop
+                  <span className="font-medium text-blue-600">
+                    Click to upload
+                  </span>{" "}
+                  or drag and drop
                 </p>
                 <p className="text-xs text-gray-500">PDF files up to 10MB</p>
               </div>
@@ -278,7 +350,7 @@ const CVAnalyzer = () => {
               {jobDescriptions.length}/5
             </span>
           </div>
-          
+
           <div className="space-y-3">
             {jobDescriptions.map((jd, index) => (
               <div key={index} className="relative">
@@ -287,7 +359,7 @@ const CVAnalyzer = () => {
                     <textarea
                       className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors resize-none"
                       rows="4"
-                      placeholder={`Enter job description ${index + 1}... (minimum 50 characters)`}
+                      placeholder={`Enter job description ${index + 1}`}
                       value={jd}
                       onChange={(e) => handleJDChange(index, e.target.value)}
                     />
@@ -295,20 +367,32 @@ const CVAnalyzer = () => {
                       <span className="text-xs text-gray-400">
                         JD {index + 1}
                       </span>
-                      <span className={`text-xs ${jd.length < 50 ? 'text-orange-500' : 'text-green-500'}`}>
+                      <span
+                        className={`text-xs ${
+                          jd.length < 50 ? "text-orange-500" : "text-green-500"
+                        }`}
+                      >
                         {jd.length} characters
                       </span>
                     </div>
                   </div>
-                  
+
                   {jobDescriptions.length > 1 && (
                     <button
                       onClick={() => removeJD(index)}
                       className="self-start mt-1 p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
                       title="Remove this job description"
                     >
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      <svg
+                        className="w-4 h-4"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                          clipRule="evenodd"
+                        />
                       </svg>
                     </button>
                   )}
@@ -316,7 +400,7 @@ const CVAnalyzer = () => {
               </div>
             ))}
           </div>
-          
+
           {jobDescriptions.length < 5 && (
             <button
               onClick={addJD}
@@ -331,18 +415,39 @@ const CVAnalyzer = () => {
         <div className="flex gap-3">
           <button
             onClick={handleAnalyze}
-            disabled={loading || !resumeFile || jobDescriptions.some(jd => jd.trim() === "")}
+            disabled={
+              loading ||
+              !resumeFile ||
+              jobDescriptions.some((jd) => jd.trim() === "")
+            }
             className={`flex-1 px-4 py-3 rounded-lg font-medium transition-all ${
-              loading || !resumeFile || jobDescriptions.some(jd => jd.trim() === "")
+              loading ||
+              !resumeFile ||
+              jobDescriptions.some((jd) => jd.trim() === "")
                 ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                 : "bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800"
             }`}
           >
             {loading ? (
               <div className="flex items-center justify-center gap-2">
-                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                <svg
+                  className="animate-spin h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v8H4z"
+                  />
                 </svg>
                 Analyzing...
               </div>
@@ -350,8 +455,8 @@ const CVAnalyzer = () => {
               "Analyze Resume"
             )}
           </button>
-          
-          {(resumeFile || jobDescriptions.some(jd => jd.trim())) && (
+
+          {(resumeFile || jobDescriptions.some((jd) => jd.trim())) && (
             <button
               onClick={handleClear}
               disabled={loading}
@@ -364,15 +469,32 @@ const CVAnalyzer = () => {
       </div>
 
       {/* Right Column */}
-      <div className="w-2/3 space-y-6 overflow-y-auto max-h-[90vh]">
+      <div className="w-full lg:w-2/3 space-y-6 overflow-y-auto max-h-[90vh]">
         {loading && (
           <div className="flex justify-center items-center py-20">
             <div className="text-center">
-              <svg className="animate-spin h-12 w-12 mx-auto text-blue-600 mb-4" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              <svg
+                className="animate-spin h-12 w-12 mx-auto text-blue-600 mb-4"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8v8H4z"
+                />
               </svg>
-              <h3 className="text-lg font-medium text-gray-700 mb-2">Analyzing Resume</h3>
+              <h3 className="text-lg font-medium text-gray-700 mb-2">
+                Analyzing Resume
+              </h3>
               <p className="text-gray-500">This may take a few moments...</p>
             </div>
           </div>
@@ -382,13 +504,19 @@ const CVAnalyzer = () => {
           <>
             {/* Match Scores */}
             <div className="bg-white rounded-lg shadow-sm border p-6">
-              <h2 className="text-xl font-semibold mb-4 text-gray-800">Match Scores</h2>
-              <div className={`grid gap-4 ${results.length > 2 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+              <h2 className="text-xl font-semibold mb-4 text-gray-800">
+                Match Scores
+              </h2>
+              <div
+                className={`grid gap-4 ${
+                  results.length > 2 ? "grid-cols-3" : "grid-cols-2"
+                }`}
+              >
                 {results.map((res, idx) => (
                   <CircularProgress
                     key={idx}
                     percentage={res.matchPercentage || 0}
-                    label={`Job ${idx + 1}`}
+                    label={`JD ${idx + 1}`}
                     colorIndex={idx}
                   />
                 ))}
@@ -397,24 +525,47 @@ const CVAnalyzer = () => {
 
             {/* Suggestions */}
             <div className="space-y-4">
-              <h2 className="text-xl font-semibold text-gray-800">Improvement Suggestions</h2>
+              <h2 className="text-xl font-semibold text-gray-800">
+                Improvement Suggestions
+              </h2>
               {results.map((res, idx) => (
-                <div key={idx} className="bg-white p-6 shadow-sm border rounded-lg">
+                <div
+                  key={idx}
+                  className="bg-white p-6 shadow-sm border rounded-lg"
+                >
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="font-semibold text-gray-800">
                       Job Description {idx + 1}
                     </h3>
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                      res.matchPercentage >= 80 ? 'bg-green-100 text-green-800' :
-                      res.matchPercentage >= 60 ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {res.matchPercentage}% Match
+                    <span
+                      className={`px-3 py-1 rounded-full text-sm font-medium ${
+                        res.matchPercentage >= 80
+                          ? "bg-green-100 text-green-800"
+                          : res.matchPercentage >= 60
+                          ? "bg-yellow-100 text-yellow-800"
+                          : "bg-red-100 text-red-800"
+                      }`}
+                    >
+                      Match Score: {res.matchPercentage}%
                     </span>
                   </div>
-                  <div className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed"
-                    dangerouslySetInnerHTML={{ __html: res.suggestions || "No suggestions available." }}>
-                  </div>
+                  <div
+                    className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed"
+                    dangerouslySetInnerHTML={{
+                      __html: res.suggestions || "No suggestions available.",
+                    }}
+                  ></div>
+                  <button
+                    className={`mt-4 px-4 py-2 rounded transition text-sm ${
+                      savedIndices.includes(idx)
+                        ? "bg-gray-600 cursor-not-allowed text-white"
+                        : "bg-blue-600 hover:bg-blue-700 text-white"
+                    }`}
+                    disabled={savedIndices.includes(idx)}
+                    onClick={() => handleSaveIndividualAnalysis(idx)}
+                  >
+                    {savedIndices.includes(idx) ? "Analysis Saved" : "Save Analysis"}
+                  </button>
                 </div>
               ))}
             </div>
@@ -422,12 +573,28 @@ const CVAnalyzer = () => {
         )}
 
         {!loading && results.length === 0 && (
-          <div className="text-center py-20 border border-gray-500">
-            <svg className="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          <div className="text-center py-20 border rounded-lg border-gray-300">
+            <svg
+              className="w-16 h-16 mx-auto text-gray-400 mb-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
             </svg>
-            <h3 className="text-lg font-medium text-gray-700 mb-2">Ready to Analyze</h3>
-            <p className="text-gray-500">Upload your resume and add job descriptions to get started.</p>
+            <h3 className="text-lg font-medium text-gray-700 mb-2">
+              Ready to Analyze
+            </h3>
+            <p className="text-gray-500">
+              Upload your resume and add job descriptions to get started.
+              <br /> <br />
+              Make sure to include only what's necessary in the job descriptions for improved analysis
+            </p>
           </div>
         )}
       </div>
