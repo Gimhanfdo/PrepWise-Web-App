@@ -4,6 +4,7 @@ import {
   getImprovementSuggestions,
 } from "../utils/huggingface.js";
 import CVAnalysis from "../models/CVAnalysisModel.js";
+import SavedCVAnalysis from "../models/SavedCVAnalysisModel.js";
 
 import OpenAI from "openai";
 
@@ -13,7 +14,7 @@ const AI = new OpenAI({ //
 });
 
 function convertMarkdownToHTML(text) { //
-  return text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+  return text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\n\n/g, "<br/><br/>").replace(/\n/g, "<br/>");
 }
 
 export const analyzeResume = async (req, res) => {
@@ -22,7 +23,9 @@ export const analyzeResume = async (req, res) => {
     console.log("Received job descriptions:", req.body.jobDescriptions);
 
     const resumeFile = req.file;
-    const jobDescriptions = JSON.parse(req.body.jobDescriptions);
+
+    const rawJobDescriptions = JSON.parse(req.body.jobDescriptions);
+    const jobDescriptions = rawJobDescriptions.map(jd => convertMarkdownToHTML(jd));
 
     if (!resumeFile || jobDescriptions.length === 0) {
       return res
@@ -69,5 +72,58 @@ export const analyzeResume = async (req, res) => {
   } catch (err) {
     console.error("Error in analyzeResume:", err);
     res.status(500).json({ message: "Failed to analyze resume." });
+  }
+};
+
+
+export const saveAnalysis = async (req, res) => {
+  try {
+    let { resumeName, jobDescriptions, results } = req.body;
+    jobDescriptions = jobDescriptions.map(jd => convertMarkdownToHTML(jd));
+
+    if (!resumeName || !jobDescriptions || !results) {
+      return res.status(400).json({ message: "Missing required fields." });
+    }
+
+    await SavedCVAnalysis.create({
+      userId: req.user.id,
+      resumeText: resumeName, 
+      jobDescriptions,
+      results,
+    });
+
+    res.json({ success: true, message: "Analysis saved." });
+  } catch (err) {
+    console.error("Save error:", err);
+    res.status(500).json({ message: "Server error while saving analysis." });
+  }
+};
+
+export const getSavedAnalysis = async (req, res) => {
+  try {
+    const savedAnalyses = await SavedCVAnalysis.find({ userId: req.user.id }).sort({ createdAt: -1 });
+    res.json({ savedAnalyses });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch saved analyses." });
+  }
+};
+
+export const deleteAnalysis = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const deleted = await SavedCVAnalysis.findOneAndDelete({
+      _id: id,
+      userId: req.user.id,
+    });
+
+    if (!deleted) {
+      return res.status(404).json({ message: "Analysis not found." });
+    }
+
+    res.json({ success: true, message: "Analysis deleted." });
+  } catch (err) {
+    console.error("Delete error:", err);
+    res.status(500).json({ message: "Server error while deleting analysis." });
   }
 };
