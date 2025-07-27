@@ -31,6 +31,7 @@ export const register = async (req, res) => {
   }
 
   try {
+    // Check if user already exists
     const existingUser = await userModel.findOne({ email });
 
     if (existingUser) {
@@ -39,6 +40,7 @@ export const register = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Create and save new user
     const user = new userModel({
       name,
       email,
@@ -48,6 +50,7 @@ export const register = async (req, res) => {
     });
     await user.save();
 
+    // Generate JWT token
     const token = jwt.sign(
       { id: user._id, accountType: user.accountType },
       process.env.JWT_SECRET,
@@ -56,6 +59,7 @@ export const register = async (req, res) => {
       }
     );
 
+    // Set token as cookie
     res.cookie("token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -100,6 +104,7 @@ export const login = async (req, res) => {
   }
 
   try {
+    // Find user by email
     const user = await userModel.findOne({ email });
 
     if (!user) {
@@ -109,6 +114,7 @@ export const login = async (req, res) => {
       });
     }
 
+    // Compare password
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
@@ -118,6 +124,7 @@ export const login = async (req, res) => {
       });
     }
 
+    // Generate JWT and set cookie
     const token = jwt.sign(
       { id: user._id, accountType: user.accountType },
       process.env.JWT_SECRET,
@@ -159,6 +166,7 @@ export const sendVerifyOtp = async (req, res) => {
   try {
     const user = await userModel.findById(req.user.id);
 
+    // If already verified, do not send OTP
     if (user.isAccountVerified) {
       return res.json({
         success: false,
@@ -166,13 +174,16 @@ export const sendVerifyOtp = async (req, res) => {
       });
     }
 
+    // Generate 6 digit OTP
     const otp = String(Math.floor(100000 + Math.random() * 900000));
 
+    // Store OTP and expiry
     user.verifyOtp = otp;
     user.verifyOtpExpireAt = Date.now() + 24 * 60 * 60 * 1000;
 
     await user.save();
 
+    // Prepare email
     const mailOptions = {
       from: process.env.SENDER_EMAIL,
       to: user.email,
@@ -189,7 +200,7 @@ export const sendVerifyOtp = async (req, res) => {
   }
 };
 
-//Email verification
+//Email verification using OTP
 export const verifyEmail = async (req, res) => {
   const { otp } = req.body;
   const userId = req.user.id;
