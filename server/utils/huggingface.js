@@ -198,11 +198,11 @@ export const getImprovementSuggestions = async (resumeText, jobDesc, openaiClien
     // Construct the prompt
     const prompt = `You are a resume optimization expert specifically for software engineering freshers. 
 
-Before providing suggestions, first assess whether the job description is relevant to the provided resume. 
+Before providing suggestions, first assess whether the job description is relevant to a software engineering role. 
 
 If the job description is irrelevant or unrelated, respond only with:
 
-"The job description appears unrelated to the resume provided. Please check and provide a relevant job description for accurate suggestions."
+"The job description appears unrelated to Software Engineering. Please check and provide a relevant job description for accurate suggestions."
 
 If relevant, analyze the resume against the job description and provide specific, actionable improvement suggestions.
 
