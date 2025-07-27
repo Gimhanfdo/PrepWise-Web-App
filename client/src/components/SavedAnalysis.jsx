@@ -3,13 +3,20 @@ import axios from "axios";
 import { AppContext } from "../context/AppContext";
 
 const SavedAnalysis = () => {
+  // Get backend URL from global context
   const { backendUrl } = useContext(AppContext);
+  // State to hold the list of saved CV analyses fetched from backend
   const [savedAnalyses, setSavedAnalyses] = useState([]);
+  // Loading state to show a loading indicator while fetching data
   const [loading, setLoading] = useState(true);
 
+  // Function to fetch saved CV analyses from backend API
   const fetchSavedAnalyses = async () => {
     try {
+      // Make GET request to fetch saved analyses
       const { data } = await axios.get(`${backendUrl}/api/analyze/saved`);
+
+      // Update state with fetched saved analyses or empty array if none found
       setSavedAnalyses(data.savedAnalyses || []);
     } catch (error) {
       console.error("Failed to fetch saved analyses:", error.message);
@@ -18,10 +25,15 @@ const SavedAnalysis = () => {
     }
   };
 
+  // Function to delete a saved analysis by its id
   const handleDelete = async (id) => {
+    // Confirm user wants to delete
     if (!window.confirm("Are you sure you want to delete this analysis?")) return;
     try {
+      // Send DELETE request to backend
       await axios.delete(`${backendUrl}/api/analyze/delete/${id}`);
+
+      // Update state by removing the deleted analysis
       setSavedAnalyses(savedAnalyses.filter((entry) => entry._id !== id));
     } catch (error) {
       console.error("Delete failed:", error.message);
@@ -29,10 +41,12 @@ const SavedAnalysis = () => {
     }
   };
 
+  // Fetch saved analyses on component mount
   useEffect(() => {
     fetchSavedAnalyses();
   }, []);
 
+  // While loading, show a loading message
   if (loading) {
     return <div className="text-center py-10">Loading saved analyses...</div>;
   }
@@ -40,10 +54,6 @@ const SavedAnalysis = () => {
   if (!loading && savedAnalyses.length === 0) {
     return null; 
   }
-
-  // if (savedAnalyses.length === 0) {
-  //   return <div className="text-center py-10 text-gray-500">No saved analyses found.</div>;
-  // }
 
   return (
     <div className="mx-auto">
