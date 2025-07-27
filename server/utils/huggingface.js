@@ -196,7 +196,17 @@ export const getImprovementSuggestions = async (resumeText, jobDesc, openaiClien
         : jobDesc;
 
     // Construct the prompt
-    const prompt = `You are a resume optimization expert. Analyze this resume against the job description and provide specific, actionable improvement suggestions.
+    const prompt = `You are a resume optimization expert specifically for software engineering freshers. 
+
+Before providing suggestions, first assess whether the job description is relevant to the provided resume. 
+
+If the job description is irrelevant or unrelated, respond only with:
+
+"The job description appears unrelated to the resume provided. Please check and provide a relevant job description for accurate suggestions."
+
+If relevant, analyze the resume against the job description and provide specific, actionable improvement suggestions.
+
+For each suggestion, cite or mention reliable sources such as industry best practices, well-known career advice websites, or research studies to back your advice.
 
 Resume:
 ${truncatedResume}
@@ -224,6 +234,7 @@ Please provide 4 clear, numbered suggestions with these exact headings and brief
 
 If there are no significant issues or suggestions for any section, state "No significant issues found" under that heading.
 
+
 Keep suggestions concise, practical, and easy to implement.
 
 Begin now:
@@ -244,7 +255,7 @@ Begin now:
         },
       ],
       temperature: 0.7,
-      max_tokens: 400,
+      max_tokens: 1000,
     });
 
     const suggestions = response.choices?.[0]?.message?.content?.trim();
