@@ -3,6 +3,7 @@ import OpenAI from "openai";
 
 const HF_API_KEY = process.env.HUGGINGFACE_API_KEY;
 
+// Initialize OpenAI client using a Gemini-compatible endpoint
 const AI = new OpenAI({
     apiKey: process.env.GEMINI_API_KEY,
     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -10,6 +11,7 @@ const AI = new OpenAI({
 
 // Validation helper
 const validateInputs = (text1, text2) => {
+  // Check if either input is missing or not a string
   if (
     !text1 ||
     !text2 ||
@@ -18,12 +20,13 @@ const validateInputs = (text1, text2) => {
   ) {
     throw new Error("Both inputs must be non-empty strings");
   }
+  // Limit input length to avoid exceeding model token limits
   if (text1.length > 10000 || text2.length > 10000) {
     throw new Error("Input text too long (max 10,000 characters)");
   }
 };
 
-// 1. Fixed Embedding-based similarity using sentence-transformers
+// 1. Primary Function: Get Similarity Score
 export const getSimilarityScore = async (text1, text2) => {
   try {
     validateInputs(text1, text2);
@@ -32,15 +35,17 @@ export const getSimilarityScore = async (text1, text2) => {
       throw new Error("HUGGINGFACE_API_KEY environment variable is not set");
     }
 
-    // Use the correct API endpoint for sentence similarity
+    // Use the Hugging Face inference API endpoint for sentence similarity
     const url =
       "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2";
+
+    // Set required headers for authentication and content type
     const headers = {
       Authorization: `Bearer ${HF_API_KEY}`,
       "Content-Type": "application/json",
     };
 
-    // For sentence similarity, we need to send both texts together
+    // Create payload with source sentence and target sentence(s)
     const payload = {
       inputs: {
         source_sentence: text1,
@@ -53,6 +58,7 @@ export const getSimilarityScore = async (text1, text2) => {
       JSON.stringify(payload, null, 2)
     );
 
+    // Make POST request to Hugging Face API
     const response = await axios.post(url, payload, { headers });
 
     console.log("Similarity API response:", response.data);
@@ -60,6 +66,7 @@ export const getSimilarityScore = async (text1, text2) => {
     // The response should be an array with similarity scores
     if (Array.isArray(response.data) && response.data.length > 0) {
       const similarity = response.data[0];
+
       // Ensure the score is within [-1, 1] range
       return Math.max(-1, Math.min(1, similarity));
     }
@@ -72,7 +79,7 @@ export const getSimilarityScore = async (text1, text2) => {
       err.response?.data || err.message
     );
 
-    // Try alternative approach if the main one fails
+    // Attempt fallback using custom embedding similarity logic
     try {
       return await getEmbeddingSimilarity(text1, text2);
     } catch (fallbackErr) {
@@ -96,8 +103,11 @@ export const getSimilarityScore = async (text1, text2) => {
   }
 };
 
-// Alternative embedding approach
+// Alternative embedding approach 
+// Used as a backup if the sentence-pair similarity API fails
 const getEmbeddingSimilarity = async (text1, text2) => {
+
+  // Hugging Face model endpoint for generating sentence embeddings
   const url =
     "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2";
   const headers = {
@@ -105,7 +115,8 @@ const getEmbeddingSimilarity = async (text1, text2) => {
     "Content-Type": "application/json",
   };
 
-  // Get embeddings separately
+  // Step 1: Get embeddings for each text separately
+  // Use Promise.all to send two parallel POST requests
   const [response1, response2] = await Promise.all([
     axios.post(url, { inputs: text1 }, { headers }),
     axios.post(url, { inputs: text2 }, { headers }),
@@ -118,6 +129,7 @@ const getEmbeddingSimilarity = async (text1, text2) => {
 
   let embedding1, embedding2;
 
+  // Step 2: Extract Embeddings from Response
   // Handle different response formats
   if (Array.isArray(response1.data)) {
     embedding1 = response1.data;
@@ -135,6 +147,8 @@ const getEmbeddingSimilarity = async (text1, text2) => {
     throw new Error("Invalid embedding response format for text2");
   }
 
+  // Step 3: Validate Embedding Vectors
+  // Ensure both vectors are arrays of the same length
   if (
     !Array.isArray(embedding1) ||
     !Array.isArray(embedding2) ||
@@ -143,19 +157,25 @@ const getEmbeddingSimilarity = async (text1, text2) => {
     throw new Error("Invalid embedding vectors");
   }
 
-  // Cosine similarity calculation
+  // Step 4: Cosine similarity calculation
+  // Calculate dot product
   const dotProduct = embedding1.reduce(
     (sum, val, i) => sum + val * embedding2[i],
     0
   );
+  // Calculate magnitudes (Euclidean norms)
   const mag1 = Math.sqrt(embedding1.reduce((sum, val) => sum + val * val, 0));
   const mag2 = Math.sqrt(embedding2.reduce((sum, val) => sum + val * val, 0));
 
+  // If either magnitude is 0 (zero vector), return similarity as 0
   if (mag1 === 0 || mag2 === 0) {
-    return 0; // Handle zero vectors
+    return 0; 
   }
 
+  // Final cosine similarity value
   const similarity = dotProduct / (mag1 * mag2);
+
+  // Clamp the result to the range [-1, 1] and return
   return Math.max(-1, Math.min(1, similarity));
 };
 
@@ -163,10 +183,6 @@ const getEmbeddingSimilarity = async (text1, text2) => {
 export const getImprovementSuggestions = async (resumeText, jobDesc, openaiClient) => { //
   try {
     validateInputs(resumeText, jobDesc);
-
-    // if (!HF_API_KEY) {
-    //   throw new Error("HUGGINGFACE_API_KEY environment variable is not set");
-    // }
 
     // Truncate inputs if too long for the model
     const maxLength = 2000;
@@ -179,6 +195,7 @@ export const getImprovementSuggestions = async (resumeText, jobDesc, openaiClien
         ? jobDesc.substring(0, maxLength) + "..."
         : jobDesc;
 
+    // Construct the prompt
     const prompt = `You are a resume optimization expert. Analyze this resume against the job description and provide specific, actionable improvement suggestions.
 
 Resume:
@@ -213,7 +230,7 @@ Begin now:
 
 1. Missing keywords for ATS optimization:`;
 
-    // Try multiple models in order of preference
+    // Try Send prompt to AI model
     const response = await AI.chat.completions.create({
       model: "gemini-2.0-flash",
       messages: [
@@ -232,106 +249,16 @@ Begin now:
 
     const suggestions = response.choices?.[0]?.message?.content?.trim();
 
+    // 4. Validate and return response 
     if (!suggestions || suggestions.length < 30) {
-      throw new Error("OpenAI returned empty or insufficient suggestions.");
+      throw new Error("AI returned empty or insufficient suggestions.");
     }
 
     return suggestions;
   } catch (err) {
-    console.error("OpenAI suggestion error:", err.message);
+    console.error("AI suggestion error:", err.message);
 
-    // Fallback to basic suggestion logic
-  //   return getBasicSuggestions(
-  //     resumeText.substring(0, 2000),
-  //     jobDesc.substring(0, 2000)
-  //   );
-  // }
-
-    // for (const model of models) {
-    //   try {
-    //     console.log(`Trying model: ${model}`);
-
-    //     const response = await axios.post(
-    //       `https://api-inference.huggingface.co/models/${model}`,
-    //       {
-    //         inputs: prompt,
-    //         parameters: {
-    //           max_new_tokens: 300,
-    //           temperature: 0.7,
-    //           do_sample: true,
-    //           top_p: 0.9,
-    //           repetition_penalty: 1.1,
-    //           pad_token_id: 50256,
-    //           return_full_text: false,
-    //         },
-    //         options: {
-    //           wait_for_model: true,
-    //           use_cache: false,
-    //         },
-    //       },
-    //       {
-    //         headers: {
-    //           Authorization: `Bearer ${HF_API_KEY}`,
-    //           "Content-Type": "application/json",
-    //         },
-    //         timeout: 30000, // 30 second timeout
-    //       }
-    //     );
-
-    //     console.log(`${model} response:`, response.data);
-
-    //     const text = response.data[0]?.generated_text?.trim() || "";
-
-    //     if (text && text.length > 50) {
-    //       // Clean up the response
-    //       let suggestions = text.replace(prompt.trim(), "").trim();
-
-    //       // If the model returned the full text, try to extract just the generated part
-    //       if (suggestions.includes("[/INST]")) {
-    //         suggestions =
-    //           suggestions.split("[/INST]")[1]?.trim() || suggestions;
-    //       }
-
-    //       return (
-    //         suggestions ||
-    //         "Unable to generate specific suggestions at this time."
-    //       );
-    //     }
-    //   } catch (modelError) {
-    //     console.error(
-    //       `Model ${model} failed:`,
-    //       modelError.response?.status,
-    //       modelError.message
-    //     );
-    //     continue; // Try next model
-    //   }
-    // }
-
-    // If all models fail, provide a basic analysis
-  //   return getBasicSuggestions(truncatedResume, truncatedJobDesc);
-  // } catch (err) {
-  //   console.error(
-  //     "Error in getImprovementSuggestions:",
-  //     err.response?.data || err.message
-  //   );
-
-  //   // Handle specific API errors
-  //   if (err.response?.status === 503) {
-  //     throw new Error(
-  //       "Model is currently loading. Please try again in a few minutes."
-  //     );
-  //   }
-  //   if (err.response?.status === 401) {
-  //     throw new Error("Invalid API key");
-  //   }
-  //   if (err.response?.status === 429) {
-  //     throw new Error("Rate limit exceeded. Please try again later.");
-  //   }
-  //   if (err.code === "ECONNABORTED") {
-  //     throw new Error("Request timed out. Please try again.");
-  //   }
-
-    // Fallback to basic suggestions
+    // Fallback to basic suggestions if AI fails
     try {
       return getBasicSuggestions(
         resumeText.substring(0, 2000),
@@ -352,6 +279,8 @@ const getBasicSuggestions = (resumeText, jobDesc) => {
 
   // Check for common technical skills
   const techSkills = [
+    "html",
+    "css",
     "javascript",
     "python",
     "java",
@@ -436,7 +365,7 @@ export const analyzeResumeMatch = async (resumeText, jobDesc) => {
     const [similarity, suggestions] = await Promise.all([
       getSimilarityScore(resumeText, jobDesc).catch((err) => {
         console.error("Similarity calculation failed:", err.message);
-        return 0.5; // Default similarity score
+        return -1; // Default similarity score
       }),
       getImprovementSuggestions(resumeText, jobDesc).catch((err) => {
         console.error("Suggestions generation failed:", err.message);
@@ -444,6 +373,7 @@ export const analyzeResumeMatch = async (resumeText, jobDesc) => {
       }),
     ]);
 
+    // Convert similarity score to percentage
     const matchPercentage = Math.round(
       Math.max(0, Math.min(100, (similarity + 1) * 50))
     );
@@ -461,10 +391,10 @@ export const analyzeResumeMatch = async (resumeText, jobDesc) => {
 
     // Return a basic response rather than failing completely
     return {
-      similarityScore: 0.5,
-      matchPercentage: 50,
+      similarityScore: -1,
+      matchPercentage: 0,
       suggestions:
-        "Analysis partially completed. Please review the job requirements and ensure your resume highlights relevant skills, experience, and achievements that match the position.",
+        "Analysis failed due to an internal error. Please review the job requirements and ensure your resume highlights relevant skills, experience, and achievements that match the position.",
       timestamp: new Date().toISOString(),
       error: err.message,
     };
