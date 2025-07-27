@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from "react";
 
+// Renders a circular progress bar with percentage label and color
 const CircularProgress = ({ percentage, label, colorIndex = 0 }) => {
   const colors = [
     "#3B82F6",
@@ -9,8 +10,11 @@ const CircularProgress = ({ percentage, label, colorIndex = 0 }) => {
     "#8B5CF6",
     "#06B6D4",
   ];
+  // Pick color by cycling through colors array
   const color = colors[colorIndex % colors.length];
+  // Calculate circumference
   const strokeDasharray = 2 * Math.PI * 45;
+  // Calculate how much of the circumference to offset based on percentage
   const strokeDashoffset =
     strokeDasharray - (strokeDasharray * percentage) / 100;
 
@@ -51,11 +55,17 @@ const CircularProgress = ({ percentage, label, colorIndex = 0 }) => {
 };
 
 const CVAnalyzer = () => {
+  // State to store uploaded resume file
   const [resumeFile, setResumeFile] = useState(null);
+  // State to hold multiple job descriptions
   const [jobDescriptions, setJobDescriptions] = useState([""]);
+  // State to store analysis results returned from API
   const [results, setResults] = useState([]);
+  // Loading indicator state while waiting for API response
   const [loading, setLoading] = useState(false);
+  // Error message state for validation and API errors
   const [error, setError] = useState(null);
+  // State to track drag-and-drop UI state
   const [dragActive, setDragActive] = useState(false);
 
   // File validation
@@ -74,10 +84,11 @@ const CVAnalyzer = () => {
     return { valid: true };
   };
 
-  // Handle file selection
+  // Handle user selecting a file manually or via drag and drop
   const handleFileChange = (file) => {
     const validation = validateFile(file);
     if (!validation.valid) {
+      // Show validation error and reset file
       setError(validation.error);
       setResumeFile(null);
       return;
@@ -87,7 +98,7 @@ const CVAnalyzer = () => {
     setResumeFile(file);
   };
 
-  // Drag and drop handlers
+  // Drag event handler for dragenter and dragover events
   const handleDrag = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -98,27 +109,31 @@ const CVAnalyzer = () => {
     }
   }, []);
 
+  // Handle file dropped via drag and drop
   const handleDrop = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
 
+    // Extract file from event and pass to handleFileChange
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFileChange(e.dataTransfer.files[0]);
     }
   }, []);
 
+  // Update a specific job description in the list when user types
   const handleJDChange = (index, value) => {
     const updated = [...jobDescriptions];
     updated[index] = value;
     setJobDescriptions(updated);
 
-    // Clear error when user starts typing
+    // Clear error when user starts typing in a previously empty field
     if (error && value.trim()) {
       setError(null);
     }
   };
 
+  // Add a new empty job description input
   const addJD = () => {
     if (jobDescriptions.length < 5) {
       // Limit to 5 job descriptions
@@ -126,13 +141,14 @@ const CVAnalyzer = () => {
     }
   };
 
+  // Remove a job description input by index
   const removeJD = (index) => {
     if (jobDescriptions.length > 1) {
       setJobDescriptions(jobDescriptions.filter((_, i) => i !== index));
     }
   };
 
-  // Form validation
+  // Function for form validation
   const validateForm = () => {
     if (!resumeFile) {
       setError("Please upload a PDF resume");
@@ -152,13 +168,14 @@ const CVAnalyzer = () => {
     return true;
   };
 
+  // Sends resume file and job descriptions to backend for analysis
   const handleAnalyze = async () => {
     setError(null);
 
     if (!validateForm()) return;
 
     setLoading(true);
-    setResults([]);
+    setResults([]); // Clear previous results
 
     const formData = new FormData();
     formData.append("resume", resumeFile);
@@ -167,7 +184,7 @@ const CVAnalyzer = () => {
     try {
       const res = await fetch("/api/analyze/analyze-resume", {
         method: "POST",
-        credentials: "include",
+        credentials: "include", // Include cookies for authentication
         body: formData,
         signal: AbortSignal.timeout(60000), // 60 second timeout
       });
@@ -179,7 +196,7 @@ const CVAnalyzer = () => {
       const data = await res.json();
 
       if (data?.analysis) {
-        setResults(data.analysis);
+        setResults(data.analysis); // Store analysis results
       } else {
         throw new Error("Invalid response format");
       }
@@ -188,6 +205,7 @@ const CVAnalyzer = () => {
 
       let errorMessage = "Failed to analyze resume. ";
 
+      // Handle specific error types to display meaningful messages
       if (err.name === "AbortError") {
         errorMessage += "Request timed out. Please try again.";
       } else if (err.message.includes("413")) {
@@ -204,8 +222,10 @@ const CVAnalyzer = () => {
     }
   };
 
+  // Track indices of saved analysis to disable multiple saves of the same result
   const [savedIndices, setSavedIndices] = useState([]);
 
+  // Save a single analysis result for a job description to the backend
   const handleSaveIndividualAnalysis = async (index) => {
   if (!resumeFile || !results[index] || savedIndices.includes(index)) return;
 
@@ -227,6 +247,7 @@ const CVAnalyzer = () => {
 
     const data = await res.json();
     if (res.ok) {
+      // Mark this result as saved
       setSavedIndices((prev) => [...prev, index]);
     } else {
       throw new Error(data.message || "Failed to save analysis.");

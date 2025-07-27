@@ -8,27 +8,34 @@ import { toast } from "react-toastify";
 const Login = () => {
   const navigate = useNavigate();
 
+  // Destructure values from context
   const { backendUrl, setIsLoggedin, getUserData } = useContext(AppContext);
 
+  // UI button state
   const [state, setState] = useState("Log in");
 
+  // Form fields
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  // Handle form submission for logging in
   const onSubmitHandler = async (e) => {
     try {
       e.preventDefault();
       axios.defaults.withCredentials = true;
 
+      // Send login request
       const { data } = await axios.post(backendUrl + "/api/auth/login", {
         email,
         password,
       });
 
       if (data.success) {
+        // Update context and fetch user info
         setIsLoggedin(true);
         getUserData();
 
+        // Navigate based on account type
         if (data.accountType === "Trainer") {
           navigate("/trainer-dashboard");
         } else if (data.accountType === "Fresher") {
@@ -38,9 +45,10 @@ const Login = () => {
         }
       }
     } catch (error) {
-  const msg = error.response?.data?.message || error.message || "Login failed";
-  toast.error(msg);
-}
+      // Handle errors from server or network
+      const msg = error.response?.data?.message || error.message || "Login failed";
+      toast.error(msg);
+    }
   };
 
   return (

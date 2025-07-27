@@ -7,23 +7,27 @@ import { AppContext } from '../context/AppContext.jsx';
 
 const SignUp = () => {
   const navigate = useNavigate()
+  // Access backend URL and login setter from context
   const {backendUrl, setIsLoggedin} = useContext(AppContext)
 
+  // Component state
   const [state, setState] = useState('Sign Up')
-
   const [accountType, setAccountType] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
 
+  // Sends verification OTP 
   const sendVerificationOtp = async()=>{
     try {
+      // Send cookies with request
       axios.defaults.withCredentials = true;
 
       const {data} = await axios.post(backendUrl + '/api/auth/send-verify-otp')
 
       if(data.success){
+        // Navigate to verification page
         navigate('/email-verify')
         toast.success(data.message)
       }else{
@@ -34,15 +38,17 @@ const SignUp = () => {
     }
   }
 
+  // Handles form submission
   const onSubmitHandler = async (e)=>{
     try {
         e.preventDefault();
         axios.defaults.withCredentials = true
 
+        // Send registration request
         const {data} = await axios.post(backendUrl + '/api/auth/register', {name, email, password, phoneNumber, accountType})
 
         if(data.success){
-            // setIsLoggedin(true)
+            // Send OTP
             await sendVerificationOtp();
         }
 

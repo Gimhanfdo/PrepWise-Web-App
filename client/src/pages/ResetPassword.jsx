@@ -8,30 +8,38 @@ import { toast } from "react-toastify";
 
 const ResetPassword = () => {
 
+  // Get backend URL from context
   const {backendUrl} = useContext(AppContext)
+  // Send cookies with requests
   axios.defaults.withCredentials = true
 
   const navigate = useNavigate();
+
+  // Form states
   const [email, setEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [isEmailSent, setIsEmailSent] = useState("");
   const [otp, setOtp] = useState(0);
   const [isOtpSubmitted, setIsOtpSubmitted] = useState(false);
 
+  // Refs for each OTP input field
   const inputRefs = React.useRef([]);
 
+  // Automatically focus next input field when a digit is entered
   const handleInput = (e, index) => {
     if (e.target.value.length > 0 && index < inputRefs.current.length - 1) {
       inputRefs.current[index + 1].focus();
     }
   };
 
+  // Automatically focus previous field if backspace is pressed and input is empty
   const handleKeyDown = (e, index) => {
     if (e.key === "Backspace" && e.target.value === "" && index > 0) {
       inputRefs.current[index - 1].focus();
     }
   };
 
+  // Handles pasting of OTP digits into inputs
   const handlePaste = (e, index) => {
     const paste = e.clipboardData.getData('text')
     const pasteArray = paste.split('');
@@ -42,6 +50,7 @@ const ResetPassword = () => {
     });
   }
 
+  // Handles submission of email to receive OTP
   const onSubmitEmail = async (e) => {
     e.preventDefault();
     try {
@@ -54,6 +63,7 @@ const ResetPassword = () => {
     
   }
 
+  // Handles OTP input form submission
   const onSubmitOtp = async (e) => {
     e.preventDefault();
     const otpArray = inputRefs.current.map(e => e.value)
@@ -61,11 +71,13 @@ const ResetPassword = () => {
     setIsOtpSubmitted(true)
   }
 
+  // Handles new password reset submission
   const onSubmitNewPassword = async (e) => {
     e.preventDefault();
     try {
       const {data} = await axios.post(backendUrl + '/api/auth/reset-password', {email, otp, newPassword})
       data.success ? toast.success(data.message) : toast.error(data.message)
+      // Redirect to login
       data.success && navigate('/login')
     } catch (error) {
       toast.error(error.message)

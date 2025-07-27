@@ -6,15 +6,18 @@ import SavedAnalysis from "../components/SavedAnalysis";
 import { AppContext } from "../context/AppContext";
 
 const FresherDashboard = () => {
+  // Get login status and user info
   const { isLoggedin, userData } = useContext(AppContext);
   const navigate = useNavigate();
 
+  // Redirect to login if the user is not authenticated
   useEffect(() => {
     if (!isLoggedin) {
       navigate("/login");
     }
   }, [isLoggedin, navigate]);
 
+  // Dashboard cards
   const cards = [
     {
       title: "CV Analyzer",
