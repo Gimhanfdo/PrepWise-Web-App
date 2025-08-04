@@ -5,7 +5,7 @@ import cookieParser from 'cookie-parser';
 import connectDB from './config/mongodb.js';
 import authRouter from './routes/authRoutes.js';
 import userRouter from './routes/userRoutes.js';
-import analysisRouter from './routes/analysisRoutes.js';
+import analysisRouter from './routes/CVanalysisRoutes.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -16,7 +16,7 @@ const port = process.env.PORT || 4000
 
 connectDB();
 
-const allowedOrigins = [process.env.CLIENT_URL || 'http://localhost:5173']
+const allowedOrigins = [process.env.CLIENT_URL || 'http://localhost:5173',"http://localhost:5174"]
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors({origin: allowedOrigins, credentials: true}));

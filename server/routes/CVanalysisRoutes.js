@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { analyzeResume, deleteAnalysis, getSavedAnalysis, saveAnalysis } from '../controllers/analysiscontroller.js';
+import { analyzeResume, deleteAnalysis, getSavedAnalysis, saveAnalysis } from '../controllers/cvAnalysiscontroller.js';
 import userAuth from '../middleware/userAuth.js';
 
 const analysisRouter = express.Router();

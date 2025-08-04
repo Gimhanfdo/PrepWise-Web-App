@@ -1,4 +1,8 @@
 import React, { useState, useCallback } from "react";
+import { CheckCircle, XCircle, AlertTriangle, Lightbulb, FileText, Layout, Target, BarChart3 } from "lucide-react";
+
+// Import the corrected SWOT component
+import SWOTAnalysis from "./SWOTAnalysis";
 
 // Renders a circular progress bar with percentage label and color
 const CircularProgress = ({ percentage, label, colorIndex = 0 }) => {
@@ -10,11 +14,8 @@ const CircularProgress = ({ percentage, label, colorIndex = 0 }) => {
     "#8B5CF6",
     "#06B6D4",
   ];
-  // Pick color by cycling through colors array
   const color = colors[colorIndex % colors.length];
-  // Calculate circumference
   const strokeDasharray = 2 * Math.PI * 45;
-  // Calculate how much of the circumference to offset based on percentage
   const strokeDashoffset =
     strokeDasharray - (strokeDasharray * percentage) / 100;
 
@@ -54,6 +55,139 @@ const CircularProgress = ({ percentage, label, colorIndex = 0 }) => {
   );
 };
 
+// Component for displaying structured recommendations
+const StructuredRecommendations = ({ result, index }) => {
+  const [activeTab, setActiveTab] = useState('strengths');
+
+  if (result.isNonTechRole) {
+    return (
+      <div className="bg-yellow-50 border border-yellow-200 p-6 rounded-lg">
+        <div className="flex items-center mb-3">
+          <AlertTriangle className="w-5 h-5 text-yellow-600 mr-2" />
+          <h3 className="font-semibold text-yellow-800">Non-Technical Role Detected</h3>
+        </div>
+        <p className="text-yellow-700">{result.message}</p>
+      </div>
+    );
+  }
+
+  const tabs = [
+    { id: 'strengths', label: 'Strengths', icon: CheckCircle, color: 'text-green-600' },
+    { id: 'content', label: 'Content Issues', icon: FileText, color: 'text-orange-600' },
+    { id: 'structure', label: 'Structure Issues', icon: Layout, color: 'text-red-600' },
+    { id: 'recommendations', label: 'Recommendations', icon: Lightbulb, color: 'text-blue-600' }
+  ];
+
+  const renderList = (items, icon, colorClass) => {
+    if (!items || items.length === 0) {
+      return (
+        <div className="text-gray-500 italic text-center py-4">
+          No items available for this category
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        {items.map((item, idx) => (
+          <div key={idx} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+            <icon className={`w-5 h-5 mt-0.5 flex-shrink-0 ${colorClass}`} />
+            <span className="text-gray-700 leading-relaxed">{item}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'strengths':
+        return renderList(result.strengths, CheckCircle, 'text-green-600');
+      case 'content':
+        return renderList(result.contentWeaknesses, FileText, 'text-orange-600');
+      case 'structure':
+        return renderList(result.structureWeaknesses, Layout, 'text-red-600');
+      case 'recommendations':
+        const allRecommendations = [
+          ...(result.contentRecommendations || []).map(rec => ({ text: rec, type: 'content' })),
+          ...(result.structureRecommendations || []).map(rec => ({ text: rec, type: 'structure' }))
+        ];
+        return (
+          <div className="space-y-3">
+            {allRecommendations.length === 0 ? (
+              <div className="text-gray-500 italic text-center py-4">
+                No recommendations available
+              </div>
+            ) : (
+              allRecommendations.map((rec, idx) => (
+                <div key={idx} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Lightbulb className="w-5 h-5 text-blue-600 flex-shrink-0" />
+                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                      rec.type === 'content' 
+                        ? 'bg-orange-100 text-orange-700' 
+                        : 'bg-purple-100 text-purple-700'
+                    }`}>
+                      {rec.type}
+                    </span>
+                  </div>
+                  <span className="text-gray-700 leading-relaxed">{rec.text}</span>
+                </div>
+              ))
+            )}
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="bg-white p-6 shadow-sm border rounded-lg">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-gray-800">Job Description {index + 1}</h3>
+        <span
+          className={`px-3 py-1 rounded-full text-sm font-medium ${
+            result.matchPercentage >= 80
+              ? "bg-green-100 text-green-800"
+              : result.matchPercentage >= 60
+              ? "bg-yellow-100 text-yellow-800"
+              : "bg-red-100 text-red-800"
+          }`}
+        >
+          Match Score: {result.matchPercentage}%
+        </span>
+      </div>
+
+      {/* Tab Navigation */}
+      <div className="flex flex-wrap gap-1 mb-6 bg-gray-100 p-1 rounded-lg">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                activeTab === tab.id
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+              }`}
+            >
+              <Icon className={`w-4 h-4 ${activeTab === tab.id ? tab.color : 'text-gray-400'}`} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Tab Content */}
+      <div className="min-h-[200px]">
+        {renderTabContent()}
+      </div>
+    </div>
+  );
+};
+
 const CVAnalyzer = () => {
   // State to store uploaded resume file
   const [resumeFile, setResumeFile] = useState(null);
@@ -67,6 +201,10 @@ const CVAnalyzer = () => {
   const [error, setError] = useState(null);
   // State to track drag-and-drop UI state
   const [dragActive, setDragActive] = useState(false);
+  // State to store extracted resume text and hash for SWOT analysis
+  const [resumeData, setResumeData] = useState(null); // { resumeText, resumeHash }
+  // State to control which view to show
+  const [currentView, setCurrentView] = useState('analysis'); // 'analysis' or 'swot'
 
   // File validation
   const validateFile = (file) => {
@@ -88,7 +226,6 @@ const CVAnalyzer = () => {
   const handleFileChange = (file) => {
     const validation = validateFile(file);
     if (!validation.valid) {
-      // Show validation error and reset file
       setError(validation.error);
       setResumeFile(null);
       return;
@@ -115,7 +252,6 @@ const CVAnalyzer = () => {
     e.stopPropagation();
     setDragActive(false);
 
-    // Extract file from event and pass to handleFileChange
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFileChange(e.dataTransfer.files[0]);
     }
@@ -127,7 +263,6 @@ const CVAnalyzer = () => {
     updated[index] = value;
     setJobDescriptions(updated);
 
-    // Clear error when user starts typing in a previously empty field
     if (error && value.trim()) {
       setError(null);
     }
@@ -136,7 +271,6 @@ const CVAnalyzer = () => {
   // Add a new empty job description input
   const addJD = () => {
     if (jobDescriptions.length < 5) {
-      // Limit to 5 job descriptions
       setJobDescriptions([...jobDescriptions, ""]);
     }
   };
@@ -168,6 +302,12 @@ const CVAnalyzer = () => {
     return true;
   };
 
+  // Helper function to extract text from PDF (placeholder)
+  const extractTextFromPDF = async (file) => {
+    // Placeholder since actual text extraction happens on the backend
+    return `Resume content from ${file.name}`;
+  };
+
   // Sends resume file and job descriptions to backend for analysis
   const handleAnalyze = async () => {
     setError(null);
@@ -175,48 +315,51 @@ const CVAnalyzer = () => {
     if (!validateForm()) return;
 
     setLoading(true);
-    setResults([]); // Clear previous results
-
-    const formData = new FormData();
-    formData.append("resume", resumeFile);
-    formData.append("jobDescriptions", JSON.stringify(jobDescriptions));
+    setResults([]);
 
     try {
-      const res = await fetch("/api/analyze/analyze-resume", {
-        method: "POST",
-        credentials: "include", // Include cookies for authentication
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('resume', resumeFile);
+      formData.append('jobDescriptions', JSON.stringify(jobDescriptions.filter(jd => jd.trim())));
+
+      // Get auth token from localStorage or wherever you store it
+      const authToken = localStorage.getItem('token'); // Adjust based on your auth implementation
+
+      // Make actual API call to your backend
+      const response = await fetch('/analyze-resume', {
+        method: 'POST',
         body: formData,
-        signal: AbortSignal.timeout(60000), // 60 second timeout
+        headers: {
+          // Don't set Content-Type header - let browser set it for FormData
+          ...(authToken && { 'Authorization': `Bearer ${authToken}` }),
+        },
       });
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Analysis failed');
       }
 
-      const data = await res.json();
+      const data = await response.json();
+      
+      // Extract resume text and create hash for SWOT analysis
+      const resumeText = await extractTextFromPDF(resumeFile);
+      const resumeHash = `resume_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Store resume data for SWOT analysis
+      setResumeData({
+        resumeText: resumeText,
+        resumeHash: resumeHash,
+        jobDescriptions: jobDescriptions.filter(jd => jd.trim())
+      });
 
-      if (data?.analysis) {
-        setResults(data.analysis); // Store analysis results
-      } else {
-        throw new Error("Invalid response format");
-      }
+      // Set the actual results from API
+      setResults(data.analysis);
+
     } catch (err) {
       console.error("Analyze Error:", err);
-
-      let errorMessage = "Failed to analyze resume. ";
-
-      // Handle specific error types to display meaningful messages
-      if (err.name === "AbortError") {
-        errorMessage += "Request timed out. Please try again.";
-      } else if (err.message.includes("413")) {
-        errorMessage += "File too large.";
-      } else if (err.message.includes("429")) {
-        errorMessage += "Too many requests. Please wait a moment.";
-      } else {
-        errorMessage += "Please check your connection and try again.";
-      }
-
-      setError(errorMessage);
+      setError(err.message || "Failed to analyze resume. Please check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -227,37 +370,48 @@ const CVAnalyzer = () => {
 
   // Save a single analysis result for a job description to the backend
   const handleSaveIndividualAnalysis = async (index) => {
-  if (!resumeFile || !results[index] || savedIndices.includes(index)) return;
+    if (!resumeFile || !results[index] || savedIndices.includes(index)) return;
 
-  const payload = {
-    resumeName: resumeFile.name,
-    jobDescriptions: [jobDescriptions[index]],
-    results: [results[index]],
+    try {
+      const authToken = localStorage.getItem('token');
+      
+      const saveData = {
+        resumeName: resumeFile.name,
+        jobDescriptions: jobDescriptions.filter(jd => jd.trim()),
+        results: [results[index]], // Save only the specific result
+        resumeHash: resumeData?.resumeHash
+      };
+
+      const response = await fetch('/api/analysis/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authToken && { 'Authorization': `Bearer ${authToken}` }),
+        },
+        body: JSON.stringify(saveData)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Save failed');
+      }
+
+      setSavedIndices((prev) => [...prev, index]);
+    } catch (err) {
+      console.error("Save error:", err);
+      alert(`Error saving analysis: ${err.message}`);
+    }
   };
 
-  try {
-    const res = await fetch(`/api/analyze/save`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await res.json();
-    if (res.ok) {
-      // Mark this result as saved
-      setSavedIndices((prev) => [...prev, index]);
-    } else {
-      throw new Error(data.message || "Failed to save analysis.");
+  // Navigate to SWOT analysis
+  const handleNavigateToSWOT = () => {
+    if (!resumeData) {
+      setError("No resume analysis available for SWOT analysis. Please analyze your resume first.");
+      return;
     }
-  } catch (err) {
-    console.error("Save error:", err);
-    alert("Error saving analysis. Please try again.");
-  }
-};
 
+    setCurrentView('swot');
+  };
 
   // Clear all data
   const handleClear = () => {
@@ -265,7 +419,27 @@ const CVAnalyzer = () => {
     setJobDescriptions([""]);
     setResults([]);
     setError(null);
+    setResumeData(null);
+    setSavedIndices([]);
+    setCurrentView('analysis');
   };
+
+  // Handle back navigation from SWOT
+  const handleBackFromSWOT = () => {
+    setCurrentView('analysis');
+  };
+
+  // If in SWOT view, render SWOT component
+  if (currentView === 'swot') {
+    return (
+      <SWOTAnalysis 
+        resumeHash={resumeData?.resumeHash}
+        resumeText={resumeData?.resumeText}
+        jobDescriptions={resumeData?.jobDescriptions || []}
+        onBack={handleBackFromSWOT}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col lg:flex-row p-6 gap-6 min-h-screen bg-gray-50 text-gray-800">
@@ -544,49 +718,58 @@ const CVAnalyzer = () => {
               </div>
             </div>
 
-            {/* Suggestions */}
+            {/* SWOT Analysis Navigation */}
+            <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 p-6 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-purple-100 rounded-lg">
+                    <BarChart3 className="w-6 h-6 text-purple-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-800">SWOT Analysis</h3>
+                    <p className="text-gray-600 text-sm">
+                      Get a comprehensive strengths, weaknesses, opportunities, and threats analysis of your resume
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleNavigateToSWOT}
+                  disabled={!resumeData}
+                  className={`px-6 py-3 rounded-lg font-medium transition-all ${
+                    !resumeData
+                      ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                      : "bg-purple-600 text-white hover:bg-purple-700 active:bg-purple-800 shadow-md hover:shadow-lg"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4" />
+                    Generate SWOT
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Detailed Analysis */}
             <div className="space-y-4">
               <h2 className="text-xl font-semibold text-gray-800">
-                Improvement Suggestions
+                Detailed Analysis
               </h2>
               {results.map((res, idx) => (
-                <div
-                  key={idx}
-                  className="bg-white p-6 shadow-sm border rounded-lg"
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-semibold text-gray-800">
-                      Job Description {idx + 1}
-                    </h3>
-                    <span
-                      className={`px-3 py-1 rounded-full text-sm font-medium ${
-                        res.matchPercentage >= 80
-                          ? "bg-green-100 text-green-800"
-                          : res.matchPercentage >= 60
-                          ? "bg-yellow-100 text-yellow-800"
-                          : "bg-red-100 text-red-800"
+                <div key={idx} className="space-y-4">
+                  <StructuredRecommendations result={res} index={idx} />
+                  <div className="flex justify-end">
+                    <button
+                      className={`px-4 py-2 rounded transition text-sm ${
+                        savedIndices.includes(idx)
+                          ? "bg-gray-600 cursor-not-allowed text-white"
+                          : "bg-blue-600 hover:bg-blue-700 text-white"
                       }`}
+                      disabled={savedIndices.includes(idx)}
+                      onClick={() => handleSaveIndividualAnalysis(idx)}
                     >
-                      Match Score: {res.matchPercentage}%
-                    </span>
+                      {savedIndices.includes(idx) ? "Analysis Saved" : "Save Analysis"}
+                    </button>
                   </div>
-                  <div
-                    className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed"
-                    dangerouslySetInnerHTML={{
-                      __html: res.suggestions || "No suggestions available.",
-                    }}
-                  ></div>
-                  <button
-                    className={`mt-4 px-4 py-2 rounded transition text-sm ${
-                      savedIndices.includes(idx)
-                        ? "bg-gray-600 cursor-not-allowed text-white"
-                        : "bg-blue-600 hover:bg-blue-700 text-white"
-                    }`}
-                    disabled={savedIndices.includes(idx)}
-                    onClick={() => handleSaveIndividualAnalysis(idx)}
-                  >
-                    {savedIndices.includes(idx) ? "Analysis Saved" : "Save Analysis"}
-                  </button>
                 </div>
               ))}
             </div>
