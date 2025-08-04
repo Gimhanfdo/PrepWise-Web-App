@@ -4,6 +4,15 @@ import { CheckCircle, XCircle, AlertTriangle, Lightbulb, FileText, Layout, Targe
 // Import the corrected SWOT component
 import SWOTAnalysis from "./SWOTAnalysis";
 
+// API Configuration - Update these URLs to match your backend
+const API_BASE_URL = import.meta.env?.VITE_API_URL || 'http://localhost:4000'; // For Vite
+// Alternative for Create React App: const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+const API_ENDPOINTS = {
+  analyzeResume: `${API_BASE_URL}/api/analyze/analyze-resume`, // Fixed: added /api/analyze prefix
+  saveAnalysis: `${API_BASE_URL}/api/analyze/save`,            // Fixed: added /api/analyze prefix
+};
+
 // Renders a circular progress bar with percentage label and color
 const CircularProgress = ({ percentage, label, colorIndex = 0 }) => {
   const colors = [
@@ -308,100 +317,164 @@ const CVAnalyzer = () => {
     return `Resume content from ${file.name}`;
   };
 
-  // Sends resume file and job descriptions to backend for analysis
-  const handleAnalyze = async () => {
-    setError(null);
+  
+const handleAnalyze = async () => {
+  setError(null);
 
-    if (!validateForm()) return;
+  if (!validateForm()) return;
 
-    setLoading(true);
-    setResults([]);
+  setLoading(true);
+  setResults([]);
 
-    try {
-      // Create FormData for file upload
-      const formData = new FormData();
-      formData.append('resume', resumeFile);
-      formData.append('jobDescriptions', JSON.stringify(jobDescriptions.filter(jd => jd.trim())));
+  try {
+    // Create FormData for file upload
+    const formData = new FormData();
+    formData.append('resume', resumeFile);
+    formData.append('jobDescriptions', JSON.stringify(jobDescriptions.filter(jd => jd.trim())));
 
-      // Get auth token from localStorage or wherever you store it
-      const authToken = localStorage.getItem('token'); // Adjust based on your auth implementation
+    console.log("Making API call to", API_ENDPOINTS.analyzeResume);
 
-      // Make actual API call to your backend
-      const response = await fetch('/analyze-resume', {
-        method: 'POST',
-        body: formData,
-        headers: {
-          // Don't set Content-Type header - let browser set it for FormData
-          ...(authToken && { 'Authorization': `Bearer ${authToken}` }),
-        },
-      });
+    // Make API call with credentials to include cookies
+    const response = await fetch(API_ENDPOINTS.analyzeResume, {
+      method: 'POST',
+      body: formData,
+      credentials: 'include', // This ensures cookies are sent with the request
+      // Remove the Authorization header completely
+    });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Analysis failed');
+    console.log("Response status:", response.status);
+    console.log("Response headers:", response.headers);
+
+    // Rest of your existing error handling code...
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      
+      try {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        } else {
+          const errorText = await response.text();
+          if (errorText) {
+            errorMessage = errorText;
+          }
+        }
+      } catch (parseError) {
+        console.warn("Could not parse error response:", parseError);
       }
-
-      const data = await response.json();
       
-      // Extract resume text and create hash for SWOT analysis
-      const resumeText = await extractTextFromPDF(resumeFile);
-      const resumeHash = `resume_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
-      // Store resume data for SWOT analysis
-      setResumeData({
-        resumeText: resumeText,
-        resumeHash: resumeHash,
-        jobDescriptions: jobDescriptions.filter(jd => jd.trim())
-      });
-
-      // Set the actual results from API
-      setResults(data.analysis);
-
-    } catch (err) {
-      console.error("Analyze Error:", err);
-      setError(err.message || "Failed to analyze resume. Please check your connection and try again.");
-    } finally {
-      setLoading(false);
+      throw new Error(errorMessage);
     }
-  };
+
+    // Rest of your existing success handling code...
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      throw new Error('Server returned non-JSON response');
+    }
+
+    const responseText = await response.text();
+    console.log("Raw response:", responseText);
+
+    if (!responseText.trim()) {
+      throw new Error('Server returned empty response');
+    }
+
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error("JSON parse error:", parseError);
+      throw new Error('Invalid JSON response from server');
+    }
+
+    console.log("Parsed response data:", data);
+    
+    if (!data || !data.analysis) {
+      throw new Error('Invalid response format: missing analysis data');
+    }
+    
+    // Extract resume text and create hash for SWOT analysis
+    const resumeText = await extractTextFromPDF(resumeFile);
+    const resumeHash = `resume_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    setResumeData({
+      resumeText: resumeText,
+      resumeHash: resumeHash,
+      jobDescriptions: jobDescriptions.filter(jd => jd.trim())
+    });
+
+    setResults(data.analysis);
+
+  } catch (err) {
+    console.error("Analyze Error:", err);
+    
+    let userMessage = "Failed to analyze resume. ";
+    
+    if (err.message.includes('404')) {
+      userMessage += "The analysis service is not available. Please check if the backend server is running on the correct port.";
+    } else if (err.message.includes('401') || err.message.includes('403')) {
+      userMessage += "You are not authorized. Please log in again.";
+    } else if (err.message.includes('500')) {
+      userMessage += "Server error occurred. Please try again later.";
+    } else if (err.message.includes('Failed to fetch') || err.message.includes('TypeError: NetworkError')) {
+      userMessage += "Network error. Please check your connection and ensure the backend server is running.";
+    } else {
+      userMessage += err.message;
+    }
+    
+    setError(userMessage);
+  } finally {
+    setLoading(false);
+  }
+};
 
   // Track indices of saved analysis to disable multiple saves of the same result
   const [savedIndices, setSavedIndices] = useState([]);
 
-  // Save a single analysis result for a job description to the backend
-  const handleSaveIndividualAnalysis = async (index) => {
-    if (!resumeFile || !results[index] || savedIndices.includes(index)) return;
+ const handleSaveIndividualAnalysis = async (index) => {
+  if (!resumeFile || !results[index] || savedIndices.includes(index)) return;
 
-    try {
-      const authToken = localStorage.getItem('token');
+  try {
+    const saveData = {
+      resumeName: resumeFile.name,
+      jobDescriptions: jobDescriptions.filter(jd => jd.trim()),
+      results: [results[index]],
+      resumeHash: resumeData?.resumeHash
+    };
+
+    const response = await fetch(API_ENDPOINTS.saveAnalysis, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // Remove Authorization header
+      },
+      credentials: 'include', // Include cookies
+      body: JSON.stringify(saveData)
+    });
+
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
       
-      const saveData = {
-        resumeName: resumeFile.name,
-        jobDescriptions: jobDescriptions.filter(jd => jd.trim()),
-        results: [results[index]], // Save only the specific result
-        resumeHash: resumeData?.resumeHash
-      };
-
-      const response = await fetch('/api/analysis/save', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(authToken && { 'Authorization': `Bearer ${authToken}` }),
-        },
-        body: JSON.stringify(saveData)
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Save failed');
+      try {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        }
+      } catch (parseError) {
+        console.warn("Could not parse save error response:", parseError);
       }
-
-      setSavedIndices((prev) => [...prev, index]);
-    } catch (err) {
-      console.error("Save error:", err);
-      alert(`Error saving analysis: ${err.message}`);
+      
+      throw new Error(errorMessage);
     }
-  };
+
+    setSavedIndices((prev) => [...prev, index]);
+  } catch (err) {
+    console.error("Save error:", err);
+    alert(`Error saving analysis: ${err.message}`);
+  }
+};
 
   // Navigate to SWOT analysis
   const handleNavigateToSWOT = () => {
