@@ -41,6 +41,49 @@ function stripHTMLToText(html) {
     .trim();
 }
 
+// NEW: Function to extract technologies from resume text
+async function extractTechnologiesFromResume(resumeText) {
+  try {
+    const prompt = `Analyze the following resume and extract all technical skills, programming languages, frameworks, tools, and technologies mentioned. 
+
+Resume text:
+${resumeText}
+
+Return a JSON array where each technology has:
+- name: the technology name
+- category: one of ["Programming Languages", "Frameworks", "Tools", "Databases", "Cloud Services", "Other"]
+- confidenceLevel: estimated proficiency level 1-10 based on context (default 5 if unclear)
+
+Example format:
+[
+  {"name": "JavaScript", "category": "Programming Languages", "confidenceLevel": 7},
+  {"name": "React", "category": "Frameworks", "confidenceLevel": 6}
+]
+
+Only return the JSON array, no other text.`;
+
+    const response = await AI.chat.completions.create({
+      model: "gemini-1.5-flash",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+    });
+
+    const content = response.choices[0].message.content.trim();
+    
+    // Clean up the response to extract JSON
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const technologies = JSON.parse(jsonMatch[0]);
+      return technologies.filter(tech => tech.name && tech.category);
+    }
+    
+    return [];
+  } catch (error) {
+    console.error("Technology extraction error:", error);
+    return [];
+  }
+}
+
 // Enhanced resume text validation for software engineering context
 function validateResumeContent(resumeText) {
   const text = resumeText.toLowerCase();
@@ -129,6 +172,11 @@ export const analyzeResume = async (req, res) => {
         details: "The PDF may be scanned/image-based, corrupted, or password-protected."
       });
     }
+
+    // NEW: Extract technologies from resume text
+    console.log("Extracting technologies from resume...");
+    const extractedTechnologies = await extractTechnologiesFromResume(resumeText);
+    console.log(`Extracted ${extractedTechnologies.length} technologies:`, extractedTechnologies.map(t => t.name));
 
     // Create a hash of the resume text for comparison
     const resumeHash = createResumeHash(resumeText);
@@ -333,12 +381,15 @@ export const analyzeResume = async (req, res) => {
           timestamp: a.timestamp || new Date().toISOString(),
           analysisQuality: a.analysisQuality || null
         })),
+        // NEW: Add extracted technologies to database storage
+        extractedTechnologies: extractedTechnologies,
         analysisMetadata: {
           totalProcessed,
           nonTechRoleCount: totalNonTechRoles,
           softwareRoleCount: totalProcessed - totalNonTechRoles,
           avgMatchScore: analysis.filter(a => !a.isNonTechRole)
             .reduce((sum, a) => sum + a.matchPercentage, 0) / Math.max(1, totalProcessed - totalNonTechRoles),
+          technologiesExtracted: extractedTechnologies.length, // NEW: Track technology count
           processingDate: new Date().toISOString()
         }
       };
@@ -358,7 +409,7 @@ export const analyzeResume = async (req, res) => {
       // Continue with response even if save fails
     }
 
-    // Return comprehensive analysis results
+    // UPDATED: Return comprehensive analysis results with extracted technologies
     const responseData = {
       analysis: analysis.map(a => ({
         matchPercentage: a.matchPercentage,
@@ -373,6 +424,10 @@ export const analyzeResume = async (req, res) => {
         timestamp: a.timestamp,
         analysisQuality: a.analysisQuality
       })),
+      // NEW: Include required fields for SWOT analysis
+      resumeText: resumeText, // Full resume text
+      extractedTechnologies: extractedTechnologies, // Extracted technologies
+      resumeHash: resumeHash, // Resume hash for SWOT
       metadata: {
         resumeAnalyzed: true,
         totalJobDescriptions: rawJobDescriptions.length,
@@ -380,12 +435,13 @@ export const analyzeResume = async (req, res) => {
         softwareEngineeringRoleCount: totalProcessed - totalNonTechRoles,
         avgMatchScore: analysis.filter(a => !a.isNonTechRole && a.matchPercentage > 0)
           .reduce((sum, a) => sum + a.matchPercentage, 0) / Math.max(1, analysis.filter(a => !a.isNonTechRole && a.matchPercentage > 0).length),
+        technologiesExtracted: extractedTechnologies.length, // NEW: Technology count
         isExistingResume: !!await CVAnalysis.findOne({
           userId: req.user.id,
           resumeHash: resumeHash
         }),
         processingTime: new Date().toISOString(),
-        analysisVersion: "2.0-internship-focused"
+        analysisVersion: "2.1-with-tech-extraction" // Updated version
       },
       recommendations: {
         overallFeedback: totalNonTechRoles === totalProcessed 
@@ -501,7 +557,7 @@ export const saveAnalysis = async (req, res) => {
             avgMatchScore: validatedResults.filter(r => !r.isNonTechRole && r.matchPercentage > 0)
               .reduce((sum, r) => sum + r.matchPercentage, 0) / Math.max(1, validatedResults.filter(r => !r.isNonTechRole && r.matchPercentage > 0).length),
             lastUpdated: new Date().toISOString(),
-            version: "2.0-enhanced"
+            version: "2.1-enhanced"
           },
           updatedAt: new Date()
         });
@@ -533,7 +589,7 @@ export const saveAnalysis = async (req, res) => {
         avgMatchScore: validatedResults.filter(r => !r.isNonTechRole && r.matchPercentage > 0)
           .reduce((sum, r) => sum + r.matchPercentage, 0) / Math.max(1, validatedResults.filter(r => !r.isNonTechRole && r.matchPercentage > 0).length),
         createdDate: new Date().toISOString(),
-        version: "2.0-enhanced"
+        version: "2.1-enhanced"
       }
     });
 

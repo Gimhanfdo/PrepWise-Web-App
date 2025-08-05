@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from "react";
-import { CheckCircle, XCircle, AlertTriangle, Lightbulb, FileText, Layout, Target, BarChart3 } from "lucide-react";
+import { CheckCircle, XCircle, AlertTriangle, Lightbulb, FileText, Layout, Target, BarChart3, ArrowLeft } from "lucide-react";
 
 // Import the corrected SWOT component
 import SWOTAnalysis from "./SWOTAnalysis";
@@ -11,6 +11,8 @@ const API_BASE_URL = import.meta.env?.VITE_API_URL || 'http://localhost:4000'; /
 const API_ENDPOINTS = {
   analyzeResume: `${API_BASE_URL}/api/analyze/analyze-resume`, // Fixed: added /api/analyze prefix
   saveAnalysis: `${API_BASE_URL}/api/analyze/save`,            // Fixed: added /api/analyze prefix
+  // Add SWOT endpoint if you plan to save SWOT data
+  saveSWOTRatings: `${API_BASE_URL}/api/swot/save-ratings`,
 };
 
 // Renders a circular progress bar with percentage label and color
@@ -210,8 +212,8 @@ const CVAnalyzer = () => {
   const [error, setError] = useState(null);
   // State to track drag-and-drop UI state
   const [dragActive, setDragActive] = useState(false);
-  // State to store extracted resume text and hash for SWOT analysis
-  const [resumeData, setResumeData] = useState(null); // { resumeText, resumeHash }
+  // UPDATED: State to store extracted resume text, hash, and technologies for SWOT analysis
+  const [resumeData, setResumeData] = useState(null); // { resumeText, resumeHash, jobDescriptions, extractedTechnologies, metadata }
   // State to control which view to show
   const [currentView, setCurrentView] = useState('analysis'); // 'analysis' or 'swot'
 
@@ -311,173 +313,176 @@ const CVAnalyzer = () => {
     return true;
   };
 
-  // Helper function to extract text from PDF (placeholder)
-  const extractTextFromPDF = async (file) => {
-    // Placeholder since actual text extraction happens on the backend
-    return `Resume content from ${file.name}`;
-  };
+  // UPDATED: Enhanced handleAnalyze function to extract and store technologies
+  const handleAnalyze = async () => {
+    setError(null);
 
-    // In the handleAnalyze function, replace the resume text extraction section:
+    if (!validateForm()) return;
 
-const handleAnalyze = async () => {
-  setError(null);
+    setLoading(true);
+    setResults([]);
 
-  if (!validateForm()) return;
+    try {
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('resume', resumeFile);
+      formData.append('jobDescriptions', JSON.stringify(jobDescriptions.filter(jd => jd.trim())));
 
-  setLoading(true);
-  setResults([]);
+      console.log("Making API call to", API_ENDPOINTS.analyzeResume);
 
-  try {
-    // Create FormData for file upload
-    const formData = new FormData();
-    formData.append('resume', resumeFile);
-    formData.append('jobDescriptions', JSON.stringify(jobDescriptions.filter(jd => jd.trim())));
+      // Make API call with credentials to include cookies
+      const response = await fetch(API_ENDPOINTS.analyzeResume, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
 
-    console.log("Making API call to", API_ENDPOINTS.analyzeResume);
+      console.log("Response status:", response.status);
 
-    // Make API call with credentials to include cookies
-    const response = await fetch(API_ENDPOINTS.analyzeResume, {
-      method: 'POST',
-      body: formData,
-      credentials: 'include',
-    });
-
-    console.log("Response status:", response.status);
-
-    if (!response.ok) {
-      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-      
-      try {
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorData.error || errorMessage;
-        } else {
-          const errorText = await response.text();
-          if (errorText) {
-            errorMessage = errorText;
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errorMessage = errorData.message || errorData.error || errorMessage;
+          } else {
+            const errorText = await response.text();
+            if (errorText) {
+              errorMessage = errorText;
+            }
           }
+        } catch (parseError) {
+          console.warn("Could not parse error response:", parseError);
         }
+        
+        throw new Error(errorMessage);
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Server returned non-JSON response');
+      }
+
+      const responseText = await response.text();
+      console.log("Raw response:", responseText);
+
+      if (!responseText.trim()) {
+        throw new Error('Server returned empty response');
+      }
+
+      let data;
+      try {
+        data = JSON.parse(responseText);
       } catch (parseError) {
-        console.warn("Could not parse error response:", parseError);
+        console.error("JSON parse error:", parseError);
+        throw new Error('Invalid JSON response from server');
+      }
+
+      console.log("Parsed response data:", data);
+      
+      if (!data || !data.analysis) {
+        throw new Error('Invalid response format: missing analysis data');
       }
       
-      throw new Error(errorMessage);
+      // UPDATED: Extract all needed data from API response
+      const resumeHash = `resume_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      setResumeData({
+        resumeText: data.resumeText || `Resume: ${resumeFile.name}`, // From API response
+        resumeHash: data.resumeHash || resumeHash, // Use API hash if available
+        jobDescriptions: jobDescriptions.filter(jd => jd.trim()),
+        extractedTechnologies: data.extractedTechnologies || [], // From API response
+        // Add metadata for better context
+        metadata: {
+          fileName: resumeFile.name,
+          analysisDate: new Date().toISOString(),
+          totalTechnologies: (data.extractedTechnologies || []).length
+        }
+      });
+
+      setResults(data.analysis);
+
+    } catch (err) {
+      console.error("Analyze Error:", err);
+      
+      let userMessage = "Failed to analyze resume. ";
+      
+      if (err.message.includes('404')) {
+        userMessage += "The analysis service is not available. Please check if the backend server is running on the correct port.";
+      } else if (err.message.includes('401') || err.message.includes('403')) {
+        userMessage += "You are not authorized. Please log in again.";
+      } else if (err.message.includes('500')) {
+        userMessage += "Server error occurred. Please try again later.";
+      } else if (err.message.includes('Failed to fetch') || err.message.includes('TypeError: NetworkError')) {
+        userMessage += "Network error. Please check your connection and ensure the backend server is running.";
+      } else {
+        userMessage += err.message;
+      }
+      
+      setError(userMessage);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    const contentType = response.headers.get('content-type');
-    if (!contentType || !contentType.includes('application/json')) {
-      throw new Error('Server returned non-JSON response');
-    }
-
-    const responseText = await response.text();
-    console.log("Raw response:", responseText);
-
-    if (!responseText.trim()) {
-      throw new Error('Server returned empty response');
-    }
-
-    let data;
-    try {
-      data = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error("JSON parse error:", parseError);
-      throw new Error('Invalid JSON response from server');
-    }
-
-    console.log("Parsed response data:", data);
-    
-    if (!data || !data.analysis) {
-      throw new Error('Invalid response format: missing analysis data');
-    }
-    
-    // FIXED: Get resume text from API response instead of placeholder
-    const resumeHash = `resume_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    setResumeData({
-      // Try to get resume text from API response, fallback to filename if not available
-      resumeText: data.resumeText || data.metadata?.resumeText || `Resume: ${resumeFile.name}`,
-      resumeHash: resumeHash,
-      jobDescriptions: jobDescriptions.filter(jd => jd.trim()),
-      // Also pass any extracted technologies if available
-      extractedTechnologies: data.extractedTechnologies || data.metadata?.technologies || []
-    });
-
-    setResults(data.analysis);
-
-  } catch (err) {
-    console.error("Analyze Error:", err);
-    
-    let userMessage = "Failed to analyze resume. ";
-    
-    if (err.message.includes('404')) {
-      userMessage += "The analysis service is not available. Please check if the backend server is running on the correct port.";
-    } else if (err.message.includes('401') || err.message.includes('403')) {
-      userMessage += "You are not authorized. Please log in again.";
-    } else if (err.message.includes('500')) {
-      userMessage += "Server error occurred. Please try again later.";
-    } else if (err.message.includes('Failed to fetch') || err.message.includes('TypeError: NetworkError')) {
-      userMessage += "Network error. Please check your connection and ensure the backend server is running.";
-    } else {
-      userMessage += err.message;
-    }
-    
-    setError(userMessage);
-  } finally {
-    setLoading(false);
-  }
-};
   // Track indices of saved analysis to disable multiple saves of the same result
   const [savedIndices, setSavedIndices] = useState([]);
 
- const handleSaveIndividualAnalysis = async (index) => {
-  if (!resumeFile || !results[index] || savedIndices.includes(index)) return;
+  const handleSaveIndividualAnalysis = async (index) => {
+    if (!resumeFile || !results[index] || savedIndices.includes(index)) return;
 
-  try {
-    const saveData = {
-      resumeName: resumeFile.name,
-      jobDescriptions: jobDescriptions.filter(jd => jd.trim()),
-      results: [results[index]],
-      resumeHash: resumeData?.resumeHash
-    };
+    try {
+      const saveData = {
+        resumeName: resumeFile.name,
+        jobDescriptions: jobDescriptions.filter(jd => jd.trim()),
+        results: [results[index]],
+        resumeHash: resumeData?.resumeHash
+      };
 
-    const response = await fetch(API_ENDPOINTS.saveAnalysis, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // Remove Authorization header
-      },
-      credentials: 'include', // Include cookies
-      body: JSON.stringify(saveData)
-    });
+      const response = await fetch(API_ENDPOINTS.saveAnalysis, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Remove Authorization header
+        },
+        credentials: 'include', // Include cookies
+        body: JSON.stringify(saveData)
+      });
 
-    if (!response.ok) {
-      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-      
-      try {
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorData.error || errorMessage;
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errorData = await response.json();
+            errorMessage = errorData.message || errorData.error || errorMessage;
+          }
+        } catch (parseError) {
+          console.warn("Could not parse save error response:", parseError);
         }
-      } catch (parseError) {
-        console.warn("Could not parse save error response:", parseError);
+        
+        throw new Error(errorMessage);
       }
-      
-      throw new Error(errorMessage);
+
+      setSavedIndices((prev) => [...prev, index]);
+    } catch (err) {
+      console.error("Save error:", err);
+      alert(`Error saving analysis: ${err.message}`);
     }
+  };
 
-    setSavedIndices((prev) => [...prev, index]);
-  } catch (err) {
-    console.error("Save error:", err);
-    alert(`Error saving analysis: ${err.message}`);
-  }
-};
-
-  // Navigate to SWOT analysis
+  // UPDATED: Navigate to SWOT analysis with better validation
   const handleNavigateToSWOT = () => {
     if (!resumeData) {
       setError("No resume analysis available for SWOT analysis. Please analyze your resume first.");
+      return;
+    }
+
+    if (!resumeData.extractedTechnologies || resumeData.extractedTechnologies.length === 0) {
+      setError("No technologies were extracted from your resume. Please ensure your resume contains technical skills and try analyzing again.");
       return;
     }
 
@@ -500,13 +505,14 @@ const handleAnalyze = async () => {
     setCurrentView('analysis');
   };
 
-  // If in SWOT view, render SWOT component
+  // UPDATED: If in SWOT view, render SWOT component with all required props
   if (currentView === 'swot') {
     return (
       <SWOTAnalysis 
         resumeHash={resumeData?.resumeHash}
         resumeText={resumeData?.resumeText}
         jobDescriptions={resumeData?.jobDescriptions || []}
+        extractedTechnologies={resumeData?.extractedTechnologies || []} // ADD THIS LINE
         onBack={handleBackFromSWOT}
       />
     );
@@ -789,7 +795,7 @@ const handleAnalyze = async () => {
               </div>
             </div>
 
-            {/* SWOT Analysis Navigation */}
+            {/* UPDATED: SWOT Analysis Navigation with technology count display */}
             <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 p-6 rounded-lg">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -799,15 +805,20 @@ const handleAnalyze = async () => {
                   <div>
                     <h3 className="font-semibold text-gray-800">SWOT Analysis</h3>
                     <p className="text-gray-600 text-sm">
-                      Get a comprehensive strengths, weaknesses, opportunities, and threats analysis of your resume
+                      Get a comprehensive strengths, weaknesses, opportunities, and threats analysis
+                      {resumeData?.extractedTechnologies?.length > 0 && (
+                        <span className="ml-1 text-purple-600 font-medium">
+                          ({resumeData.extractedTechnologies.length} technologies extracted)
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={handleNavigateToSWOT}
-                  disabled={!resumeData}
+                  disabled={!resumeData || !resumeData.extractedTechnologies?.length}
                   className={`px-6 py-3 rounded-lg font-medium transition-all ${
-                    !resumeData
+                    !resumeData || !resumeData.extractedTechnologies?.length
                       ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                       : "bg-purple-600 text-white hover:bg-purple-700 active:bg-purple-800 shadow-md hover:shadow-lg"
                   }`}

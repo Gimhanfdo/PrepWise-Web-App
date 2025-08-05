@@ -1,45 +1,55 @@
 import React, { useState, useEffect } from 'react';
 
-  // Simple icon components to replace Lucide icons
-  const AlertCircle = () => (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="10"></circle>
-      <line x1="12" y1="8" x2="12" y2="12"></line>
-      <line x1="12" y1="16" x2="12.01" y2="16"></line>
-    </svg>
-  );
+// Simple icon components to replace Lucide icons
+const AlertCircle = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="10"></circle>
+    <line x1="12" y1="8" x2="12" y2="12"></line>
+    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+  </svg>
+);
 
-  const CheckCircle = () => (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-    </svg>
-  );
+const CheckCircle = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+  </svg>
+);
 
-  const ArrowLeft = () => (
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <line x1="19" y1="12" x2="5" y2="12"></line>
-      <polyline points="12,19 5,12 12,5"></polyline>
-    </svg>
-  );
+const ArrowLeft = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <line x1="19" y1="12" x2="5" y2="12"></line>
+    <polyline points="12,19 5,12 12,5"></polyline>
+  </svg>
+);
 
-  const Loader = ({ className }) => (
-    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" strokeDasharray="31.416" strokeDashoffset="31.416">
-        <animate attributeName="stroke-dasharray" dur="2s" values="0 31.416;15.708 15.708;0 31.416" repeatCount="indefinite"/>
-        <animate attributeName="stroke-dashoffset" dur="2s" values="0;-15.708;-31.416" repeatCount="indefinite"/>
-      </circle>
-    </svg>
-  );
+const Loader = ({ className }) => (
+  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" strokeDasharray="31.416" strokeDashoffset="31.416">
+      <animate attributeName="stroke-dasharray" dur="2s" values="0 31.416;15.708 15.708;0 31.416" repeatCount="indefinite"/>
+      <animate attributeName="stroke-dashoffset" dur="2s" values="0;-15.708;-31.416" repeatCount="indefinite"/>
+    </circle>
+  </svg>
+);
 
-  const Star = () => (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"></polygon>
-    </svg>
-  );
+const Star = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"></polygon>
+  </svg>
+);
 
+const TrendingUp = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <polyline points="23,6 13.5,15.5 8.5,10.5 1,18"></polyline>
+    <polyline points="17,6 23,6 23,12"></polyline>
+  </svg>
+);
+
+// UPDATED: Enhanced SWOTAnalysis component with better prop validation
 const SWOTAnalysis = ({ 
   resumeHash = null, 
-  extractedTechnologies = [],
+  resumeText = null,
+  jobDescriptions = [],
+  extractedTechnologies = [], // Make sure this prop is received
   onBack = null,
   userId = null
 }) => {
@@ -52,6 +62,7 @@ const SWOTAnalysis = ({
 
   // Initialize technologies when extractedTechnologies prop changes
   useEffect(() => {
+    console.log("SWOT: Received extractedTechnologies:", extractedTechnologies);
     if (extractedTechnologies && extractedTechnologies.length > 0) {
       const initializedTechnologies = extractedTechnologies.map(tech => ({
         name: tech.name,
@@ -59,6 +70,7 @@ const SWOTAnalysis = ({
         confidenceLevel: tech.confidenceLevel || 5 // Default to middle rating
       }));
       setTechnologies(initializedTechnologies);
+      console.log("SWOT: Initialized technologies:", initializedTechnologies);
     }
   }, [extractedTechnologies]);
 
@@ -86,12 +98,14 @@ const SWOTAnalysis = ({
     setSuccess('');
 
     try {
+      // UPDATED: Use the API endpoint from CV analyzer
       const response = await fetch('/api/swot/save-ratings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          // Remove Authorization header since CVAnalyzer uses cookies
         },
+        credentials: 'include', // Use cookies like CVAnalyzer
         body: JSON.stringify({
           technologies: technologies,
           resumeHash: resumeHash
@@ -362,18 +376,27 @@ const SWOTAnalysis = ({
     </div>
   );
 
-  // Check if we have required data
-  if (!resumeHash) {
+  // UPDATED: Enhanced validation check
+  if (!resumeHash || !extractedTechnologies || extractedTechnologies.length === 0) {
     return (
       <div className="max-w-4xl mx-auto p-6 text-center">
         <div className="bg-red-50 border border-red-200 rounded-lg p-8">
           <div className="w-16 h-16 text-red-600 mx-auto mb-4 flex items-center justify-center">
             <AlertCircle />
           </div>
-          <h2 className="text-2xl font-bold text-red-800 mb-4">Resume Analysis Required</h2>
+          <h2 className="text-2xl font-bold text-red-800 mb-4">
+            {!resumeHash ? "Resume Analysis Required" : "No Technologies Found"}
+          </h2>
           <p className="text-red-600 mb-6">
-            Please analyze your resume first to extract technologies for rating.
+            {!resumeHash 
+              ? "Please analyze your resume first to extract technologies for rating."
+              : "No technologies were extracted from your resume. Please ensure your resume contains technical skills and try analyzing again."
+            }
           </p>
+          <div className="text-sm text-red-500 mb-4">
+            Debug info: resumeHash={resumeHash ? 'present' : 'missing'}, 
+            extractedTechnologies={extractedTechnologies?.length || 0} items
+          </div>
           {onBack && (
             <button
               onClick={onBack}

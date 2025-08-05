@@ -1,417 +1,231 @@
-import TechnologyRating from "../models/swotAnalysisModel.js";
-import CVAnalysis from "../models/CVAnalysisModel.js";
+// SWOTController.js - Controller for SWOT Analysis Technology Ratings
 
-// Helper function to validate technology ratings
-const validateTechnologyRatings = (technologies) => {
-  if (!Array.isArray(technologies)) {
-    throw new Error("Technologies must be an array");
-  }
+import SWOTRating from "../models/swotAnalysisModel.js"; // You'll need to create this model
 
-  if (technologies.length === 0) {
-    throw new Error("At least one technology is required");
-  }
-
-  for (const tech of technologies) {
-    if (!tech.name || typeof tech.name !== 'string' || tech.name.trim().length === 0) {
-      throw new Error("Each technology must have a valid name");
-    }
-    if (typeof tech.confidenceLevel !== 'number' || tech.confidenceLevel < 1 || tech.confidenceLevel > 10) {
-      throw new Error("Each technology confidence level must be a number between 1 and 10");
-    }
-  }
-};
-
-// Helper function to categorize technologies
-const categorizeTechnology = (techName) => {
-  const techLower = techName.toLowerCase();
-  
-  // Programming Languages
-  if (['javascript', 'python', 'java', 'c++', 'c#', 'typescript', 'go', 'rust', 'swift', 'kotlin', 'php', 'ruby', 'scala', 'r', 'c', 'dart', 'perl', 'objective-c', 'vb.net', 'f#'].some(lang => techLower.includes(lang))) {
-    return 'Programming Languages';
-  }
-  
-  // Frontend Technologies
-  if (['react', 'angular', 'vue', 'html', 'css', 'sass', 'less', 'bootstrap', 'jquery', 'next.js', 'nuxt.js', 'svelte', 'ember', 'backbone', 'tailwind'].some(web => techLower.includes(web))) {
-    return 'Frontend Technologies';
-  }
-  
-  // Backend Technologies
-  if (['node.js', 'express', 'django', 'flask', 'spring', 'asp.net', 'rails', 'laravel', 'fastapi', 'koa', 'nestjs', 'gin', 'echo', 'fiber'].some(backend => techLower.includes(backend))) {
-    return 'Backend Technologies';
-  }
-  
-  // Databases
-  if (['mysql', 'postgresql', 'mongodb', 'redis', 'sqlite', 'oracle', 'sql server', 'cassandra', 'dynamodb', 'firebase', 'elasticsearch', 'mariadb'].some(db => techLower.includes(db))) {
-    return 'Databases';
-  }
-  
-  // Cloud & DevOps
-  if (['aws', 'azure', 'google cloud', 'gcp', 'docker', 'kubernetes', 'jenkins', 'terraform', 'ansible', 'heroku', 'vercel', 'netlify', 'gitlab', 'github actions'].some(cloud => techLower.includes(cloud))) {
-    return 'Cloud & DevOps';
-  }
-  
-  // Mobile Technologies
-  if (['react native', 'flutter', 'xamarin', 'ionic', 'cordova', 'phonegap', 'native android', 'native ios'].some(mobile => techLower.includes(mobile))) {
-    return 'Mobile Technologies';
-  }
-  
-  // Data Science & ML
-  if (['tensorflow', 'pytorch', 'pandas', 'numpy', 'scikit-learn', 'keras', 'opencv', 'matplotlib', 'jupyter', 'spark', 'hadoop', 'tableau'].some(ml => techLower.includes(ml))) {
-    return 'Data Science & ML';
-  }
-  
-  // Testing Tools
-  if (['jest', 'mocha', 'jasmine', 'cypress', 'selenium', 'puppeteer', 'testng', 'junit', 'pytest', 'rspec'].some(test => techLower.includes(test))) {
-    return 'Testing Tools';
-  }
-  
-  // Development Tools
-  if (['git', 'github', 'gitlab', 'vs code', 'intellij', 'postman', 'figma', 'adobe xd', 'jira', 'confluence'].some(tool => techLower.includes(tool))) {
-    return 'Development Tools';
-  }
-  
-  return 'General';
-};
-
-// Controller to save user's technology confidence ratings
-export const saveTechnologyRatings = async (req, res) => {
+// Save technology ratings for SWOT analysis
+export const saveRatings = async (req, res) => {
   try {
-    console.log("Saving technology confidence ratings for user:", req.user.id);
-    
     const { technologies, resumeHash } = req.body;
 
-    // Validate required fields
-    if (!resumeHash || typeof resumeHash !== 'string') {
-      return res.status(400).json({ 
-        success: false,
-        message: "Resume hash is required to link ratings to CV analysis." 
+    // Validation
+    if (!technologies || !Array.isArray(technologies) || technologies.length === 0) {
+      return res.status(400).json({
+        message: "Technologies array is required and cannot be empty.",
+        received: {
+          technologies: typeof technologies,
+          isArray: Array.isArray(technologies),
+          length: technologies?.length || 0
+        }
       });
     }
 
-    // Validate technology ratings
-    try {
-      validateTechnologyRatings(technologies);
-    } catch (validationError) {
-      return res.status(400).json({ 
-        success: false,
-        message: validationError.message 
+    if (!resumeHash) {
+      return res.status(400).json({
+        message: "Resume hash is required to save technology ratings.",
+        hint: "Please analyze your resume first to generate a resume hash."
       });
     }
 
-    // Verify that the CV analysis exists for this user and resume
-    const existingAnalysis = await CVAnalysis.findOne({
+    // Validate technology objects
+    const validatedTechnologies = technologies.map((tech, index) => {
+      if (!tech.name || typeof tech.name !== 'string') {
+        throw new Error(`Technology at index ${index} is missing a valid name.`);
+      }
+      
+      if (!tech.category || typeof tech.category !== 'string') {
+        throw new Error(`Technology "${tech.name}" is missing a valid category.`);
+      }
+
+      const confidenceLevel = parseInt(tech.confidenceLevel);
+      if (isNaN(confidenceLevel) || confidenceLevel < 1 || confidenceLevel > 10) {
+        throw new Error(`Technology "${tech.name}" has invalid confidence level. Must be 1-10.`);
+      }
+
+      return {
+        name: tech.name.trim(),
+        category: tech.category.trim(),
+        confidenceLevel: confidenceLevel
+      };
+    });
+
+    console.log(`Saving ${validatedTechnologies.length} technology ratings for user ${req.user.id}`);
+
+    // Check if ratings already exist for this resume
+    const existingRating = await SWOTRating.findOne({
       userId: req.user.id,
       resumeHash: resumeHash
     });
 
-    if (!existingAnalysis) {
-      return res.status(404).json({ 
-        success: false,
-        message: "Resume analysis not found. Please analyze your resume first." 
-      });
-    }
-
-    console.log(`Processing confidence ratings for ${technologies.length} technologies`);
-
-    // Process technologies with proper categorization
-    const processedTechnologies = technologies.map(tech => ({
-      name: tech.name.trim(),
-      confidenceLevel: tech.confidenceLevel,
-      category: tech.category || categorizeTechnology(tech.name),
-      dateRated: new Date()
-    }));
-
-    // Check if user already has ratings for this resume
-    const existingRating = await TechnologyRating.findOne({ 
+    const ratingData = {
       userId: req.user.id,
-      resumeHash: resumeHash 
-    });
+      resumeHash: resumeHash,
+      technologies: validatedTechnologies,
+      metadata: {
+        totalTechnologies: validatedTechnologies.length,
+        averageConfidence: validatedTechnologies.reduce((sum, tech) => sum + tech.confidenceLevel, 0) / validatedTechnologies.length,
+        expertLevel: validatedTechnologies.filter(tech => tech.confidenceLevel >= 8).length,
+        proficientLevel: validatedTechnologies.filter(tech => tech.confidenceLevel >= 6 && tech.confidenceLevel < 8).length,
+        beginnerLevel: validatedTechnologies.filter(tech => tech.confidenceLevel < 6).length,
+        categoriesCount: [...new Set(validatedTechnologies.map(tech => tech.category))].length,
+        lastUpdated: new Date().toISOString()
+      }
+    };
 
-    let savedRating;
-    
     if (existingRating) {
       // Update existing rating
-      existingRating.technologies = processedTechnologies;
-      existingRating.resumeText = existingAnalysis.resumeText.substring(0, 5000);
-      existingRating.lastUpdated = new Date();
+      await SWOTRating.findByIdAndUpdate(existingRating._id, {
+        ...ratingData,
+        updatedAt: new Date()
+      });
+
+      console.log(`Updated existing SWOT rating for resume hash ${resumeHash}`);
       
-      savedRating = await existingRating.save();
-      console.log("Updated existing technology ratings:", savedRating._id);
+      return res.json({
+        success: true,
+        message: `Successfully updated technology confidence ratings for ${validatedTechnologies.length} technologies.`,
+        updated: true,
+        stats: ratingData.metadata
+      });
     } else {
       // Create new rating
-      savedRating = await TechnologyRating.create({
-        userId: req.user.id,
-        resumeHash: resumeHash,
-        technologies: processedTechnologies,
-        resumeText: existingAnalysis.resumeText.substring(0, 5000),
-        lastUpdated: new Date()
-      });
-      console.log("Created new technology ratings:", savedRating._id);
-    }
+      await SWOTRating.create(ratingData);
 
-    // Generate summary statistics
-    const totalTechnologies = processedTechnologies.length;
-    const averageConfidence = processedTechnologies.reduce((sum, tech) => sum + tech.confidenceLevel, 0) / totalTechnologies;
-    const expertSkills = processedTechnologies.filter(tech => tech.confidenceLevel >= 8);
-    const proficientSkills = processedTechnologies.filter(tech => tech.confidenceLevel >= 6 && tech.confidenceLevel < 8);
-    const improvementSkills = processedTechnologies.filter(tech => tech.confidenceLevel < 6);
-
-    // Return success response with summary
-    res.json({
-      success: true,
-      message: existingRating ? "Technology ratings updated successfully!" : "Technology ratings saved successfully!",
-      data: {
-        id: savedRating._id,
-        resumeHash: resumeHash,
-        totalTechnologies,
-        averageConfidence: Math.round(averageConfidence * 100) / 100,
-        expertSkills: expertSkills.length,
-        proficientSkills: proficientSkills.length,
-        improvementSkills: improvementSkills.length,
-        lastUpdated: savedRating.lastUpdated
-      },
-      summary: {
-        expertSkills: expertSkills.map(tech => ({ 
-          name: tech.name, 
-          confidence: tech.confidenceLevel,
-          category: tech.category 
-        })),
-        proficientSkills: proficientSkills.map(tech => ({ 
-          name: tech.name, 
-          confidence: tech.confidenceLevel,
-          category: tech.category 
-        })),
-        improvementSkills: improvementSkills.map(tech => ({ 
-          name: tech.name, 
-          confidence: tech.confidenceLevel,
-          category: tech.category 
-        }))
-      }
-    });
-
-  } catch (err) {
-    console.error("Critical error in saveTechnologyRatings:", err);
-    res.status(500).json({ 
-      success: false,
-      message: "Failed to save technology ratings. Please try again.",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-  }
-};
-
-// Controller to get user's saved technology ratings
-export const getTechnologyRatings = async (req, res) => {
-  try {
-    const { resumeHash } = req.query;
-
-    if (!resumeHash) {
-      return res.status(400).json({
-        success: false,
-        message: "Resume hash is required to fetch technology ratings."
-      });
-    }
-
-    const savedRatings = await TechnologyRating.findOne({
-      userId: req.user.id,
-      resumeHash: resumeHash
-    });
-
-    if (!savedRatings) {
-      return res.json({ 
+      console.log(`Created new SWOT rating for resume hash ${resumeHash}`);
+      
+      return res.json({
         success: true,
-        message: "No technology ratings found for this resume. Please rate your technologies first.",
-        data: null
+        message: `Successfully saved technology confidence ratings for ${validatedTechnologies.length} technologies.`,
+        updated: false,
+        stats: ratingData.metadata
       });
     }
 
-    // Generate summary statistics
-    const totalTechnologies = savedRatings.technologies.length;
-    const averageConfidence = savedRatings.averageConfidence;
-    const expertSkills = savedRatings.expertTechnologies;
-    const improvementSkills = savedRatings.improvementTechnologies;
-
-    res.json({ 
-      success: true,
-      data: {
-        id: savedRatings._id,
-        resumeHash: savedRatings.resumeHash,
-        technologies: savedRatings.technologies,
-        totalTechnologies,
-        averageConfidence,
-        expertSkills: expertSkills.length,
-        improvementSkills: improvementSkills.length,
-        lastUpdated: savedRatings.lastUpdated,
-        createdAt: savedRatings.createdAt
-      },
-      summary: {
-        expertSkills: expertSkills.map(tech => ({ 
-          name: tech.name, 
-          confidence: tech.confidenceLevel,
-          category: tech.category 
-        })),
-        improvementSkills: improvementSkills.map(tech => ({ 
-          name: tech.name, 
-          confidence: tech.confidenceLevel,
-          category: tech.category 
-        })),
-        technologiesByCategory: savedRatings.getTechnologiesByCategory(),
-        skillLevelAssessment: savedRatings.skillLevelAssessment
-      }
-    });
-
   } catch (err) {
-    console.error("Error fetching technology ratings:", err);
-    res.status(500).json({ 
-      success: false,
-      message: "Failed to fetch technology ratings.",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+    console.error("Error saving SWOT technology ratings:", err);
+    
+    // Handle validation errors specifically
+    if (err.message.includes('Technology') && err.message.includes('index')) {
+      return res.status(400).json({
+        message: "Technology validation failed.",
+        error: err.message,
+        hint: "Please ensure all technologies have valid name, category, and confidence level (1-10)."
+      });
+    }
+
+    res.status(500).json({
+      message: "Server error while saving technology ratings.",
+      error: process.env.NODE_ENV === 'development' ? err.message : undefined,
+      hint: "Please try again or contact support if the issue persists."
     });
   }
 };
 
-// Controller to update individual technology rating
-export const updateTechnologyRating = async (req, res) => {
+// Get saved technology ratings for a user
+export const getRatings = async (req, res) => {
   try {
-    const { technologyName, confidenceLevel, resumeHash } = req.body;
+    const { resumeHash } = req.params;
 
-    // Validate inputs
-    if (!technologyName || typeof technologyName !== 'string') {
-      return res.status(400).json({ 
-        success: false,
-        message: "Technology name is required." 
+    let query = { userId: req.user.id };
+    if (resumeHash) {
+      query.resumeHash = resumeHash;
+    }
+
+    const ratings = await SWOTRating.find(query)
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .limit(50)
+      .select('-userId'); // Exclude sensitive user ID
+
+    if (resumeHash && ratings.length === 0) {
+      return res.status(404).json({
+        message: "No technology ratings found for the specified resume.",
+        resumeHash: resumeHash
       });
     }
 
-    if (typeof confidenceLevel !== 'number' || confidenceLevel < 1 || confidenceLevel > 10) {
-      return res.status(400).json({ 
-        success: false,
-        message: "Confidence level must be a number between 1 and 10." 
-      });
-    }
-
-    if (!resumeHash) {
-      return res.status(400).json({
-        success: false,
-        message: "Resume hash is required."
-      });
-    }
-
-    const userRatings = await TechnologyRating.findOne({
-      userId: req.user.id,
-      resumeHash: resumeHash
+    // Add summary statistics
+    const ratingsWithSummary = ratings.map(rating => {
+      const technologies = rating.technologies || [];
+      return {
+        ...rating.toObject(),
+        summary: {
+          totalTechnologies: technologies.length,
+          averageConfidence: technologies.length > 0 
+            ? Math.round((technologies.reduce((sum, tech) => sum + tech.confidenceLevel, 0) / technologies.length) * 10) / 10
+            : 0,
+          strongTechnologies: technologies.filter(tech => tech.confidenceLevel >= 7).length,
+          needsImprovement: technologies.filter(tech => tech.confidenceLevel < 5).length,
+          categories: [...new Set(technologies.map(tech => tech.category))]
+        }
+      };
     });
-
-    if (!userRatings) {
-      return res.status(404).json({ 
-        success: false,
-        message: "No technology ratings found. Please create ratings first." 
-      });
-    }
-
-    // Find and update the specific technology
-    const techIndex = userRatings.technologies.findIndex(
-      tech => tech.name.toLowerCase() === technologyName.toLowerCase()
-    );
-
-    if (techIndex === -1) {
-      return res.status(404).json({ 
-        success: false,
-        message: "Technology not found in your ratings." 
-      });
-    }
-
-    userRatings.technologies[techIndex].confidenceLevel = confidenceLevel;
-    userRatings.technologies[techIndex].dateRated = new Date();
-    userRatings.lastUpdated = new Date();
-
-    await userRatings.save();
 
     res.json({
-      success: true,
-      message: `Updated confidence rating for ${technologyName}`,
-      updatedTechnology: {
-        name: userRatings.technologies[techIndex].name,
-        confidenceLevel: userRatings.technologies[techIndex].confidenceLevel,
-        category: userRatings.technologies[techIndex].category,
-        dateRated: userRatings.technologies[techIndex].dateRated
+      ratings: ratingsWithSummary,
+      count: ratingsWithSummary.length,
+      metadata: {
+        totalRatings: ratingsWithSummary.length,
+        hasCurrentResume: resumeHash ? ratingsWithSummary.length > 0 : null
       }
     });
 
   } catch (err) {
-    console.error("Error updating technology rating:", err);
-    res.status(500).json({ 
-      success: false,
-      message: "Failed to update technology rating.",
+    console.error("Error fetching SWOT technology ratings:", err);
+    res.status(500).json({
+      message: "Server error while fetching technology ratings.",
       error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 };
 
-// Controller to delete technology ratings for a specific resume
-export const deleteTechnologyRatings = async (req, res) => {
+// Delete technology ratings
+export const deleteRatings = async (req, res) => {
   try {
-    const { resumeHash } = req.query;
+    const { id } = req.params;
 
-    if (!resumeHash) {
+    if (!id) {
       return res.status(400).json({
-        success: false,
-        message: "Resume hash is required."
+        message: "Rating ID is required for deletion.",
+        example: "DELETE /api/swot/delete/[rating_id]"
       });
     }
 
-    const deleted = await TechnologyRating.findOneAndDelete({
-      userId: req.user.id,
-      resumeHash: resumeHash
+    // Validate ObjectId format
+    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({
+        message: "Invalid rating ID format.",
+        received: id
+      });
+    }
+
+    const deleted = await SWOTRating.findOneAndDelete({
+      _id: id,
+      userId: req.user.id
     });
 
     if (!deleted) {
-      return res.status(404).json({ 
-        success: false,
-        message: "No technology ratings found for this resume." 
+      return res.status(404).json({
+        message: "Technology ratings not found or unauthorized.",
+        ratingId: id
       });
     }
 
-    res.json({ 
-      success: true, 
-      message: "Technology ratings deleted successfully.",
-      deletedCount: deleted.technologies.length
-    });
-
-  } catch (err) {
-    console.error("Delete technology ratings error:", err);
-    res.status(500).json({ 
-      success: false,
-      message: "Server error while deleting technology ratings.",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-  }
-};
-
-// Controller to get all technology ratings for a user (across all resumes)
-export const getAllUserTechnologyRatings = async (req, res) => {
-  try {
-    const allRatings = await TechnologyRating.find({ userId: req.user.id })
-      .sort({ lastUpdated: -1 })
-      .limit(10);
+    console.log(`Deleted SWOT rating ${id} for user ${req.user.id}`);
 
     res.json({
       success: true,
-      data: allRatings.map(rating => ({
-        id: rating._id,
-        resumeHash: rating.resumeHash,
-        technologiesCount: rating.technologies.length,
-        averageConfidence: rating.averageConfidence,
-        lastUpdated: rating.lastUpdated,
-        createdAt: rating.createdAt
-      })),
-      total: allRatings.length
+      message: "Technology ratings deleted successfully.",
+      deletedRating: {
+        id: deleted._id,
+        resumeHash: deleted.resumeHash,
+        technologiesCount: deleted.technologies?.length || 0,
+        deletedAt: new Date().toISOString()
+      }
     });
 
   } catch (err) {
-    console.error("Error fetching all user technology ratings:", err);
+    console.error("Error deleting SWOT technology ratings:", err);
     res.status(500).json({
-      success: false,
-      message: "Failed to fetch technology ratings.",
+      message: "Server error while deleting technology ratings.",
       error: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
