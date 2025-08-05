@@ -44,12 +44,11 @@ const TrendingUp = () => (
   </svg>
 );
 
-// UPDATED: Enhanced SWOTAnalysis component with better prop validation
 const SWOTAnalysis = ({ 
   resumeHash = null, 
   resumeText = null,
   jobDescriptions = [],
-  extractedTechnologies = [], // Make sure this prop is received
+  extractedTechnologies = [],
   onBack = null,
   userId = null
 }) => {
@@ -60,17 +59,17 @@ const SWOTAnalysis = ({
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Initialize technologies when extractedTechnologies prop changes
+  // Initialize technologies when extractedTechnologies prop changes - DEFAULT TO 0
   useEffect(() => {
     console.log("SWOT: Received extractedTechnologies:", extractedTechnologies);
     if (extractedTechnologies && extractedTechnologies.length > 0) {
       const initializedTechnologies = extractedTechnologies.map(tech => ({
         name: tech.name,
         category: tech.category,
-        confidenceLevel: tech.confidenceLevel || 5 // Default to middle rating
+        confidenceLevel: 0 // CHANGED: Default to 0 instead of 5
       }));
       setTechnologies(initializedTechnologies);
-      console.log("SWOT: Initialized technologies:", initializedTechnologies);
+      console.log("SWOT: Initialized technologies with 0 default:", initializedTechnologies);
     }
   }, [extractedTechnologies]);
 
@@ -81,7 +80,17 @@ const SWOTAnalysis = ({
     setTechnologies(updatedTechnologies);
   };
 
-  // Save technology ratings to backend
+  // Validation before saving - ensure no technologies are left at 0
+  const validateRatings = () => {
+    const unratedTechs = technologies.filter(tech => tech.confidenceLevel === 0);
+    if (unratedTechs.length > 0) {
+      setError(`Please rate all technologies. ${unratedTechs.length} technology(ies) still have a rating of 0.`);
+      return false;
+    }
+    return true;
+  };
+
+  // UPDATED: API call with validation
   const handleSaveRatings = async () => {
     if (!resumeHash) {
       setError('Resume hash is required. Please analyze your resume first.');
@@ -93,29 +102,40 @@ const SWOTAnalysis = ({
       return;
     }
 
+    // Validate that all technologies have been rated (not 0)
+    if (!validateRatings()) {
+      return;
+    }
+
     setSaving(true);
     setError('');
     setSuccess('');
 
     try {
-      // UPDATED: Use the API endpoint from CV analyzer
-      const response = await fetch('/api/swot/save-ratings', {
+      const response = await fetch('http://localhost:4000/api/swot/save-ratings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Remove Authorization header since CVAnalyzer uses cookies
         },
-        credentials: 'include', // Use cookies like CVAnalyzer
+        credentials: 'include',
         body: JSON.stringify({
           technologies: technologies,
           resumeHash: resumeHash
         })
       });
 
-      const data = await response.json();
+      let data;
+      const contentType = response.headers.get('content-type');
+      
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        throw new Error(`Server returned ${response.status}: ${text.slice(0, 100)}...`);
+      }
 
       if (!response.ok) {
-        throw new Error(data.message || 'Failed to save ratings');
+        throw new Error(data.message || `HTTP error! status: ${response.status}`);
       }
 
       setSuccess(data.message || 'Technology ratings saved successfully!');
@@ -123,22 +143,30 @@ const SWOTAnalysis = ({
       
     } catch (err) {
       console.error('Error saving ratings:', err);
-      setError(err.message || 'Failed to save technology ratings. Please try again.');
+      if (err.message.includes('404')) {
+        setError('API endpoint not found. Please check if your backend server is running on port 4000.');
+      } else if (err.message.includes('Failed to fetch')) {
+        setError('Cannot connect to server. Please check if your backend is running.');
+      } else {
+        setError(err.message || 'Failed to save technology ratings. Please try again.');
+      }
     } finally {
       setSaving(false);
     }
   };
 
-  // Get confidence level color
+  // UPDATED: Get confidence level color - handle 0 rating
   const getConfidenceColor = (level) => {
+    if (level === 0) return 'text-gray-500 bg-gray-100 border-2 border-dashed border-gray-300';
     if (level >= 8) return 'text-green-600 bg-green-100';
     if (level >= 6) return 'text-blue-600 bg-blue-100';
     if (level >= 4) return 'text-yellow-600 bg-yellow-100';
     return 'text-red-600 bg-red-100';
   };
 
-  // Get confidence level text
+  // UPDATED: Get confidence level text - handle 0 rating
   const getConfidenceText = (level) => {
+    if (level === 0) return 'Not Rated';
     if (level >= 8) return 'Expert';
     if (level >= 6) return 'Proficient';
     if (level >= 4) return 'Intermediate';
@@ -155,6 +183,23 @@ const SWOTAnalysis = ({
     return groups;
   }, {});
 
+  // UPDATED: Calculate statistics excluding 0 ratings
+  const getStatistics = () => {
+    const ratedTechnologies = technologies.filter(t => t.confidenceLevel > 0);
+    const unratedCount = technologies.filter(t => t.confidenceLevel === 0).length;
+    
+    return {
+      total: technologies.length,
+      rated: ratedTechnologies.length,
+      unrated: unratedCount,
+      expert: technologies.filter(t => t.confidenceLevel >= 8).length,
+      proficient: technologies.filter(t => t.confidenceLevel >= 6 && t.confidenceLevel < 8).length,
+      learning: technologies.filter(t => t.confidenceLevel > 0 && t.confidenceLevel < 6).length
+    };
+  };
+
+  const stats = getStatistics();
+
   const renderRatingStep = () => (
     <div className="space-y-6">
       <div className="text-center">
@@ -167,13 +212,22 @@ const SWOTAnalysis = ({
             <span className="text-blue-800 font-semibold">{technologies.length} technologies found</span>
           </div>
         </div>
+
+        {/* ADDED: Progress indicator */}
+        {stats.unrated > 0 && (
+          <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-2 inline-block">
+            <span className="text-yellow-800 font-medium">
+              {stats.unrated} technology(ies) still need to be rated
+            </span>
+          </div>
+        )}
       </div>
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <div className="flex items-center">
-            <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
-            <span className="text-red-800">{error}</span>
+            <AlertCircle />
+            <span className="text-red-800 ml-2">{error}</span>
           </div>
         </div>
       )}
@@ -181,8 +235,8 @@ const SWOTAnalysis = ({
       {success && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4">
           <div className="flex items-center">
-            <CheckCircle className="w-5 h-5 text-green-600 mr-2" />
-            <span className="text-green-800">{success}</span>
+            <CheckCircle />
+            <span className="text-green-800 ml-2">{success}</span>
           </div>
         </div>
       )}
@@ -201,8 +255,8 @@ const SWOTAnalysis = ({
               onClick={onBack}
               className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center mx-auto"
             >
-              <span className="mr-2"><ArrowLeft /></span>
-              Back to CV Analysis
+              <ArrowLeft />
+              <span className="ml-2">Back to CV Analysis</span>
             </button>
           )}
         </div>
@@ -218,28 +272,31 @@ const SWOTAnalysis = ({
                   {techs.map((tech, techIndex) => {
                     const globalIndex = technologies.findIndex(t => t.name === tech.name);
                     return (
-                      <div key={globalIndex} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg bg-white shadow-sm hover:shadow-md transition-shadow">
+                      <div key={globalIndex} className={`flex items-center justify-between p-4 border rounded-lg bg-white shadow-sm hover:shadow-md transition-shadow ${tech.confidenceLevel === 0 ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200'}`}>
                         <div className="flex-1">
                           <h4 className="font-semibold text-gray-800">{tech.name}</h4>
                           <div className="flex items-center mt-1">
                             <span className={`text-xs px-2 py-1 rounded-full ${getConfidenceColor(tech.confidenceLevel)}`}>
                               {getConfidenceText(tech.confidenceLevel)}
                             </span>
+                            {tech.confidenceLevel === 0 && (
+                              <span className="text-xs text-yellow-600 ml-2 font-medium">Please rate this technology</span>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center space-x-3">
                           <span className="text-sm text-gray-500 font-medium">1</span>
                           <input
                             type="range"
-                            min="1"
+                            min="0"
                             max="10"
                             value={tech.confidenceLevel}
                             onChange={(e) => handleRatingChange(globalIndex, e.target.value)}
-                            className="w-32 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                            className={`w-32 h-2 rounded-lg appearance-none cursor-pointer slider ${tech.confidenceLevel === 0 ? 'bg-yellow-200' : 'bg-gray-200'}`}
                           />
                           <span className="text-sm text-gray-500 font-medium">10</span>
                           <div className={`ml-3 px-3 py-1 rounded-lg font-bold text-lg min-w-[3rem] text-center ${getConfidenceColor(tech.confidenceLevel)}`}>
-                            {tech.confidenceLevel}
+                            {tech.confidenceLevel === 0 ? '?' : tech.confidenceLevel}
                           </div>
                         </div>
                       </div>
@@ -256,21 +313,24 @@ const SWOTAnalysis = ({
                 onClick={onBack}
                 className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center"
               >
-                <span className="mr-2"><ArrowLeft /></span>
-                Back to CV Analysis
+                <ArrowLeft />
+                <span className="ml-2">Back to CV Analysis</span>
               </button>
             )}
             <div className="flex space-x-4">
               <div className="text-sm text-gray-600">
                 <div className="flex items-center space-x-4">
-                  <span>Expert (8-10): <strong>{technologies.filter(t => t.confidenceLevel >= 8).length}</strong></span>
-                  <span>Proficient (6-7): <strong>{technologies.filter(t => t.confidenceLevel >= 6 && t.confidenceLevel < 8).length}</strong></span>
-                  <span>Learning (&lt;6): <strong>{technologies.filter(t => t.confidenceLevel < 6).length}</strong></span>
+                  <span>Expert (8-10): <strong>{stats.expert}</strong></span>
+                  <span>Proficient (6-7): <strong>{stats.proficient}</strong></span>
+                  <span>Learning (1-5): <strong>{stats.learning}</strong></span>
+                  {stats.unrated > 0 && (
+                    <span className="text-yellow-600">Unrated: <strong>{stats.unrated}</strong></span>
+                  )}
                 </div>
               </div>
               <button
                 onClick={handleSaveRatings}
-                disabled={saving || technologies.length === 0}
+                disabled={saving || technologies.length === 0 || stats.unrated > 0}
                 className="px-8 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-lg font-semibold flex items-center"
               >
                 {saving ? (
@@ -280,8 +340,10 @@ const SWOTAnalysis = ({
                   </>
                 ) : (
                   <>
-                    <span className="mr-2"><Star /></span>
-                    Save Technology Ratings
+                    <Star />
+                    <span className="ml-2">
+                      {stats.unrated > 0 ? `Rate ${stats.unrated} More` : 'Save Technology Ratings'}
+                    </span>
                   </>
                 )}
               </button>
@@ -292,91 +354,98 @@ const SWOTAnalysis = ({
     </div>
   );
 
-  const renderSuccessStep = () => (
-    <div className="space-y-8 text-center">
-      <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-        <CheckCircle className="w-10 h-10 text-green-600" />
-      </div>
-      
-      <div>
-        <h2 className="text-3xl font-bold text-green-600 mb-2">Ratings Saved Successfully!</h2>
-        <p className="text-gray-600 text-lg">
-          Your technology confidence ratings have been saved for {technologies.length} technologies
-        </p>
-      </div>
+  const renderSuccessStep = () => {
+    // Recalculate stats for success page (excluding any remaining 0s)
+    const ratedTechnologies = technologies.filter(t => t.confidenceLevel > 0);
+    const averageConfidence = ratedTechnologies.length > 0 
+      ? ratedTechnologies.reduce((sum, tech) => sum + tech.confidenceLevel, 0) / ratedTechnologies.length 
+      : 0;
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-3xl mx-auto">
-        <div className="bg-green-50 border border-green-200 rounded-lg p-6">
-          <div className="flex items-center justify-center mb-2">
-            <span className="mr-2"><TrendingUp /></span>
-            <span className="font-bold text-green-800">Expert Level</span>
-          </div>
-          <div className="text-3xl font-bold text-green-600 mb-1">
-            {technologies.filter(t => t.confidenceLevel >= 8).length}
-          </div>
-          <div className="text-sm text-green-700">Technologies (8-10)</div>
+    return (
+      <div className="space-y-8 text-center">
+        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+          <CheckCircle />
+        </div>
+        
+        <div>
+          <h2 className="text-3xl font-bold text-green-600 mb-2">Ratings Saved Successfully!</h2>
+          <p className="text-gray-600 text-lg">
+            Your technology confidence ratings have been saved for {stats.rated} technologies
+          </p>
         </div>
 
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <div className="flex items-center justify-center mb-2">
-            <span className="mr-2"><Star /></span>
-            <span className="font-bold text-blue-800">Proficient</span>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-3xl mx-auto">
+          <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+            <div className="flex items-center justify-center mb-2">
+              <TrendingUp />
+              <span className="font-bold text-green-800 ml-2">Expert Level</span>
+            </div>
+            <div className="text-3xl font-bold text-green-600 mb-1">
+              {stats.expert}
+            </div>
+            <div className="text-sm text-green-700">Technologies (8-10)</div>
           </div>
-          <div className="text-3xl font-bold text-blue-600 mb-1">
-            {technologies.filter(t => t.confidenceLevel >= 6 && t.confidenceLevel < 8).length}
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+            <div className="flex items-center justify-center mb-2">
+              <Star />
+              <span className="font-bold text-blue-800 ml-2">Proficient</span>
+            </div>
+            <div className="text-3xl font-bold text-blue-600 mb-1">
+              {stats.proficient}
+            </div>
+            <div className="text-sm text-blue-700">Technologies (6-7)</div>
           </div>
-          <div className="text-sm text-blue-700">Technologies (6-7)</div>
+
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+            <div className="flex items-center justify-center mb-2">
+              <AlertCircle />
+              <span className="font-bold text-yellow-800 ml-2">Learning</span>
+            </div>
+            <div className="text-3xl font-bold text-yellow-600 mb-1">
+              {stats.learning}
+            </div>
+            <div className="text-sm text-yellow-700">Technologies (1-5)</div>
+          </div>
         </div>
 
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
-          <div className="flex items-center justify-center mb-2">
-            <span className="mr-2"><AlertCircle /></span>
-            <span className="font-bold text-yellow-800">Learning</span>
-          </div>
-          <div className="text-3xl font-bold text-yellow-600 mb-1">
-            {technologies.filter(t => t.confidenceLevel < 6).length}
-          </div>
-          <div className="text-sm text-yellow-700">Technologies (&lt;6)</div>
-        </div>
-      </div>
-
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 max-w-2xl mx-auto">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Rating Summary</h3>
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <span className="text-gray-600">Average Confidence:</span>
-            <span className="font-bold text-gray-800 ml-2">
-              {(technologies.reduce((sum, tech) => sum + tech.confidenceLevel, 0) / technologies.length).toFixed(1)}/10
-            </span>
-          </div>
-          <div>
-            <span className="text-gray-600">Technologies Rated:</span>
-            <span className="font-bold text-gray-800 ml-2">{technologies.length}</span>
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 max-w-2xl mx-auto">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">Rating Summary</h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="text-gray-600">Average Confidence:</span>
+              <span className="font-bold text-gray-800 ml-2">
+                {averageConfidence.toFixed(1)}/10
+              </span>
+            </div>
+            <div>
+              <span className="text-gray-600">Technologies Rated:</span>
+              <span className="font-bold text-gray-800 ml-2">{stats.rated}</span>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="flex space-x-4 justify-center">
-        <button
-          onClick={() => setStep('rating')}
-          className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center"
-        >
-          <span className="mr-2"><ArrowLeft /></span>
-          Update Ratings
-        </button>
-        {onBack && (
+        <div className="flex space-x-4 justify-center">
           <button
-            onClick={onBack}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            onClick={() => setStep('rating')}
+            className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center"
           >
-            Back to CV Analysis
+            <ArrowLeft />
+            <span className="ml-2">Update Ratings</span>
           </button>
-        )}
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Back to CV Analysis
+            </button>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
-  // UPDATED: Enhanced validation check
   if (!resumeHash || !extractedTechnologies || extractedTechnologies.length === 0) {
     return (
       <div className="max-w-4xl mx-auto p-6 text-center">
@@ -402,10 +471,10 @@ const SWOTAnalysis = ({
               onClick={onBack}
               className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center mx-auto"
             >
-              <span className="mr-2"><ArrowLeft /></span>
-              Back to CV Analysis
+              <ArrowLeft />
+              <span className="ml-2">Back to CV Analysis</span>
             </button>
-          )}
+            )}
         </div>
       </div>
     );

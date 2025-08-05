@@ -1,44 +1,48 @@
-// swotRoutes.js - Express routes for SWOT technology ratings
-
+// routes/swotRoutes.js - Production version
 import express from 'express';
-import { saveRatings, getRatings, deleteRatings } from '../controllers/swotcontroller.js';
-import { protect } from '../middleware/authMiddleware.js'; // Assuming you have auth middleware
+import { saveRatings, getRatings, deleteRatings, getRatingsStats } from '../controllers/swotcontroller.js';
+import userAuth from '../middleware/userAuth.js';
 
-const router = express.Router();
+const swotRouter = express.Router();
 
-// Apply authentication middleware to all routes
-router.use(protect);
+// Health check route (no auth required)
+swotRouter.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    message: 'SWOT service is running',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Apply authentication middleware to all routes below this point
+swotRouter.use(userAuth);
+
+// Test route to verify auth is working
+swotRouter.get('/test-auth', (req, res) => {
+  res.json({
+    success: true,
+    message: 'SWOT authentication working!',
+    user: {
+      id: req.user.id
+    },
+    timestamp: new Date().toISOString()
+  });
+});
 
 // POST /api/swot/save-ratings - Save technology confidence ratings
-router.post('/save-ratings', saveRatings);
+swotRouter.post('/save-ratings', saveRatings);
 
 // GET /api/swot/ratings - Get all ratings for the authenticated user
-router.get('/ratings', getRatings);
+swotRouter.get('/ratings', getRatings);
+
+// GET /api/swot/stats - Get user statistics  
+swotRouter.get('/stats', getRatingsStats);
 
 // GET /api/swot/ratings/:resumeHash - Get ratings for a specific resume
-router.get('/ratings/:resumeHash', getRatings);
+// Important: This must come AFTER /ratings to avoid route conflicts
+swotRouter.get('/ratings/:resumeHash', getRatings);
 
 // DELETE /api/swot/delete/:id - Delete specific technology ratings
-router.delete('/delete/:id', deleteRatings);
+swotRouter.delete('/delete/:id', deleteRatings);
 
-export default router;
-
-/* 
-Usage in your main app.js or server.js:
-
-import swotRoutes from './routes/swotRoutes.js';
-
-// Add this line with your other route configurations
-app.use('/api/swot', swotRoutes);
-
-This will create the following endpoints:
-- POST /api/swot/save-ratings
-- GET /api/swot/ratings
-- GET /api/swot/ratings/:resumeHash
-- DELETE /api/swot/delete/:id
-
-Make sure you have the following middleware:
-1. Authentication middleware (protect function)
-2. JSON body parser (express.json())
-3. CORS configuration if needed
-*/
+export default swotRouter;

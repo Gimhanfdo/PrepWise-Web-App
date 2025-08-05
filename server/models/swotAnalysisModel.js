@@ -1,217 +1,134 @@
-// SWOTRatingModel.js - MongoDB model for storing technology confidence ratings
-
+// models/TechnologyRating.js - Clean MongoDB model for Technology Ratings
 import mongoose from 'mongoose';
 
-const technologySchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-    trim: true,
-    maxlength: 100
-  },
-  category: {
-    type: String,
-    required: true,
-    trim: true,
-    enum: [
-      'Programming Languages',
-      'Frameworks',
-      'Tools',
-      'Databases',
-      'Cloud Services',
-      'Other'
-    ]
-  },
-  confidenceLevel: {
-    type: Number,
-    required: true,
-    min: 1,
-    max: 10,
-    validate: {
-      validator: function(v) {
-        return Number.isInteger(v) && v >= 1 && v <= 10;
-      },
-      message: 'Confidence level must be an integer between 1 and 10'
-    }
-  }
-}, { _id: false }); // Don't create _id for subdocuments
-
-const swotRatingSchema = new mongoose.Schema({
+const technologyRatingSchema = new mongoose.Schema({
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
-    index: true
+    type: String,
+    required: [true, 'User ID is required'],
+    index: true,
+    trim: true
   },
   resumeHash: {
     type: String,
-    required: true,
-    trim: true,
-    maxlength: 64, // SHA-256 hash length
-    index: true
+    required: [true, 'Resume hash is required'],
+    index: true,
+    trim: true
   },
-  technologies: {
-    type: [technologySchema],
-    required: true,
-    validate: {
-      validator: function(v) {
-        return Array.isArray(v) && v.length > 0;
-      },
-      message: 'At least one technology rating is required'
+  technologies: [{
+    name: {
+      type: String,
+      required: [true, 'Technology name is required'],
+      trim: true
+    },
+    category: {
+      type: String,
+      default: 'General',
+      trim: true
+    },
+    confidenceLevel: {
+      type: Number,
+      required: [true, 'Confidence level is required'],
+      min: [1, 'Confidence level must be at least 1'],
+      max: [10, 'Confidence level cannot exceed 10'],
+      validate: {
+        validator: function(value) {
+          return Number.isInteger(value) || (value % 1 !== 0 && value.toString().split('.')[1].length <= 1);
+        },
+        message: 'Confidence level must be an integer or have at most 1 decimal place'
+      }
     }
-  },
-  metadata: {
+  }],
+  summary: {
     totalTechnologies: {
       type: Number,
-      required: true,
-      min: 1
+      min: 0
     },
     averageConfidence: {
       type: Number,
-      required: true,
-      min: 1,
+      min: 0,
       max: 10
     },
-    expertLevel: {
+    expertCount: {
       type: Number,
-      default: 0,
       min: 0
     },
-    proficientLevel: {
+    proficientCount: {
       type: Number,
-      default: 0,
       min: 0
     },
-    beginnerLevel: {
+    learningCount: {
       type: Number,
-      default: 0,
       min: 0
-    },
-    categoriesCount: {
-      type: Number,
-      default: 1,
-      min: 1
-    },
-    lastUpdated: {
-      type: Date,
-      default: Date.now
     }
   }
 }, {
-  timestamps: true, // Adds createdAt and updatedAt automatically
-  collection: 'swot_ratings'
+  timestamps: true, // Automatically adds createdAt and updatedAt
+  collection: 'technology_ratings'
 });
 
-// Compound index for efficient queries
-swotRatingSchema.index({ userId: 1, resumeHash: 1 }, { unique: true });
+// Compound index for efficient queries and ensuring uniqueness
+technologyRatingSchema.index(
+  { userId: 1, resumeHash: 1 }, 
+  { unique: true, name: 'user_resume_unique' }
+);
 
-// Index for finding ratings by user
-swotRatingSchema.index({ userId: 1, updatedAt: -1 });
+// Index for efficient time-based queries
+technologyRatingSchema.index({ createdAt: -1, userId: 1 });
+technologyRatingSchema.index({ updatedAt: -1, userId: 1 });
 
-// Pre-save middleware to update metadata
-swotRatingSchema.pre('save', function(next) {
-  if (this.technologies && this.technologies.length > 0) {
-    const technologies = this.technologies;
-    
-    // Update metadata based on technologies
-    this.metadata.totalTechnologies = technologies.length;
-    this.metadata.averageConfidence = technologies.reduce((sum, tech) => sum + tech.confidenceLevel, 0) / technologies.length;
-    this.metadata.expertLevel = technologies.filter(tech => tech.confidenceLevel >= 8).length;
-    this.metadata.proficientLevel = technologies.filter(tech => tech.confidenceLevel >= 6 && tech.confidenceLevel < 8).length;
-    this.metadata.beginnerLevel = technologies.filter(tech => tech.confidenceLevel < 6).length;
-    this.metadata.categoriesCount = [...new Set(technologies.map(tech => tech.category))].length;
-    this.metadata.lastUpdated = new Date();
+// Virtual for getting the rating age
+technologyRatingSchema.virtual('age').get(function() {
+  return new Date() - this.createdAt;
+});
+
+// Virtual for checking if rating is recent (within last 30 days)
+technologyRatingSchema.virtual('isRecent').get(function() {
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  return this.updatedAt > thirtyDaysAgo;
+});
+
+// Ensure virtuals are included when converting to JSON
+technologyRatingSchema.set('toJSON', { virtuals: true });
+technologyRatingSchema.set('toObject', { virtuals: true });
+
+// Pre-save middleware for basic data cleaning
+technologyRatingSchema.pre('save', function(next) {
+  // Clean up technology names
+  if (this.technologies && Array.isArray(this.technologies)) {
+    this.technologies.forEach(tech => {
+      if (tech.name) {
+        tech.name = tech.name.trim();
+      }
+      if (tech.category) {
+        tech.category = tech.category.trim();
+      }
+    });
   }
   next();
 });
 
-// Virtual for getting technology distribution
-swotRatingSchema.virtual('technologyDistribution').get(function() {
-  if (!this.technologies || this.technologies.length === 0) return {};
-  
-  const distribution = {};
-  this.technologies.forEach(tech => {
-    if (!distribution[tech.category]) {
-      distribution[tech.category] = {
-        count: 0,
-        averageConfidence: 0,
-        technologies: []
-      };
-    }
-    distribution[tech.category].count++;
-    distribution[tech.category].technologies.push({
-      name: tech.name,
-      confidenceLevel: tech.confidenceLevel
-    });
-  });
-
-  // Calculate average confidence for each category
-  Object.keys(distribution).forEach(category => {
-    const techs = distribution[category].technologies;
-    distribution[category].averageConfidence = 
-      techs.reduce((sum, tech) => sum + tech.confidenceLevel, 0) / techs.length;
-  });
-
-  return distribution;
-});
-
-// Virtual for getting confidence level summary
-swotRatingSchema.virtual('confidenceSummary').get(function() {
-  if (!this.technologies || this.technologies.length === 0) return {};
-  
-  const summary = {
-    expert: [], // 8-10
-    proficient: [], // 6-7
-    intermediate: [], // 4-5
-    beginner: [] // 1-3
-  };
-
-  this.technologies.forEach(tech => {
-    if (tech.confidenceLevel >= 8) {
-      summary.expert.push(tech);
-    } else if (tech.confidenceLevel >= 6) {
-      summary.proficient.push(tech);
-    } else if (tech.confidenceLevel >= 4) {
-      summary.intermediate.push(tech);
-    } else {
-      summary.beginner.push(tech);
-    }
-  });
-
-  return summary;
-});
-
-// Static method to find ratings by user with pagination
-swotRatingSchema.statics.findByUserPaginated = function(userId, page = 1, limit = 10) {
-  const skip = (page - 1) * limit;
-  return this.find({ userId })
-    .sort({ updatedAt: -1, createdAt: -1 })
-    .skip(skip)
-    .limit(limit)
-    .select('-userId'); // Exclude sensitive user ID
+// Static method to find ratings by user
+technologyRatingSchema.statics.findByUser = function(userId) {
+  return this.find({ userId }).sort({ updatedAt: -1 });
 };
 
 // Static method to find ratings by resume hash
-swotRatingSchema.statics.findByResumeHash = function(userId, resumeHash) {
-  return this.findOne({ userId, resumeHash })
-    .select('-userId');
+technologyRatingSchema.statics.findByResumeHash = function(resumeHash) {
+  return this.find({ resumeHash }).sort({ updatedAt: -1 });
 };
 
-// Instance method to get technologies needing improvement
-swotRatingSchema.methods.getTechnologiesNeedingImprovement = function(threshold = 5) {
-  return this.technologies.filter(tech => tech.confidenceLevel < threshold);
+// Static method to find user's rating for specific resume
+technologyRatingSchema.statics.findUserRating = function(userId, resumeHash) {
+  return this.findOne({ userId, resumeHash });
 };
 
-// Instance method to get strongest technologies
-swotRatingSchema.methods.getStrongestTechnologies = function(threshold = 7) {
-  return this.technologies.filter(tech => tech.confidenceLevel >= threshold)
-    .sort((a, b) => b.confidenceLevel - a.confidenceLevel);
+// Instance method to check if rating belongs to user
+technologyRatingSchema.methods.belongsToUser = function(userId) {
+  return this.userId === userId;
 };
 
-// Ensure virtual fields are serialized
-swotRatingSchema.set('toJSON', { virtuals: true });
-swotRatingSchema.set('toObject', { virtuals: true });
+// Create and export the model
+const TechnologyRating = mongoose.model('TechnologyRating', technologyRatingSchema);
 
-const SWOTRating = mongoose.model('SWOTRating', swotRatingSchema);
-
-export default SWOTRating;
+export { TechnologyRating };
