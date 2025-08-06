@@ -1,7 +1,7 @@
 // controllers/swotController.js - Clean SWOT controller with MongoDB integration
 import asyncHandler from 'express-async-handler';
 import mongoose from 'mongoose';
-import { TechnologyRating } from '../models/swotAnalysisModel.js';
+import { TechnologyRating } from '../models/SkillAssessorModel.js';
 
 
 class SWOTController {

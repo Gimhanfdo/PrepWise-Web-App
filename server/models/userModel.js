@@ -6,6 +6,7 @@ const userSchema = new mongoose.Schema({
     password: {type: String, required: true},
     phoneNumber: {type: Number, required: true},
     accountType: {type: String, required: true},
+    accountPlan: {type: String, enum: ['basic', 'premium'], default: 'basic'},
     verifyOtp: {type: String, default: ''},
     verifyOtpExpireAt: {type: Number, default: 0},
     isAccountVerified: {type: Boolean, default: false},

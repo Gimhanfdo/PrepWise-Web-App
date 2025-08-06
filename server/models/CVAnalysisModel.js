@@ -37,6 +37,10 @@ const cvAnalysisSchema = new mongoose.Schema({
       message: String,
     },
   ],
+  isSaved: {
+    type: Boolean,
+    default: false,
+  },
   createdAt: {
     type: Date,
     default: Date.now,

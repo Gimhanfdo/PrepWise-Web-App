@@ -27,13 +27,6 @@ const FresherDashboard = () => {
       bg: "from-indigo-500 to-indigo-700",
     },
     {
-      title: "Strengths and Weaknesses Analysis",
-      description: "Analyze your strengths and weaknesses to get to know yourself better",
-      icon: <FaChartBar size={28} />,
-      to: "/swot",
-      bg: "from-yellow-500 to-yellow-700",
-    },
-    {
       title: "Interview Bot",
       description: "Practice with AI-powered personalized interviews to boost your confidence",
       icon: <FaRobot size={28} />,
@@ -47,6 +40,13 @@ const FresherDashboard = () => {
       to: "/notices",
       bg: "from-green-500 to-green-700",
     },
+      {
+      title: "Trainings",
+      description: "Connect with industry proffessionals to improve your skills",
+      icon: <FaChartBar size={28} />,
+      to: "/swot",
+      bg: "from-yellow-500 to-yellow-700",
+    }
   ];
 
   return (

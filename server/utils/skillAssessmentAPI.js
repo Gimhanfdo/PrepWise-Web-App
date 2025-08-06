@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import TechnologyRating from "../models/swotAnalysisModel.js";
+import TechnologyRating from "../models/SkillAssessorModel.js";
 import CVAnalysis from "../models/CVAnalysisModel.js";
 import { extractTechnologies } from "./CVAnalysisAPI.js";
 import mongoose from "mongoose";
