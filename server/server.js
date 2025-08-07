@@ -4,7 +4,7 @@ import 'dotenv/config';
 import cookieParser from 'cookie-parser';
 import connectDB from './config/mongodb.js';
 import authRouter from './routes/authRoutes.js';
-import swotRouter from './routes/swotRoutes.js';
+import skillAssessor from './routes/skillAssessorRoutes.js';
 import userRouter from './routes/userRoutes.js';
 import analysisRouter from './routes/CVanalysisRoutes.js';
 import path from 'path';
@@ -27,7 +27,7 @@ app.use(cors({origin: allowedOrigins, credentials: true}));
 app.use('/api/auth', authRouter)
 app.use('/api/user', userRouter)
 app.use('/api/analyze', analysisRouter);
-app.use('/api/swot', swotRouter); 
+app.use('/api/swot', skillAssessor); 
 
 app.use(express.static(path.join(__dirname, '../client/dist')));
 

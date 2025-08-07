@@ -8,10 +8,10 @@ import 'react-toastify/dist/ReactToastify.css';
 import TrainerDashboard from './pages/TrainerDashboard';
 import FresherDashboard from './pages/FresherDashboard'
 import ProfileSettings from './pages/ProfileSettings'
-import UserProfile from './pages/UserProfile' 
 import CVAnalyzer from './pages/CVAnalyzer'
 import SignUp from './pages/SignUp'
 import SkillAssessor from './pages/SkillAssessor'
+import Interview from './pages/Interview'
 
 const App = () => {
   return (
@@ -29,11 +29,11 @@ const App = () => {
         <Route path='/trainer-dashboard' element={<TrainerDashboard/>}/>
         <Route path='/fresher-dashboard' element={<FresherDashboard/>}/>
         <Route path='/profile-settings' element={<ProfileSettings/>}/>
-        <Route path='/user-profile' element={<UserProfile/>}/> {/* Add this route */}
         
         {/* Feature Routes */}
         <Route path='/cv-analyzer' element={<CVAnalyzer/>}/>
         <Route path='/swot' element={<SkillAssessor/>}/>
+        <Route path='/interview' element={<Interview/>}/>
         
         {/* Catch all route - redirect to login */}
         <Route path='*' element={<Login/>}/>

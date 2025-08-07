@@ -30,7 +30,7 @@ const FresherDashboard = () => {
       title: "Interview Bot",
       description: "Practice with AI-powered personalized interviews to boost your confidence",
       icon: <FaRobot size={28} />,
-      to: "/interview-bot",
+      to: "/interview",
       bg: "from-pink-500 to-pink-700",
     },
         {
