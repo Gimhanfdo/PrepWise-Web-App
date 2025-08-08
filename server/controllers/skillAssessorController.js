@@ -28,37 +28,41 @@ class SWOTController {
     };
   }
 
-  /**
-   * Validate technologies array
-   * @param {Array} technologies - Technologies to validate
-   * @returns {Object} Validation result
-   */
-  static validateTechnologies(technologies) {
-    if (!technologies || !Array.isArray(technologies) || technologies.length === 0) {
+// Updated validation function in your SWOT Controller
+// Since we now default to 5 instead of 0, we no longer need to check for 0 values
+
+/**
+ * Validate technologies array
+ * @param {Array} technologies - Technologies to validate
+ * @returns {Object} Validation result
+ */
+static validateTechnologies(technologies) {
+  if (!technologies || !Array.isArray(technologies) || technologies.length === 0) {
+    return {
+      isValid: false,
+      message: 'Technologies array is required and cannot be empty'
+    };
+  }
+
+  for (const tech of technologies) {
+    if (!tech.name || typeof tech.confidenceLevel !== 'number') {
       return {
         isValid: false,
-        message: 'Technologies array is required and cannot be empty'
+        message: 'Each technology must have a name and numeric confidenceLevel'
       };
     }
 
-    for (const tech of technologies) {
-      if (!tech.name || typeof tech.confidenceLevel !== 'number') {
-        return {
-          isValid: false,
-          message: 'Each technology must have a name and numeric confidenceLevel'
-        };
-      }
-
-      if (tech.confidenceLevel < 1 || tech.confidenceLevel > 10) {
-        return {
-          isValid: false,
-          message: 'Confidence level must be between 1 and 10'
-        };
-      }
+    // Updated: Now accepts 1-10 range (no longer checks for 0)
+    if (tech.confidenceLevel < 1 || tech.confidenceLevel > 10) {
+      return {
+        isValid: false,
+        message: 'Confidence level must be between 1 and 10'
+      };
     }
-
-    return { isValid: true };
   }
+
+  return { isValid: true };
+}
 
   /**
    * Format rating data for response

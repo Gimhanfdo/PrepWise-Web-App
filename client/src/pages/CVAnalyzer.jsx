@@ -225,7 +225,7 @@ const SkillsAssessment = ({
           {onBack && (
             <button
               onClick={onBack}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-all shadow-lg hover:shadow-xl"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl hover:bg-indigo-50 transition-all shadow-lg hover:shadow-xl"
             >
               <ArrowLeft className="w-4 h-4" />
               Back to CV Analysis
@@ -241,7 +241,7 @@ const SkillsAssessment = ({
               <p className="text-gray-600 mt-1">Use the sliders to rate your confidence level for each technology</p>
             </div>
             
-            <div className="max-h-[70vh] overflow-y-auto">
+            <div className="max-h-[70vh] overflow-y-auto custom-scrollbar">
               {Object.entries(groupedTechnologies).map(([category, techs]) => (
                 <div key={category} className="border-b border-gray-100 last:border-0">
                   <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-4 md:px-6 py-3 border-b border-gray-200 sticky top-0 z-10">
@@ -317,7 +317,7 @@ const SkillsAssessment = ({
                 {onBack && (
                   <button
                     onClick={onBack}
-                    className="inline-flex items-center justify-center gap-2 px-6 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition-all shadow-sm hover:shadow-md"
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-white text-gray-700 border-2 border-gray-300 rounded-xl hover:bg-gray-50 transition-all shadow-sm hover:shadow-md"
                   >
                     <ArrowLeft className="w-4 h-4" />
                     Back to Analysis
@@ -326,11 +326,11 @@ const SkillsAssessment = ({
                 <button
                   onClick={handleSaveRatings}
                   disabled={saving || technologies.length === 0}
-                  className="inline-flex items-center justify-center gap-2 px-8 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:from-indigo-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-semibold shadow-lg hover:shadow-xl"
+                  className="inline-flex items-center justify-center gap-2 px-8 py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-semibold shadow-lg hover:shadow-xl"
                 >
                   {saving ? (
                     <>
-                      <Loader className="w-5 h-5 animate-spin" />
+                      <Loader className="w-5 h-5 animate-spin text-indigo-600" />
                       Saving Assessment...
                     </>
                   ) : (
@@ -418,7 +418,7 @@ const SkillsAssessment = ({
       <div className="flex flex-col sm:flex-row gap-4 justify-center px-4">
         <button
           onClick={() => setStep('rating')}
-          className="inline-flex items-center justify-center gap-2 px-6 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition-all shadow-lg hover:shadow-xl"
+          className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-white text-gray-700 border-2 border-gray-300 rounded-xl hover:bg-gray-50 transition-all shadow-lg hover:shadow-xl"
         >
           <Settings className="w-4 h-4" />
           Update Assessments
@@ -426,7 +426,7 @@ const SkillsAssessment = ({
         {onBack && (
           <button
             onClick={onBack}
-            className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg hover:shadow-xl"
+            className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl hover:bg-indigo-50 transition-all shadow-lg hover:shadow-xl"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to CV Analysis
@@ -457,7 +457,7 @@ const SkillsAssessment = ({
             {onBack && (
               <button
                 onClick={onBack}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all shadow-lg hover:shadow-xl"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-white text-red-600 border-2 border-red-600 rounded-xl hover:bg-red-50 transition-all shadow-lg hover:shadow-xl"
               >
                 <ArrowLeft className="w-4 h-4" />
                 Back to CV Analysis
@@ -1017,358 +1017,358 @@ const CVAnalyzer = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-      <div className="flex flex-col xl:flex-row min-h-screen">
-        {/* Left Sidebar - Fixed on desktop, full width on mobile */}
-        <div className="w-full xl:w-96 xl:fixed xl:left-0 xl:top-0 xl:h-full xl:overflow-y-auto bg-white border-r border-gray-200 shadow-xl">
-          <div className="p-4 md:p-6 space-y-6 md:space-y-8">
-            {/* Header */}
-            <div className="text-center xl:text-left">
-              <div className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-100 to-purple-100 px-4 py-2 rounded-full text-indigo-700 font-medium text-sm mb-4">
-                <Target className="w-4 h-4" />
-                AI-Powered Analysis
-              </div>
-              <h1 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent mb-2">
-                CV Analyzer
-              </h1>
-              <p className="text-gray-600">Upload your resume and compare it against job descriptions</p>
-            </div>
-
-            {/* Error Display */}
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-4 rounded-2xl shadow-lg animate-pulse">
-                <div className="flex items-start">
-                  <XCircle className="w-5 h-5 mr-3 flex-shrink-0 mt-0.5" />
-                  <span className="text-sm leading-relaxed">{error}</span>
+      <div className="flex flex-col lg:flex-row min-h-screen">
+        {/* Left Sidebar - 50% width on desktop */}
+        <div className="w-full lg:w-1/2 bg-white border-r border-gray-200 shadow-xl">
+          <div className="h-full overflow-y-auto custom-scrollbar">
+            <div className="p-4 md:p-6 space-y-6 md:space-y-8">
+              {/* Header */}
+              <div className="text-center lg:text-left">
+                <div className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-100 to-purple-100 px-4 py-2 rounded-full text-indigo-700 font-medium text-sm mb-4">
+                  <Target className="w-4 h-4" />
+                  AI-Powered Analysis
                 </div>
+                <h1 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent mb-2">
+                  CV Analyzer
+                </h1>
+                <p className="text-gray-600">Upload your resume and compare it against job descriptions</p>
               </div>
-            )}
 
-            {/* File Upload */}
-            <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border border-gray-200 p-4 md:p-6 shadow-lg">
-              <label className="block font-bold mb-4 text-gray-800">
-                Upload Resume (PDF only)
-              </label>
-              <div
-                className={`relative border-2 border-dashed rounded-2xl p-6 md:p-8 text-center transition-all ${
-                  dragActive
-                    ? "border-indigo-400 bg-indigo-50 scale-105 shadow-lg"
-                    : resumeFile
-                    ? "border-emerald-400 bg-emerald-50 shadow-lg"
-                    : "border-gray-300 hover:border-gray-400 hover:bg-gray-50 hover:shadow-md"
-                }`}
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-              >
-                <input
-                  type="file"
-                  accept=".pdf"
-                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  onChange={(e) => handleFileChange(e.target.files[0])}
-                />
-
-                {resumeFile ? (
-                  <div className="space-y-3">
-                    <div className="w-12 h-12 mx-auto text-emerald-600 bg-emerald-100 rounded-2xl flex items-center justify-center shadow-lg">
-                      <CheckCircle className="w-6 h-6" />
-                    </div>
-                    <p className="font-semibold text-emerald-700 truncate">{resumeFile.name}</p>
-                    <p className="text-sm text-emerald-600">
-                      {(resumeFile.size / (1024 * 1024)).toFixed(2)} MB
-                    </p>
+              {/* Error Display */}
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-4 rounded-2xl shadow-lg animate-pulse">
+                  <div className="flex items-start">
+                    <XCircle className="w-5 h-5 mr-3 flex-shrink-0 mt-0.5" />
+                    <span className="text-sm leading-relaxed">{error}</span>
                   </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="w-12 h-12 mx-auto text-gray-400 bg-gray-100 rounded-2xl flex items-center justify-center">
-                      <Upload className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <p className="text-gray-600">
-                        <span className="font-semibold text-indigo-600">
-                          Click to upload
-                        </span>{" "}
-                        or drag and drop
-                      </p>
-                      <p className="text-sm text-gray-500 mt-1">PDF files up to 10MB</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
+                </div>
+              )}
 
-            {/* Job Descriptions */}
-            <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border border-gray-200 p-4 md:p-6 shadow-lg">
-              <div className="flex justify-between items-center mb-4">
-                <label className="block font-bold text-gray-800">
-                  Job Descriptions
+              {/* File Upload */}
+              <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border border-gray-200 p-4 md:p-6 shadow-lg">
+                <label className="block font-bold mb-4 text-gray-800">
+                  Upload Resume (PDF only)
                 </label>
-                <span className="text-sm text-gray-500 bg-white px-3 py-1 rounded-full shadow-sm border border-gray-200 font-medium">
-                  {jobDescriptions.length}/5
-                </span>
-              </div>
+                <div
+                  className={`relative border-2 border-dashed rounded-2xl p-6 md:p-8 text-center transition-all ${
+                    dragActive
+                      ? "border-indigo-400 bg-indigo-50 scale-105 shadow-lg"
+                      : resumeFile
+                      ? "border-emerald-400 bg-emerald-50 shadow-lg"
+                      : "border-gray-300 hover:border-gray-400 hover:bg-gray-50 hover:shadow-md"
+                  }`}
+                  onDragEnter={handleDrag}
+                  onDragLeave={handleDrag}
+                  onDragOver={handleDrag}
+                  onDrop={handleDrop}
+                >
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    onChange={(e) => handleFileChange(e.target.files[0])}
+                  />
 
-              <div className="space-y-4">
-                {jobDescriptions.map((jd, index) => (
-                  <div key={index} className="relative">
-                    <div className="flex gap-3">
-                      <div className="flex-1">
-                        <textarea
-                          className="w-full p-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all resize-none shadow-sm hover:shadow-md bg-white"
-                          rows="4"
-                          placeholder={`Enter job description ${index + 1}...`}
-                          value={jd}
-                          onChange={(e) => handleJDChange(index, e.target.value)}
-                        />
-                        <div className="flex justify-between mt-2">
-                          <span className="text-xs text-gray-500 font-medium bg-gray-100 px-2 py-1 rounded">
-                            JD {index + 1}
-                          </span>
-                          <span
-                            className={`text-xs font-medium px-2 py-1 rounded ${
-                              jd.length < 50 
-                                ? "text-amber-600 bg-amber-100" 
-                                : "text-emerald-600 bg-emerald-100"
-                            }`}
-                          >
-                            {jd.length} chars
-                          </span>
-                        </div>
+                  {resumeFile ? (
+                    <div className="space-y-3">
+                      <div className="w-12 h-12 mx-auto text-emerald-600 bg-emerald-100 rounded-2xl flex items-center justify-center shadow-lg">
+                        <CheckCircle className="w-6 h-6" />
                       </div>
-
-                      {jobDescriptions.length > 1 && (
-                        <button
-                          onClick={() => removeJD(index)}
-                          className="self-start mt-1 p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-xl transition-all shadow-sm hover:shadow-md"
-                          title="Remove this job description"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
+                      <p className="font-semibold text-emerald-700 truncate">{resumeFile.name}</p>
+                      <p className="text-sm text-emerald-600">
+                        {(resumeFile.size / (1024 * 1024)).toFixed(2)} MB
+                      </p>
                     </div>
-                  </div>
-                ))}
-              </div>
-
-              {jobDescriptions.length < 5 && (
-                <button
-                  onClick={addJD}
-                  className="w-full mt-4 p-3 text-sm bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-700 border border-indigo-200 rounded-xl hover:from-indigo-100 hover:to-purple-100 transition-all font-medium shadow-sm hover:shadow-md flex items-center justify-center gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Another Job Description
-                </button>
-              )}
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={handleAnalyze}
-                disabled={
-                  loading ||
-                  !resumeFile ||
-                  jobDescriptions.some((jd) => jd.trim() === "")
-                }
-                className={`w-full px-6 py-4 rounded-2xl font-bold transition-all text-lg shadow-lg ${
-                  loading ||
-                  !resumeFile ||
-                  jobDescriptions.some((jd) => jd.trim() === "")
-                    ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                    : "bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 active:scale-95 shadow-xl hover:shadow-2xl"
-                }`}
-              >
-                {loading ? (
-                  <div className="flex items-center justify-center gap-3">
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    Analyzing Resume...
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center gap-2">
-                    <Target className="w-5 h-5" />
-                    Analyze Resume
-                  </div>
-                )}
-              </button>
-
-              {(resumeFile || jobDescriptions.some((jd) => jd.trim())) && (
-                <button
-                  onClick={handleClear}
-                  disabled={loading}
-                  className="w-full px-6 py-3 bg-gradient-to-r from-gray-200 to-gray-300 text-gray-700 rounded-2xl hover:from-gray-300 hover:to-gray-400 transition-all disabled:opacity-50 font-medium shadow-lg hover:shadow-xl"
-                >
-                  Clear All
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Right Content Area - Offset on desktop to account for fixed sidebar */}
-        <div className="w-full xl:ml-96 flex-1 min-h-screen">
-          <div className="p-4 md:p-6 lg:p-8 space-y-6 md:space-y-8">
-            {loading && (
-              <div className="flex justify-center items-center py-32">
-                <div className="text-center">
-                  <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-6"></div>
-                  <h3 className="text-xl font-semibold text-gray-700 mb-3">
-                    Analyzing Your Resume
-                  </h3>
-                  <p className="text-gray-500">This may take a few moments...</p>
-                </div>
-              </div>
-            )}
-
-            {!loading && results.length > 0 && (
-              <>
-                {/* Match Scores */}
-                <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-6 md:p-8">
-                  <h2 className="text-2xl md:text-3xl font-bold mb-6 bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
-                    Match Scores Overview
-                  </h2>
-                  <div className={`grid gap-4 md:gap-6 ${
-                    results.length === 1 ? "grid-cols-1 max-w-sm mx-auto" :
-                    results.length === 2 ? "grid-cols-1 md:grid-cols-2" : 
-                    "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
-                  }`}>
-                    {results.map((res, idx) => (
-                      <CircularProgress
-                        key={idx}
-                        percentage={res.matchPercentage || 0}
-                        label={`Job Description ${idx + 1}`}
-                        colorIndex={idx}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {/* Skills Assessment Navigation */}
-                <div className="bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 border border-indigo-200 p-6 md:p-8 rounded-2xl shadow-xl">
-                  <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
-                    <div className="flex items-start gap-4">
-                      <div className="p-3 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl shadow-lg">
-                        <BarChart3 className="w-8 h-8 text-white" />
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="w-12 h-12 mx-auto text-gray-400 bg-gray-100 rounded-2xl flex items-center justify-center">
+                        <Upload className="w-6 h-6" />
                       </div>
                       <div>
-                        <h3 className="text-xl md:text-2xl font-bold text-gray-900">Skills Assessment</h3>
-                        <p className="text-gray-600 mt-1">
-                          Rate your confidence level for each extracted technology
-                          {resumeData?.extractedTechnologies?.length > 0 && (
-                            <span className="ml-1 text-indigo-600 font-semibold">
-                              ({resumeData.extractedTechnologies.length} technologies found)
-                            </span>
-                          )}
+                        <p className="text-gray-600">
+                          <span className="font-semibold text-indigo-600">
+                            Click to upload
+                          </span>{" "}
+                          or drag and drop
                         </p>
+                        <p className="text-sm text-gray-500 mt-1">PDF files up to 10MB</p>
                       </div>
                     </div>
-                    <button
-                      onClick={handleNavigateToSkillsAssessment}
-                      disabled={!resumeData || !resumeData.extractedTechnologies?.length}
-                      className={`px-6 md:px-8 py-3 md:py-4 rounded-2xl font-bold transition-all shadow-lg ${
-                        !resumeData || !resumeData.extractedTechnologies?.length
-                          ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                          : "bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700 active:scale-95 shadow-xl hover:shadow-2xl"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Star className="w-5 h-5" />
-                        Start Assessment
-                      </div>
-                    </button>
-                  </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Job Descriptions */}
+              <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border border-gray-200 p-4 md:p-6 shadow-lg">
+                <div className="flex justify-between items-center mb-4">
+                  <label className="block font-bold text-gray-800">
+                    Job Descriptions
+                  </label>
+                  <span className="text-sm text-gray-500 bg-white px-3 py-1 rounded-full shadow-sm border border-gray-200 font-medium">
+                    {jobDescriptions.length}/5
+                  </span>
                 </div>
 
-                {/* Detailed Analysis */}
-                <div className="space-y-6">
-                  <h2 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
-                    Detailed Analysis Results
-                  </h2>
-                  {results.map((res, idx) => (
-                    <div key={idx} className="space-y-4">
-                      <StructuredRecommendations result={res} index={idx} />
-                      <div className="flex justify-end">
-                        <button
-                          className={`px-6 py-3 rounded-2xl transition-all font-bold shadow-lg ${
-                            savedIndices.includes(idx)
-                              ? "bg-gray-600 cursor-not-allowed text-white"
-                              : "bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white hover:shadow-xl active:scale-95"
-                          }`}
-                          disabled={savedIndices.includes(idx)}
-                          onClick={() => handleSaveIndividualAnalysis(idx)}
-                        >
-                          {savedIndices.includes(idx) ? (
-                            <div className="flex items-center gap-2">
-                              <CheckCircle className="w-4 h-4" />
-                              Analysis Saved
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <Save className="w-4 h-4" />
-                              Save Analysis
-                            </div>
-                          )}
-                        </button>
+                <div className="space-y-4 max-h-96 overflow-y-auto custom-scrollbar">
+                  {jobDescriptions.map((jd, index) => (
+                    <div key={index} className="relative">
+                      <div className="flex gap-3">
+                        <div className="flex-1">
+                          <textarea
+                            className="w-full p-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all resize-none shadow-sm hover:shadow-md bg-white"
+                            rows="4"
+                            placeholder={`Enter job description ${index + 1}...`}
+                            value={jd}
+                            onChange={(e) => handleJDChange(index, e.target.value)}
+                          />
+                          <div className="flex justify-between mt-2">
+                            <span className="text-xs text-gray-500 font-medium bg-gray-100 px-2 py-1 rounded">
+                              JD {index + 1}
+                            </span>
+                            <span
+                              className={`text-xs font-medium px-2 py-1 rounded ${
+                                jd.length < 50 
+                                  ? "text-amber-600 bg-amber-100" 
+                                  : "text-emerald-600 bg-emerald-100"
+                              }`}
+                            >
+                              {jd.length} chars
+                            </span>
+                          </div>
+                        </div>
+
+                        {jobDescriptions.length > 1 && (
+                          <button
+                            onClick={() => removeJD(index)}
+                            className="self-start mt-1 p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-xl transition-all shadow-sm hover:shadow-md"
+                            title="Remove this job description"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
-              </>
-            )}
 
-            {!loading && results.length === 0 && (
-              <div className="text-center py-16 md:py-32 bg-white border border-gray-200 rounded-2xl shadow-xl">
-                <div className="w-20 h-20 mx-auto text-gray-400 mb-6 bg-gradient-to-br from-gray-100 to-gray-200 rounded-3xl flex items-center justify-center shadow-inner">
-                  <FileText className="w-10 h-10" />
-                </div>
-                <h3 className="text-2xl md:text-3xl font-bold text-gray-700 mb-4">
-                  Ready to Analyze Your Resume
-                </h3>
-                <p className="text-gray-500 max-w-md mx-auto leading-relaxed px-4">
-                  Upload your resume and add job descriptions to get started with our comprehensive analysis.
-                  <br /><br />
-                  <span className="text-sm text-gray-400">
-                    💡 Pro tip: Include only relevant details in job descriptions for better analysis accuracy.
-                  </span>
-                </p>
+                {jobDescriptions.length < 5 && (
+                  <button
+                    onClick={addJD}
+                    className="w-full mt-4 p-3 text-sm bg-white text-indigo-700 border-2 border-indigo-200 rounded-xl hover:bg-indigo-50 transition-all font-medium shadow-sm hover:shadow-md flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Another Job Description
+                  </button>
+                )}
               </div>
-            )}
+
+              {/* Action Buttons */}
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handleAnalyze}
+                  disabled={
+                    loading ||
+                    !resumeFile ||
+                    jobDescriptions.some((jd) => jd.trim() === "")
+                  }
+                  className={`w-full px-6 py-4 rounded-2xl font-bold transition-all text-lg shadow-lg ${
+                    loading ||
+                    !resumeFile ||
+                    jobDescriptions.some((jd) => jd.trim() === "")
+                      ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                      : "bg-white text-indigo-600 border-2 border-indigo-600 hover:bg-indigo-50 active:scale-95 shadow-xl hover:shadow-2xl"
+                  }`}
+                >
+                  {loading ? (
+                    <div className="flex items-center justify-center gap-3">
+                      <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                      Analyzing Resume...
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center gap-2">
+                      <Target className="w-5 h-5" />
+                      Analyze Resume
+                    </div>
+                  )}
+                </button>
+
+                {(resumeFile || jobDescriptions.some((jd) => jd.trim())) && (
+                  <button
+                    onClick={handleClear}
+                    disabled={loading}
+                    className="w-full px-6 py-3 bg-white text-gray-700 border-2 border-gray-300 rounded-2xl hover:bg-gray-50 transition-all disabled:opacity-50 font-medium shadow-lg hover:shadow-xl"
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Content Area - 50% width on desktop */}
+        <div className="w-full lg:w-1/2 flex-1 min-h-screen">
+          <div className="h-full overflow-y-auto custom-scrollbar">
+            <div className="p-4 md:p-6 lg:p-8 space-y-6 md:space-y-8">
+              {loading && (
+                <div className="flex justify-center items-center py-32">
+                  <div className="text-center">
+                    <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-6"></div>
+                    <h3 className="text-xl font-semibold text-gray-700 mb-3">
+                      Analyzing Your Resume
+                    </h3>
+                    <p className="text-gray-500">This may take a few moments...</p>
+                  </div>
+                </div>
+              )}
+
+              {!loading && results.length > 0 && (
+                <>
+                  {/* Match Scores */}
+                  <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-6 md:p-8">
+                    <h2 className="text-2xl md:text-3xl font-bold mb-6 bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+                      Match Scores Overview
+                    </h2>
+                    <div className={`grid gap-4 md:gap-6 ${
+                      results.length === 1 ? "grid-cols-1 max-w-sm mx-auto" :
+                      results.length === 2 ? "grid-cols-1 md:grid-cols-2" : 
+                      "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
+                    }`}>
+                      {results.map((res, idx) => (
+                        <CircularProgress
+                          key={idx}
+                          percentage={res.matchPercentage || 0}
+                          label={`Job Description ${idx + 1}`}
+                          colorIndex={idx}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Skills Assessment Navigation */}
+                  <div className="bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 border border-indigo-200 p-6 md:p-8 rounded-2xl shadow-xl">
+                    <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+                      <div className="flex items-start gap-4">
+                        <div className="p-3 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl shadow-lg">
+                          <BarChart3 className="w-8 h-8 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="text-xl md:text-2xl font-bold text-gray-900">Skills Assessment</h3>
+                          <p className="text-gray-600 mt-1">
+                            Rate your confidence level for each extracted technology
+                            {resumeData?.extractedTechnologies?.length > 0 && (
+                              <span className="ml-1 text-indigo-600 font-semibold">
+                                ({resumeData.extractedTechnologies.length} technologies found)
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleNavigateToSkillsAssessment}
+                        disabled={!resumeData || !resumeData.extractedTechnologies?.length}
+                        className={`px-6 md:px-8 py-3 md:py-4 rounded-2xl font-bold transition-all shadow-lg ${
+                          !resumeData || !resumeData.extractedTechnologies?.length
+                            ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                            : "bg-white text-indigo-600 border-2 border-indigo-600 hover:bg-indigo-50 active:scale-95 shadow-xl hover:shadow-2xl"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Star className="w-5 h-5" />
+                          Start Assessment
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Detailed Analysis */}
+                  <div className="space-y-6">
+                    <h2 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+                      Detailed Analysis Results
+                    </h2>
+                    {results.map((res, idx) => (
+                      <div key={idx} className="space-y-4">
+                        <StructuredRecommendations result={res} index={idx} />
+                        <div className="flex justify-end">
+                          <button
+                            className={`px-6 py-3 rounded-2xl transition-all font-bold shadow-lg ${
+                              savedIndices.includes(idx)
+                                ? "bg-gray-600 cursor-not-allowed text-white"
+                                : "bg-white text-indigo-600 border-2 border-indigo-600 hover:bg-indigo-50 hover:shadow-xl active:scale-95"
+                            }`}
+                            disabled={savedIndices.includes(idx)}
+                            onClick={() => handleSaveIndividualAnalysis(idx)}
+                          >
+                            {savedIndices.includes(idx) ? (
+                              <div className="flex items-center gap-2">
+                                <CheckCircle className="w-4 h-4" />
+                                Analysis Saved
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-2">
+                                <Save className="w-4 h-4" />
+                                Save Analysis
+                              </div>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {!loading && results.length === 0 && (
+                <div className="text-center py-16 md:py-32 bg-white border border-gray-200 rounded-2xl shadow-xl">
+                  <div className="w-20 h-20 mx-auto text-gray-400 mb-6 bg-gradient-to-br from-gray-100 to-gray-200 rounded-3xl flex items-center justify-center shadow-inner">
+                    <FileText className="w-10 h-10" />
+                  </div>
+                  <h3 className="text-2xl md:text-3xl font-bold text-gray-700 mb-4">
+                    Ready to Analyze Your Resume
+                  </h3>
+                  <p className="text-gray-500 max-w-md mx-auto leading-relaxed px-4">
+                    Upload your resume and add job descriptions to get started with our comprehensive analysis.
+                    <br /><br />
+                    <span className="text-sm text-gray-400">
+                      💡 Pro tip: Include only relevant details in job descriptions for better analysis accuracy.
+                    </span>
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Mobile-specific styles */}
+      {/* Custom Styles */}
       <style jsx>{`
-        @media (max-width: 1279px) {
-          .xl\\:fixed {
-            position: static !important;
-          }
-          .xl\\:ml-96 {
-            margin-left: 0 !important;
-          }
-          .xl\\:w-96 {
+        /* Custom scrollbar styling */
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 8px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: #f8fafc;
+          border-radius: 4px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 4px;
+          border: 1px solid #f1f5f9;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #94a3b8;
+        }
+
+        /* Mobile-specific styles */
+        @media (max-width: 1023px) {
+          .lg\\:w-1\\/2 {
             width: 100% !important;
           }
         }
         
-        /* Custom scrollbar for better UX */
-        ::-webkit-scrollbar {
-          width: 8px;
-        }
-        
-        ::-webkit-scrollbar-track {
-          background: #f1f5f9;
-          border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb {
-          background: linear-gradient(135deg, #6366f1, #8b5cf6);
-          border-radius: 4px;
-        }
-        
-        ::-webkit-scrollbar-thumb:hover {
-          background: linear-gradient(135deg, #4f46e5, #7c3aed);
-        }
-
         /* Enhanced animations */
         @keyframes slideInUp {
           from {
@@ -1432,6 +1432,51 @@ const CVAnalyzer = () => {
           background: linear-gradient(90deg, #f0f0f0 0px, #e0e0e0 40px, #f0f0f0 80px);
           background-size: 200px;
           animation: shimmer 1.5s infinite;
+        }
+
+        /* Custom slider styles */
+        .slider::-webkit-slider-thumb {
+          appearance: none;
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+          cursor: pointer;
+          border: 3px solid #ffffff;
+          box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+          transition: all 0.2s ease;
+        }
+        
+        .slider::-webkit-slider-thumb:hover {
+          background: linear-gradient(135deg, #4338ca 0%, #6d28d9 100%);
+          transform: scale(1.1);
+          box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4);
+        }
+        
+        .slider::-moz-range-thumb {
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+          cursor: pointer;
+          border: 3px solid #ffffff;
+          box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+        }
+        
+        .slider::-webkit-slider-track {
+          height: 12px;
+          border-radius: 6px;
+          background: linear-gradient(135deg, #e5e7eb 0%, #d1d5db 100%);
+        }
+        
+        .slider::-moz-range-track {
+          height: 12px;
+          border-radius: 6px;
+          background: linear-gradient(135deg, #e5e7eb 0%, #d1d5db 100%);
+        }
+        
+        .slider:focus::-webkit-slider-track {
+          background: linear-gradient(135deg, #d1d5db 0%, #9ca3af 100%);
         }
       `}</style>
     </div>
