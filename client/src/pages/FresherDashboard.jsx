@@ -2,7 +2,6 @@ import React, { useContext, useEffect } from "react";
 import NavBar from "../components/NavBar";
 import { Link, useNavigate } from "react-router-dom";
 import { FaRobot, FaFileAlt, FaBullhorn, FaChartBar } from "react-icons/fa";
-import SavedAnalysis from "../components/SavedAnalysis";
 import { AppContext } from "../context/AppContext";
 
 const FresherDashboard = () => {
@@ -72,8 +71,6 @@ const FresherDashboard = () => {
             </Link>
           ))}
         </div>
-
-        <SavedAnalysis />
       </div>
     </div>
   );

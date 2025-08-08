@@ -1,29 +1,315 @@
 import userModel from "../models/userModel.js";
+import bcrypt from "bcryptjs";
 
-// Controller to fetch details of the currently logged in user
-export const getUserDetails = async (req, res) => {
+// Get user profile data
+export const getUserProfile = async (req, res) => {
   try {
-    // Extract the user ID from the request object
-    const userId = req.user.id;
-    // Find the user in the database by their ID
-    const user = await userModel.findById(userId);
-
+    const userId = req.user._id || req.user.id;
+    
+    // Fetch user data without sensitive fields
+    const user = await userModel.findById(userId).select('-password -resetOtp -verifyOtp -resetOtpExpireAt -verifyOtpExpireAt');
+    
     if (!user) {
-      return res.json({ success: false, message: "User not found" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
     }
 
-    // If user is found, return details
     res.json({
-        success: true, 
-        userData: {
-            name: user.name,
-            email: user.email,
-            phoneNumber: user.phoneNumber,
-            accountType: user.accountType,
-            isAccountVerified: user.isAccountVerified
-        }
-    })
+      success: true,
+      data: user
+    });
   } catch (error) {
-    return res.json({ success: false, message: error.message });
+    console.error('Get profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch user profile"
+    });
+  }
+};
+
+// Update user profile
+export const updateUserProfile = async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+    const { name, phoneNumber, accountType } = req.body;
+
+    // Validate required fields
+    if (!name || !phoneNumber || !accountType) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, phone number, and account type are required"
+      });
+    }
+
+    // Validate account type
+    if (!['Fresher', 'Trainer'].includes(accountType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid account type"
+      });
+    }
+
+    // Update user profile
+    const updatedUser = await userModel.findByIdAndUpdate(
+      userId,
+      {
+        name,
+        phoneNumber,
+        accountType,
+        lastActive: new Date()
+      },
+      { 
+        new: true,
+        select: '-password -resetOtp -verifyOtp -resetOtpExpireAt -verifyOtpExpireAt'
+      }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Profile updated successfully",
+      data: updatedUser
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update profile"
+    });
+  }
+};
+
+// Change password
+export const changePassword = async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+    const { currentPassword, newPassword } = req.body;
+
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password and new password are required"
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be at least 6 characters long"
+      });
+    }
+
+    // Get user with password
+    const user = await userModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isCurrentPasswordValid) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password is incorrect"
+      });
+    }
+
+    // Hash new password
+    const hashedNewPassword = await bcrypt.hash(newPassword, 12);
+
+    // Update password
+    await userModel.findByIdAndUpdate(userId, {
+      password: hashedNewPassword,
+      lastActive: new Date()
+    });
+
+    res.json({
+      success: true,
+      message: "Password updated successfully"
+    });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to change password"
+    });
+  }
+};
+
+// Upgrade to premium
+export const upgradeToPremium = async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+
+    const updatedUser = await userModel.findByIdAndUpdate(
+      userId,
+      { 
+        accountPlan: 'premium',
+        lastActive: new Date()
+      },
+      { 
+        new: true,
+        select: '-password -resetOtp -verifyOtp -resetOtpExpireAt -verifyOtpExpireAt'
+      }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Account upgraded to Premium successfully",
+      data: updatedUser
+    });
+  } catch (error) {
+    console.error('Upgrade to premium error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to upgrade account"
+    });
+  }
+};
+
+// Downgrade to basic
+export const downgradeToBasic = async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+
+    const updatedUser = await userModel.findByIdAndUpdate(
+      userId,
+      { 
+        accountPlan: 'basic',
+        lastActive: new Date()
+      },
+      { 
+        new: true,
+        select: '-password -resetOtp -verifyOtp -resetOtpExpireAt -verifyOtpExpireAt'
+      }
+    );
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Account downgraded to Basic",
+      data: updatedUser
+    });
+  } catch (error) {
+    console.error('Downgrade to basic error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to downgrade account"
+    });
+  }
+};
+
+// Get saved analyses (placeholder - implement based on your analysis model)
+export const getSavedAnalyses = async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+    
+    // TODO: Replace with actual analysis model query
+    // const analyses = await AnalysisModel.find({ userId }).sort({ createdAt: -1 });
+    
+    // For now, return empty array with proper structure
+    res.json({
+      success: true,
+      data: [],
+      count: 0
+    });
+  } catch (error) {
+    console.error('Get saved analyses error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch saved analyses"
+    });
+  }
+};
+
+// Get skills assessments (placeholder - implement based on your assessment model)
+export const getSkillsAssessments = async (req, res) => {
+  try {
+    const userId = req.user._id || req.user.id;
+    
+    // TODO: Replace with actual assessment model query
+    // const assessments = await AssessmentModel.find({ userId }).sort({ createdAt: -1 });
+    
+    // For now, return empty array with proper structure
+    res.json({
+      success: true,
+      data: [],
+      count: 0
+    });
+  } catch (error) {
+    console.error('Get skills assessments error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch skills assessments"
+    });
+  }
+};
+
+// Delete analysis (placeholder)
+export const deleteAnalysis = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user._id || req.user.id;
+
+    // TODO: Implement actual deletion
+    // await AnalysisModel.findOneAndDelete({ _id: id, userId });
+
+    res.json({
+      success: true,
+      message: "Analysis deleted successfully"
+    });
+  } catch (error) {
+    console.error('Delete analysis error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete analysis"
+    });
+  }
+};
+
+// Delete assessment (placeholder)
+export const deleteAssessment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user._id || req.user.id;
+
+    // TODO: Implement actual deletion
+    // await AssessmentModel.findOneAndDelete({ _id: id, userId });
+
+    res.json({
+      success: true,
+      message: "Assessment deleted successfully"
+    });
+  } catch (error) {
+    console.error('Delete assessment error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete assessment"
+    });
   }
 };

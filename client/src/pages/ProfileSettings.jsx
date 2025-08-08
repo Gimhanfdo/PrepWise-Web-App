@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { User, Mail, Lock, FileText, Brain, Crown, Settings, Save, Eye, EyeOff, Download, Trash2 } from 'lucide-react';
+import { User, Mail, Lock, FileText, Brain, Crown, Settings, Save, Eye, EyeOff, Download, Trash2, ChevronDown, ChevronUp, Star, TrendingUp, Target, Award } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
@@ -20,6 +20,8 @@ const UserProfile = () => {
   const [skillsAssessments, setSkillsAssessments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
+  const [expandedAnalysis, setExpandedAnalysis] = useState(null);
+  const [expandedAssessment, setExpandedAssessment] = useState(null);
 
   // Local user state for editing
   const [localUser, setLocalUser] = useState(null);
@@ -185,6 +187,10 @@ const UserProfile = () => {
   };
 
   const deleteAnalysis = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this CV analysis?')) {
+      return;
+    }
+
     try {
       const { data } = await axios.delete(backendUrl + `/api/user/analysis/${id}`);
 
@@ -201,6 +207,10 @@ const UserProfile = () => {
   };
 
   const deleteAssessment = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this skills assessment?')) {
+      return;
+    }
+
     try {
       const { data } = await axios.delete(backendUrl + `/api/user/assessment/${id}`);
 
@@ -213,6 +223,15 @@ const UserProfile = () => {
     } catch (error) {
       const msg = error.response?.data?.message || error.message || 'Failed to delete assessment';
       toast.error(msg);
+    }
+  };
+
+  const downloadAnalysis = async (id) => {
+    try {
+      // This would typically generate a PDF report
+      toast.info('Download functionality coming soon!');
+    } catch (error) {
+      toast.error('Failed to download analysis');
     }
   };
 
@@ -230,6 +249,20 @@ const UserProfile = () => {
       setUserData(null);
       navigate('/login');
     }
+  };
+
+  const getMatchScoreColor = (percentage) => {
+    if (percentage >= 80) return 'text-green-800 bg-green-100';
+    if (percentage >= 60) return 'text-yellow-800 bg-yellow-100';
+    if (percentage >= 40) return 'text-orange-800 bg-orange-100';
+    return 'text-red-800 bg-red-100';
+  };
+
+  const getScoreColor = (score) => {
+    if (score >= 90) return 'text-green-800 bg-green-100';
+    if (score >= 70) return 'text-blue-800 bg-blue-100';
+    if (score >= 50) return 'text-yellow-800 bg-yellow-100';
+    return 'text-red-800 bg-red-100';
   };
 
   // Show loading spinner while page is loading
@@ -306,46 +339,157 @@ const UserProfile = () => {
         </button>
       </div>
 
-      {/* Saved CV Analysis Section */}
+      {/* Enhanced Saved CV Analysis Section */}
       <div className="bg-white p-6 rounded-lg shadow">
         <h3 className="text-lg font-semibold mb-4 flex items-center">
           <FileText className="mr-2" size={20} />
-          Saved CV Analysis Feedback
+          Saved CV Analysis Results ({savedAnalyses.length})
         </h3>
         {savedAnalyses.length === 0 ? (
-          <p className="text-gray-600">No saved CV analyses found.</p>
+          <div className="text-center py-8">
+            <FileText className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+            <p className="text-gray-600 mb-2">No saved CV analyses found.</p>
+            <p className="text-sm text-gray-500">Analyze your CV against job descriptions to see results here.</p>
+            <button 
+              onClick={() => navigate('/cv-analyzer')}
+              className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            >
+              Start CV Analysis
+            </button>
+          </div>
         ) : (
           <div className="space-y-4">
             {savedAnalyses.map((analysis) => (
-              <div key={analysis.id} className="border border-gray-200 rounded-lg p-4">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <h4 className="font-medium text-lg">{analysis.jobTitle}</h4>
-                    <p className="text-gray-600">{analysis.company}</p>
-                    <p className="text-sm text-gray-500">Analyzed on {new Date(analysis.createdAt).toLocaleDateString()}</p>
-                    <div className="mt-2">
-                      <span className="text-sm font-medium">Match Percentage: </span>
-                      <span className={`px-2 py-1 rounded-full text-xs ${
-                        analysis.matchPercentage >= 80 ? 'bg-green-100 text-green-800' : 
-                        analysis.matchPercentage >= 60 ? 'bg-yellow-100 text-yellow-800' : 
-                        'bg-red-100 text-red-800'
-                      }`}>
-                        {analysis.matchPercentage}%
-                      </span>
+              <div key={analysis.id} className="border border-gray-200 rounded-lg">
+                <div className="p-4">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <h4 className="font-medium text-lg text-gray-900">{analysis.jobTitle}</h4>
+                        {analysis.hasMultipleJobs && (
+                          <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                            {analysis.totalJobs} jobs
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-gray-600 mb-2">{analysis.company}</p>
+                      <p className="text-sm text-gray-500 mb-3">
+                        Analyzed on {new Date(analysis.createdAt).toLocaleDateString()}
+                        {analysis.updatedAt !== analysis.createdAt && (
+                          <span> • Updated {new Date(analysis.updatedAt).toLocaleDateString()}</span>
+                        )}
+                      </p>
+                      
+                      <div className="flex items-center space-x-4 mb-3">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm font-medium">Match Score: </span>
+                          <span className={`px-3 py-1 rounded-full text-sm font-medium ${getMatchScoreColor(analysis.matchPercentage)}`}>
+                            {analysis.matchPercentage}%
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {analysis.softwareJobs} software roles analyzed
+                        </div>
+                      </div>
+
+                      {/* Quick preview of top recommendations */}
+                      {analysis.recommendations && analysis.recommendations.length > 0 && (
+                        <div className="mb-3">
+                          <p className="text-sm font-medium text-gray-700 mb-1">Top Recommendations:</p>
+                          <ul className="text-sm text-gray-600 space-y-1">
+                            {analysis.recommendations.slice(0, 2).map((rec, idx) => (
+                              <li key={idx} className="flex items-start">
+                                <Target className="mr-2 mt-1 flex-shrink-0" size={12} />
+                                <span className="line-clamp-1">{rec}</span>
+                              </li>
+                            ))}
+                            {analysis.recommendations.length > 2 && (
+                              <li className="text-blue-600 cursor-pointer" 
+                                  onClick={() => setExpandedAnalysis(expandedAnalysis === analysis.id ? null : analysis.id)}>
+                                +{analysis.recommendations.length - 2} more recommendations
+                              </li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex space-x-2 ml-4">
+                      <button 
+                        onClick={() => setExpandedAnalysis(expandedAnalysis === analysis.id ? null : analysis.id)}
+                        className="p-2 text-gray-600 hover:bg-gray-50 rounded-md"
+                        title="View Details"
+                      >
+                        {expandedAnalysis === analysis.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </button>
+                      <button 
+                        onClick={() => downloadAnalysis(analysis.id)}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-md"
+                        title="Download Report"
+                      >
+                        <Download size={16} />
+                      </button>
+                      <button 
+                        onClick={() => deleteAnalysis(analysis.id)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-md"
+                        title="Delete Analysis"
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex space-x-2">
-                    <button className="p-2 text-blue-600 hover:bg-blue-50 rounded">
-                      <Download size={16} />
-                    </button>
-                    <button 
-                      onClick={() => deleteAnalysis(analysis.id)}
-                      className="p-2 text-red-600 hover:bg-red-50 rounded"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
                 </div>
+
+                {/* Expanded Details */}
+                {expandedAnalysis === analysis.id && (
+                  <div className="border-t border-gray-200 p-4 bg-gray-50">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Strengths */}
+                      {analysis.strengths && analysis.strengths.length > 0 && (
+                        <div>
+                          <h5 className="font-medium text-green-800 mb-2 flex items-center">
+                            <Star className="mr-2" size={16} />
+                            Key Strengths
+                          </h5>
+                          <ul className="space-y-1">
+                            {analysis.strengths.slice(0, 5).map((strength, idx) => (
+                              <li key={idx} className="text-sm text-gray-700 flex items-start">
+                                <div className="w-2 h-2 bg-green-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
+                                {strength}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* All Recommendations */}
+                      {analysis.recommendations && analysis.recommendations.length > 0 && (
+                        <div>
+                          <h5 className="font-medium text-blue-800 mb-2 flex items-center">
+                            <TrendingUp className="mr-2" size={16} />
+                            Improvement Areas
+                          </h5>
+                          <ul className="space-y-1">
+                            {analysis.recommendations.map((rec, idx) => (
+                              <li key={idx} className="text-sm text-gray-700 flex items-start">
+                                <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
+                                {rec}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Analysis Stats */}
+                    <div className="mt-4 pt-4 border-t border-gray-300">
+                      <div className="flex items-center justify-between text-sm text-gray-600">
+                        <span>Analysis ID: {analysis.id.slice(-8)}</span>
+                        <span>Software Roles: {analysis.softwareJobs}/{analysis.totalJobs}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -415,42 +559,189 @@ const UserProfile = () => {
     <div className="bg-white p-6 rounded-lg shadow">
       <h3 className="text-lg font-semibold mb-4 flex items-center">
         <Brain className="mr-2" size={20} />
-        Skills Assessment Feedback
+        Skills Assessment Results ({skillsAssessments.length})
       </h3>
       {skillsAssessments.length === 0 ? (
-        <p className="text-gray-600">No skills assessments completed yet.</p>
+        <div className="text-center py-8">
+          <Brain className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+          <p className="text-gray-600 mb-2">No skills assessments completed yet.</p>
+          <p className="text-sm text-gray-500">Complete a SWOT analysis to see your technology proficiency results here.</p>
+          <button 
+            onClick={() => navigate('/swot')}
+            className="mt-3 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+          >
+            Start Skills Assessment
+          </button>
+        </div>
       ) : (
         <div className="space-y-4">
           {skillsAssessments.map((assessment) => (
-            <div key={assessment.id} className="border border-gray-200 rounded-lg p-4">
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <h4 className="font-medium text-lg">{assessment.assessmentType}</h4>
-                  <p className="text-gray-600">Level: {assessment.level}</p>
-                  <p className="text-sm text-gray-500">Completed on {new Date(assessment.completedAt).toLocaleDateString()}</p>
-                  <div className="mt-2">
-                    <span className="text-sm font-medium">Score: </span>
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      assessment.score >= 90 ? 'bg-green-100 text-green-800' : 
-                      assessment.score >= 70 ? 'bg-yellow-100 text-yellow-800' : 
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {assessment.score}/100
-                    </span>
+            <div key={assessment.id} className="border border-gray-200 rounded-lg">
+              <div className="p-4">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <h4 className="font-medium text-lg text-gray-900">{assessment.assessmentType}</h4>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        assessment.level === 'Expert' ? 'bg-purple-100 text-purple-800' :
+                        assessment.level === 'Advanced' ? 'bg-blue-100 text-blue-800' :
+                        assessment.level === 'Intermediate' ? 'bg-green-100 text-green-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {assessment.level}
+                      </span>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
+                      <div className="text-center">
+                        <div className={`text-lg font-bold ${getScoreColor(assessment.score)}`}>
+                          {assessment.score}/100
+                        </div>
+                        <div className="text-xs text-gray-500">Overall Score</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-gray-900">{assessment.totalTechnologies}</div>
+                        <div className="text-xs text-gray-500">Technologies</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-green-600">{assessment.expertCount}</div>
+                        <div className="text-xs text-gray-500">Expert Level</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-blue-600">{assessment.proficientCount}</div>
+                        <div className="text-xs text-gray-500">Proficient</div>
+                      </div>
+                    </div>
+
+                    <p className="text-sm text-gray-500 mb-3">
+                      Completed on {new Date(assessment.completedAt).toLocaleDateString()}
+                      {assessment.isRecent && (
+                        <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                          Recent
+                        </span>
+                      )}
+                    </p>
+
+                    {/* Top Technologies Preview */}
+                    {assessment.topTechnologies && assessment.topTechnologies.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-sm font-medium text-gray-700 mb-2">Top Skills:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {assessment.topTechnologies.slice(0, 5).map((tech, idx) => (
+                            <div key={idx} className="flex items-center space-x-1 bg-gray-100 rounded-full px-3 py-1">
+                              <span className="text-sm font-medium">{tech.name}</span>
+                              <div className="flex">
+                                {[...Array(10)].map((_, i) => (
+                                  <Star 
+                                    key={i} 
+                                    size={10} 
+                                    className={i < tech.confidence ? 'text-yellow-400 fill-current' : 'text-gray-300'} 
+                                  />
+                                ))}
+                              </div>
+                              <span className="text-xs text-gray-600">{tech.confidence}/10</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex space-x-2 ml-4">
+                    <button 
+                      onClick={() => setExpandedAssessment(expandedAssessment === assessment.id ? null : assessment.id)}
+                      className="p-2 text-gray-600 hover:bg-gray-50 rounded-md"
+                      title="View Details"
+                    >
+                      {expandedAssessment === assessment.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    </button>
+                    <button 
+                      onClick={() => downloadAnalysis(assessment.id)}
+                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-md"
+                      title="Download Report"
+                    >
+                      <Download size={16} />
+                    </button>
+                    <button 
+                      onClick={() => deleteAssessment(assessment.id)}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded-md"
+                      title="Delete Assessment"
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </div>
                 </div>
-                <div className="flex space-x-2">
-                  <button className="p-2 text-blue-600 hover:bg-blue-50 rounded">
-                    <Download size={16} />
-                  </button>
-                  <button 
-                    onClick={() => deleteAssessment(assessment.id)}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
               </div>
+
+              {/* Expanded Assessment Details */}
+              {expandedAssessment === assessment.id && (
+                <div className="border-t border-gray-200 p-4 bg-gray-50">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Confidence Distribution */}
+                    <div>
+                      <h5 className="font-medium text-gray-800 mb-3 flex items-center">
+                        <TrendingUp className="mr-2" size={16} />
+                        Confidence Distribution
+                      </h5>
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">Expert (8-10)</span>
+                          <span className="font-medium text-purple-600">{assessment.expertCount} skills</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">Proficient (6-7)</span>
+                          <span className="font-medium text-blue-600">{assessment.proficientCount} skills</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">Learning (1-5)</span>
+                          <span className="font-medium text-green-600">{assessment.learningCount} skills</span>
+                        </div>
+                        <div className="flex justify-between items-center pt-2 border-t">
+                          <span className="text-sm font-medium text-gray-700">Average Confidence</span>
+                          <span className="font-bold text-gray-900">{assessment.averageConfidence.toFixed(1)}/10</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* All Technologies */}
+                    {assessment.topTechnologies && assessment.topTechnologies.length > 0 && (
+                      <div>
+                        <h5 className="font-medium text-gray-800 mb-3 flex items-center">
+                          <Award className="mr-2" size={16} />
+                          All Technologies ({assessment.totalTechnologies})
+                        </h5>
+                        <div className="max-h-48 overflow-y-auto space-y-2">
+                          {assessment.topTechnologies.map((tech, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-2 bg-white rounded border">
+                              <span className="text-sm font-medium">{tech.name}</span>
+                              <div className="flex items-center space-x-2">
+                                <div className="flex">
+                                  {[...Array(10)].map((_, i) => (
+                                    <Star 
+                                      key={i} 
+                                      size={12} 
+                                      className={i < tech.confidence ? 'text-yellow-400 fill-current' : 'text-gray-300'} 
+                                    />
+                                  ))}
+                                </div>
+                                <span className="text-xs text-gray-600 min-w-[30px]">{tech.confidence}/10</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Assessment Stats */}
+                  <div className="mt-4 pt-4 border-t border-gray-300">
+                    <div className="flex items-center justify-between text-sm text-gray-600">
+                      <span>Assessment ID: {assessment.id.slice(-8)}</span>
+                      <span>Overall Proficiency: {assessment.level}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
