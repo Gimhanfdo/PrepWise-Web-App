@@ -62,9 +62,8 @@ const userSchema = new mongoose.Schema({
   timestamps: true 
 });
 
-// Create indexes explicitly (avoid duplicates)
-userSchema.index({ email: 1 }); // Only define once
-userSchema.index({ isAccountVerified: 1 }); // Only define once
+userSchema.index({ email: 1 }); 
+userSchema.index({ isAccountVerified: 1 });
 
 // Add methods if they don't exist
 userSchema.methods.updateLastActive = function() {
