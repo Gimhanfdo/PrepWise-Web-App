@@ -12,6 +12,35 @@ import {
   deleteAssessment
 } from "../controllers/userController.js";
 
+// Import CV Analysis controller methods
+import { 
+  getSavedAnalyses, 
+  deleteAnalysis, 
+  getAllAnalyses, 
+  getAnalysisStats 
+} from '../controllers/cvAnalysiscontroller.js';
+
+// Import Skills Assessment controller methods
+import { 
+  getRatings, 
+  deleteRatings, 
+  getRatingsStats,
+  getRatingDetails 
+} from '../controllers/skillAssessorController.js';
+
+
+// CV Analysis routes
+router.get('/saved-analyses', userAuth, getSavedAnalyses);
+router.get('/all-analyses', userAuth, getAllAnalyses);
+router.get('/analysis-stats', userAuth, getAnalysisStats);
+router.delete('/analysis/:id', userAuth, deleteAnalysis);
+
+// Skills Assessment routes  
+router.get('/skills-assessments', userAuth, getRatings);
+router.get('/skills-stats', userAuth, getRatingsStats);
+router.get('/skills-assessment/:id', userAuth, getRatingDetails);
+router.delete('/assessment/:id', userAuth, deleteRatings);
+
 const userRouter = express.Router();
 
 // All routes require authentication

@@ -4,8 +4,8 @@ import SkillsAssessment from '../models/SkillAssessorModel.js';
 import crypto from 'crypto';
 
 // Helper function to calculate summary statistics
-const calculateSummary = (technologies) => {
-  if (!technologies || technologies.length === 0) {
+const calculateSummary = (skills) => {
+  if (!skills || skills.length === 0) {
     return {
       totalTechnologies: 0,
       averageConfidence: 0,
@@ -15,16 +15,16 @@ const calculateSummary = (technologies) => {
     };
   }
 
-  const total = technologies.length;
-  const avgConfidence = technologies.reduce((sum, tech) => sum + tech.confidenceLevel, 0) / total;
+  const total = skills.length;
+  const avgConfidence = skills.reduce((sum, skill) => sum + skill.proficiencyLevel, 0) / total;
   
-  const expertCount = technologies.filter(tech => tech.confidenceLevel >= 8).length;
-  const proficientCount = technologies.filter(tech => tech.confidenceLevel >= 6 && tech.confidenceLevel < 8).length;
-  const learningCount = technologies.filter(tech => tech.confidenceLevel < 6).length;
+  const expertCount = skills.filter(skill => skill.proficiencyLevel >= 8).length;
+  const proficientCount = skills.filter(skill => skill.proficiencyLevel >= 6 && skill.proficiencyLevel < 8).length;
+  const learningCount = skills.filter(skill => skill.proficiencyLevel < 6).length;
 
   return {
     totalTechnologies: total,
-    averageConfidence: Math.round(avgConfidence * 10) / 10, // Round to 1 decimal
+    averageConfidence: Math.round(avgConfidence * 10) / 10,
     expertCount,
     proficientCount,
     learningCount
@@ -57,12 +57,12 @@ export const saveRatings = async (req, res) => {
         success: false,
         message: 'At least one technology rating is required',
         required: ['technologies'],
-        format: 'Array of {name, category, confidenceLevel}'
+        format: 'Array of {name, category, proficiencyLevel}'
       });
     }
 
     // Validate and clean technology data
-    const validatedTechnologies = [];
+    const validatedSkills = [];
     const errors = [];
 
     for (let i = 0; i < technologies.length; i++) {
@@ -73,20 +73,24 @@ export const saveRatings = async (req, res) => {
         continue;
       }
 
-      if (!tech.confidenceLevel || typeof tech.confidenceLevel !== 'number') {
-        errors.push(`Technology ${i + 1}: confidenceLevel is required and must be a number`);
+      const proficiencyLevel = tech.confidenceLevel || tech.proficiencyLevel;
+      if (!proficiencyLevel || typeof proficiencyLevel !== 'number') {
+        errors.push(`Technology ${i + 1}: proficiencyLevel is required and must be a number`);
         continue;
       }
 
-      if (tech.confidenceLevel < 1 || tech.confidenceLevel > 10) {
-        errors.push(`Technology ${i + 1}: confidenceLevel must be between 1 and 10`);
+      if (proficiencyLevel < 1 || proficiencyLevel > 10) {
+        errors.push(`Technology ${i + 1}: proficiencyLevel must be between 1 and 10`);
         continue;
       }
 
-      validatedTechnologies.push({
+      validatedSkills.push({
         name: tech.name.trim(),
         category: tech.category ? tech.category.trim() : 'General',
-        confidenceLevel: Math.round(tech.confidenceLevel * 10) / 10 // Round to 1 decimal
+        proficiencyLevel: Math.round(proficiencyLevel * 10) / 10,
+        yearsOfExperience: tech.yearsOfExperience || 0,
+        lastUsed: new Date(),
+        isCoreTechnology: tech.isCore || false
       });
     }
 
@@ -99,53 +103,55 @@ export const saveRatings = async (req, res) => {
     }
 
     // Calculate summary statistics
-    const summary = calculateSummary(validatedTechnologies);
+    const summary = calculateSummary(validatedSkills);
 
     try {
-      // Find existing rating or create new one
-      let existingRating = await TechnologyRating.findOne({
+      // Find existing assessment or create new one
+      let existingAssessment = await SkillsAssessment.findOne({
         userId: userId,
         resumeHash: resumeHash
       });
 
-      const ratingData = {
+      const assessmentData = {
         userId: userId,
         resumeHash: resumeHash,
-        saved: shouldSave,
-        technologies: validatedTechnologies,
-        summary: summary
+        assessmentType: 'Technical Skills',
+        skills: validatedSkills,
+        overallScore: Math.round(summary.averageConfidence * 10),
+        isSaved: shouldSave,
+        completedAt: new Date()
       };
 
-      let savedRating;
+      let savedAssessment;
 
-      if (existingRating) {
-        console.log(`Updating existing technology rating: ${existingRating._id}`);
-        savedRating = await TechnologyRating.findByIdAndUpdate(
-          existingRating._id,
-          ratingData,
+      if (existingAssessment) {
+        console.log(`Updating existing skills assessment: ${existingAssessment._id}`);
+        savedAssessment = await SkillsAssessment.findByIdAndUpdate(
+          existingAssessment._id,
+          assessmentData,
           { new: true, runValidators: true }
         );
       } else {
-        console.log(`Creating new technology rating`);
-        savedRating = await TechnologyRating.create(ratingData);
+        console.log(`Creating new skills assessment`);
+        savedAssessment = await SkillsAssessment.create(assessmentData);
       }
 
-      console.log(`Successfully ${existingRating ? 'updated' : 'created'} technology rating: ${savedRating._id}`);
+      console.log(`Successfully ${existingAssessment ? 'updated' : 'created'} skills assessment: ${savedAssessment._id}`);
 
       // Prepare response
       const responseData = {
         success: true,
         message: shouldSave 
-          ? `Technology ratings ${existingRating ? 'updated' : 'saved'} successfully`
-          : `Technology ratings draft ${existingRating ? 'updated' : 'created'} successfully`,
+          ? `Skills assessment ${existingAssessment ? 'updated' : 'saved'} successfully`
+          : `Skills assessment draft ${existingAssessment ? 'updated' : 'created'} successfully`,
         data: {
-          id: savedRating._id,
-          resumeHash: savedRating.resumeHash,
-          saved: savedRating.saved,
-          technologiesCount: savedRating.technologies.length,
-          summary: savedRating.summary,
-          createdAt: savedRating.createdAt,
-          updatedAt: savedRating.updatedAt
+          id: savedAssessment._id,
+          resumeHash: savedAssessment.resumeHash,
+          saved: savedAssessment.isSaved,
+          technologiesCount: savedAssessment.skills.length,
+          summary: summary,
+          createdAt: savedAssessment.createdAt,
+          updatedAt: savedAssessment.updatedAt
         },
         stats: {
           totalTechnologies: summary.totalTechnologies,
@@ -155,66 +161,65 @@ export const saveRatings = async (req, res) => {
             proficient: summary.proficientCount,
             learning: summary.learningCount
           },
-          isNewRecord: !existingRating
+          isNewRecord: !existingAssessment
         }
       };
 
-      res.status(existingRating ? 200 : 201).json(responseData);
+      res.status(existingAssessment ? 200 : 201).json(responseData);
 
     } catch (dbError) {
-      console.error('Database error saving technology ratings:', dbError);
+      console.error('Database error saving skills assessment:', dbError);
       
-      // Handle specific MongoDB errors
       if (dbError.code === 11000) {
         return res.status(409).json({
           success: false,
-          message: 'Technology rating for this resume already exists',
-          error: 'DUPLICATE_RATING'
+          message: 'Skills assessment for this resume already exists',
+          error: 'DUPLICATE_ASSESSMENT'
         });
       }
 
       if (dbError.name === 'ValidationError') {
         return res.status(400).json({
           success: false,
-          message: 'Technology rating validation failed',
+          message: 'Skills assessment validation failed',
           errors: Object.values(dbError.errors).map(err => err.message)
         });
       }
 
-      throw dbError; // Re-throw for general error handler
+      throw dbError;
     }
 
   } catch (error) {
     console.error('Error in saveRatings:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to save technology ratings',
+      message: 'Failed to save skills assessment',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
 
-// Get technology ratings for user
+// Get skills assessments for user
 export const getRatings = async (req, res) => {
   try {
     const userId = req.user.id;
     const { resumeHash } = req.params;
     const { includeUnsaved = 'false', limit = '20', sort = 'updatedAt' } = req.query;
 
-    console.log(`=== Getting Technology Ratings ===`);
+    console.log(`=== Getting Skills Assessments ===`);
     console.log(`User: ${userId}`);
     console.log(`Resume Hash: ${resumeHash || 'all'}`);
     console.log(`Include Unsaved: ${includeUnsaved}`);
 
     // Build query filter
-    const filter = { userId };
+    const filter = { userId, assessmentType: 'Technical Skills' };
     
     if (resumeHash) {
       filter.resumeHash = resumeHash;
     }
     
     if (includeUnsaved !== 'true') {
-      filter.saved = true;
+      filter.isSaved = true;
     }
 
     // Build sort criteria
@@ -222,64 +227,56 @@ export const getRatings = async (req, res) => {
     if (sort === 'createdAt') {
       sortCriteria.createdAt = -1;
     } else if (sort === 'confidence') {
-      sortCriteria['summary.averageConfidence'] = -1;
+      sortCriteria.overallScore = -1;
     } else {
       sortCriteria.updatedAt = -1;
     }
 
-    const ratings = await TechnologyRating.find(filter)
+    const assessments = await SkillsAssessment.find(filter)
       .sort(sortCriteria)
       .limit(parseInt(limit))
-      .select('-userId'); // Exclude sensitive user ID
+      .select('-userId');
 
-    console.log(`Found ${ratings.length} technology ratings`);
+    console.log(`Found ${assessments.length} skills assessments`);
 
-    // Enhanced ratings with additional computed fields
-    const enhancedRatings = ratings.map(rating => {
-      const ratingObj = rating.toObject();
+    // Enhanced assessments with additional computed fields
+    const enhancedAssessments = assessments.map(assessment => {
+      const assessmentObj = assessment.toObject();
       
       // Add computed fields
-      ratingObj.topTechnologies = rating.technologies
-        .sort((a, b) => b.confidenceLevel - a.confidenceLevel)
-        .slice(0, 10);
+      assessmentObj.topTechnologies = assessment.skills
+        .sort((a, b) => b.proficiencyLevel - a.proficiencyLevel)
+        .slice(0, 10)
+        .map(skill => ({
+          name: skill.name,
+          confidence: skill.proficiencyLevel,
+          category: skill.category
+        }));
       
-      ratingObj.categorizedTechnologies = rating.technologies.reduce((acc, tech) => {
-        const category = tech.category || 'General';
-        if (!acc[category]) acc[category] = [];
-        acc[category].push(tech);
-        return acc;
-      }, {});
+      assessmentObj.totalTechnologies = assessment.skills.length;
+      assessmentObj.averageConfidence = assessment.averageProficiency;
+      assessmentObj.expertCount = assessment.expertSkills.length;
+      assessmentObj.proficientCount = assessment.skills.filter(s => s.proficiencyLevel >= 6 && s.proficiencyLevel < 8).length;
+      assessmentObj.learningCount = assessment.beginnerSkills.length;
+      assessmentObj.score = assessment.overallScore;
+      assessmentObj.level = assessment.overallScore >= 90 ? 'Expert' : 
+                          assessment.overallScore >= 70 ? 'Advanced' :
+                          assessment.overallScore >= 50 ? 'Intermediate' : 'Beginner';
 
-      // Add performance metrics
-      ratingObj.performanceMetrics = {
-        strongAreas: rating.technologies.filter(t => t.confidenceLevel >= 8).length,
-        improvementAreas: rating.technologies.filter(t => t.confidenceLevel < 6).length,
-        balancedSkills: rating.technologies.filter(t => t.confidenceLevel >= 6 && t.confidenceLevel < 8).length
-      };
-
-      return ratingObj;
+      return assessmentObj;
     });
 
     const responseData = {
       success: true,
-      data: enhancedRatings,
-      count: enhancedRatings.length,
+      data: enhancedAssessments,
+      count: enhancedAssessments.length,
       metadata: {
         userId: userId,
         filter: {
           resumeHash: resumeHash || null,
           savedOnly: includeUnsaved !== 'true',
           sortBy: sort
-        },
-        aggregateStats: enhancedRatings.length > 0 ? {
-          totalAssessments: enhancedRatings.length,
-          totalTechnologies: enhancedRatings.reduce((sum, r) => sum + (r.summary?.totalTechnologies || 0), 0),
-          averageConfidence: enhancedRatings.length > 0 
-            ? Math.round((enhancedRatings.reduce((sum, r) => sum + (r.summary?.averageConfidence || 0), 0) / enhancedRatings.length) * 10) / 10
-            : 0,
-          mostRecentAssessment: enhancedRatings[0]?.updatedAt,
-          oldestAssessment: enhancedRatings[enhancedRatings.length - 1]?.updatedAt
-        } : null
+        }
       }
     };
 
@@ -289,7 +286,7 @@ export const getRatings = async (req, res) => {
     console.error('Error in getRatings:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve technology ratings',
+      message: 'Failed to retrieve skills assessments',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
@@ -300,84 +297,46 @@ export const getRatingsStats = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    console.log(`=== Getting User Technology Stats ===`);
+    console.log(`=== Getting User Skills Stats ===`);
     console.log(`User: ${userId}`);
 
-    const [allRatings, savedRatings] = await Promise.all([
-      TechnologyRating.find({ userId }).select('summary technologies createdAt updatedAt saved'),
-      TechnologyRating.find({ userId, saved: true }).select('summary technologies createdAt updatedAt')
+    const [allAssessments, savedAssessments] = await Promise.all([
+      SkillsAssessment.find({ userId, assessmentType: 'Technical Skills' }),
+      SkillsAssessment.find({ userId, assessmentType: 'Technical Skills', isSaved: true })
     ]);
 
-    console.log(`Found ${allRatings.length} total ratings, ${savedRatings.length} saved`);
+    console.log(`Found ${allAssessments.length} total assessments, ${savedAssessments.length} saved`);
 
     // Calculate comprehensive statistics
     const stats = {
-      totalAssessments: allRatings.length,
-      savedAssessments: savedRatings.length,
-      draftAssessments: allRatings.length - savedRatings.length,
+      totalAssessments: allAssessments.length,
+      savedAssessments: savedAssessments.length,
+      draftAssessments: allAssessments.length - savedAssessments.length,
       
-      // Overall technology statistics
-      totalTechnologiesEvaluated: allRatings.reduce((sum, rating) => 
-        sum + (rating.technologies?.length || 0), 0),
+      totalTechnologiesEvaluated: allAssessments.reduce((sum, assessment) => 
+        sum + (assessment.skills?.length || 0), 0),
       uniqueTechnologies: new Set(
-        allRatings.flatMap(rating => 
-          rating.technologies?.map(tech => tech.name.toLowerCase()) || []
+        allAssessments.flatMap(assessment => 
+          assessment.skills?.map(skill => skill.name.toLowerCase()) || []
         )
       ).size,
       
-      // Confidence level statistics
-      averageConfidence: allRatings.length > 0 
-        ? Math.round((allRatings.reduce((sum, rating) => 
-            sum + (rating.summary?.averageConfidence || 0), 0) / allRatings.length) * 10) / 10
+      averageScore: allAssessments.length > 0 
+        ? Math.round((allAssessments.reduce((sum, assessment) => 
+            sum + (assessment.overallScore || 0), 0) / allAssessments.length) * 10) / 10
         : 0,
       
-      expertLevelSkills: allRatings.reduce((sum, rating) => 
-        sum + (rating.summary?.expertCount || 0), 0),
-      proficientSkills: allRatings.reduce((sum, rating) => 
-        sum + (rating.summary?.proficientCount || 0), 0),
-      learningSkills: allRatings.reduce((sum, rating) => 
-        sum + (rating.summary?.learningCount || 0), 0),
-
-      // Time-based statistics
-      firstAssessment: allRatings.length > 0 
-        ? allRatings.reduce((earliest, rating) => 
-            rating.createdAt < earliest ? rating.createdAt : earliest, allRatings[0].createdAt)
+      expertLevelSkills: allAssessments.reduce((sum, assessment) => 
+        sum + (assessment.expertSkills?.length || 0), 0),
+      
+      firstAssessment: allAssessments.length > 0 
+        ? allAssessments.reduce((earliest, assessment) => 
+            assessment.createdAt < earliest ? assessment.createdAt : earliest, allAssessments[0].createdAt)
         : null,
-      lastAssessment: allRatings.length > 0 
-        ? allRatings.reduce((latest, rating) => 
-            rating.updatedAt > latest ? rating.updatedAt : latest, allRatings[0].updatedAt)
-        : null,
-
-      // Recent activity (last 30 days)
-      recentAssessments: allRatings.filter(rating => {
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        return rating.updatedAt > thirtyDaysAgo;
-      }).length,
-
-      // Technology categories analysis
-      topCategories: (() => {
-        const categoryCount = {};
-        allRatings.forEach(rating => {
-          rating.technologies?.forEach(tech => {
-            const category = tech.category || 'General';
-            categoryCount[category] = (categoryCount[category] || 0) + 1;
-          });
-        });
-        
-        return Object.entries(categoryCount)
-          .sort(([,a], [,b]) => b - a)
-          .slice(0, 5)
-          .map(([category, count]) => ({ category, count }));
-      })(),
-
-      // Progress tracking
-      improvementTrend: allRatings.length > 1 ? {
-        confidenceChange: allRatings[0].summary?.averageConfidence - 
-          allRatings[allRatings.length - 1].summary?.averageConfidence,
-        technologiesGrowth: allRatings[0].summary?.totalTechnologies - 
-          allRatings[allRatings.length - 1].summary?.totalTechnologies
-      } : null
+      lastAssessment: allAssessments.length > 0 
+        ? allAssessments.reduce((latest, assessment) => 
+            assessment.updatedAt > latest ? assessment.updatedAt : latest, allAssessments[0].updatedAt)
+        : null
     };
 
     res.json({
@@ -385,11 +344,7 @@ export const getRatingsStats = async (req, res) => {
       stats: stats,
       metadata: {
         userId: userId,
-        calculatedAt: new Date().toISOString(),
-        dataRange: {
-          from: stats.firstAssessment,
-          to: stats.lastAssessment
-        }
+        calculatedAt: new Date().toISOString()
       }
     });
 
@@ -403,56 +358,55 @@ export const getRatingsStats = async (req, res) => {
   }
 };
 
-// Delete technology ratings
+// Delete skills assessment
 export const deleteRatings = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
 
-    console.log(`=== Deleting Technology Rating ===`);
+    console.log(`=== Deleting Skills Assessment ===`);
     console.log(`User: ${userId}`);
-    console.log(`Rating ID: ${id}`);
+    console.log(`Assessment ID: ${id}`);
 
     if (!id) {
       return res.status(400).json({
         success: false,
-        message: 'Rating ID is required for deletion'
+        message: 'Assessment ID is required for deletion'
       });
     }
 
-    // Validate ObjectId format
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid rating ID format',
+        message: 'Invalid assessment ID format',
         received: id
       });
     }
 
-    const deletedRating = await TechnologyRating.findOneAndDelete({
+    const deletedAssessment = await SkillsAssessment.findOneAndDelete({
       _id: id,
-      userId: userId
+      userId: userId,
+      assessmentType: 'Technical Skills'
     });
 
-    if (!deletedRating) {
+    if (!deletedAssessment) {
       return res.status(404).json({
         success: false,
-        message: 'Technology rating not found or unauthorized',
-        ratingId: id
+        message: 'Skills assessment not found or unauthorized',
+        assessmentId: id
       });
     }
 
-    console.log(`Successfully deleted technology rating: ${id}`);
+    console.log(`Successfully deleted skills assessment: ${id}`);
 
     res.json({
       success: true,
-      message: 'Technology rating deleted successfully',
-      deletedRating: {
-        id: deletedRating._id,
-        resumeHash: deletedRating.resumeHash,
-        technologiesCount: deletedRating.technologies?.length || 0,
-        wasSaved: deletedRating.saved,
-        summary: deletedRating.summary,
+      message: 'Skills assessment deleted successfully',
+      deletedAssessment: {
+        id: deletedAssessment._id,
+        resumeHash: deletedAssessment.resumeHash,
+        skillsCount: deletedAssessment.skills?.length || 0,
+        wasSaved: deletedAssessment.isSaved,
         deletedAt: new Date().toISOString()
       }
     });
@@ -461,61 +415,61 @@ export const deleteRatings = async (req, res) => {
     console.error('Error in deleteRatings:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to delete technology rating',
+      message: 'Failed to delete skills assessment',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
 
-// Get detailed rating information
+// Get detailed assessment information
 export const getRatingDetails = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
 
-    console.log(`=== Getting Rating Details ===`);
+    console.log(`=== Getting Assessment Details ===`);
     console.log(`User: ${userId}`);
-    console.log(`Rating ID: ${id}`);
+    console.log(`Assessment ID: ${id}`);
 
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid rating ID format'
+        message: 'Invalid assessment ID format'
       });
     }
 
-    const rating = await TechnologyRating.findOne({
+    const assessment = await SkillsAssessment.findOne({
       _id: id,
-      userId: userId
+      userId: userId,
+      assessmentType: 'Technical Skills'
     }).select('-userId');
 
-    if (!rating) {
+    if (!assessment) {
       return res.status(404).json({
         success: false,
-        message: 'Technology rating not found'
+        message: 'Skills assessment not found'
       });
     }
 
-    // Enhanced rating details with analysis
-    const ratingDetails = rating.toObject();
+    const assessmentDetails = assessment.toObject();
     
     // Add detailed analysis
-    ratingDetails.analysis = {
-      strengthAreas: rating.technologies.filter(t => t.confidenceLevel >= 8),
-      improvementAreas: rating.technologies.filter(t => t.confidenceLevel < 6),
-      balancedAreas: rating.technologies.filter(t => t.confidenceLevel >= 6 && t.confidenceLevel < 8),
+    assessmentDetails.analysis = {
+      strengthAreas: assessment.skills.filter(s => s.proficiencyLevel >= 8),
+      improvementAreas: assessment.skills.filter(s => s.proficiencyLevel < 6),
+      balancedAreas: assessment.skills.filter(s => s.proficiencyLevel >= 6 && s.proficiencyLevel < 8),
       
-      categoryBreakdown: rating.technologies.reduce((acc, tech) => {
-        const category = tech.category || 'General';
+      categoryBreakdown: assessment.skills.reduce((acc, skill) => {
+        const category = skill.category || 'General';
         if (!acc[category]) {
           acc[category] = {
             count: 0,
             avgConfidence: 0,
-            technologies: []
+            skills: []
           };
         }
         acc[category].count++;
-        acc[category].technologies.push(tech);
+        acc[category].skills.push(skill);
         return acc;
       }, {}),
       
@@ -523,36 +477,36 @@ export const getRatingDetails = async (req, res) => {
     };
 
     // Calculate average confidence per category
-    Object.keys(ratingDetails.analysis.categoryBreakdown).forEach(category => {
-      const categoryData = ratingDetails.analysis.categoryBreakdown[category];
+    Object.keys(assessmentDetails.analysis.categoryBreakdown).forEach(category => {
+      const categoryData = assessmentDetails.analysis.categoryBreakdown[category];
       categoryData.avgConfidence = Math.round(
-        (categoryData.technologies.reduce((sum, tech) => sum + tech.confidenceLevel, 0) / categoryData.count) * 10
+        (categoryData.skills.reduce((sum, skill) => sum + skill.proficiencyLevel, 0) / categoryData.count) * 10
       ) / 10;
     });
 
     // Generate recommendations
-    if (ratingDetails.analysis.improvementAreas.length > 0) {
-      ratingDetails.analysis.recommendations.push(
-        `Focus on improving ${ratingDetails.analysis.improvementAreas.length} technologies with confidence below 6/10`
+    if (assessmentDetails.analysis.improvementAreas.length > 0) {
+      assessmentDetails.analysis.recommendations.push(
+        `Focus on improving ${assessmentDetails.analysis.improvementAreas.length} skills with proficiency below 6/10`
       );
     }
     
-    if (ratingDetails.analysis.strengthAreas.length > 0) {
-      ratingDetails.analysis.recommendations.push(
-        `Leverage your expertise in ${ratingDetails.analysis.strengthAreas.map(t => t.name).slice(0, 3).join(', ')}`
+    if (assessmentDetails.analysis.strengthAreas.length > 0) {
+      assessmentDetails.analysis.recommendations.push(
+        `Leverage your expertise in ${assessmentDetails.analysis.strengthAreas.map(s => s.name).slice(0, 3).join(', ')}`
       );
     }
 
     res.json({
       success: true,
-      data: ratingDetails
+      data: assessmentDetails
     });
 
   } catch (error) {
     console.error('Error in getRatingDetails:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get rating details',
+      message: 'Failed to get assessment details',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
