@@ -14,6 +14,11 @@ const technologyRatingSchema = new mongoose.Schema({
     index: true,
     trim: true
   },
+  saved: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
   technologies: [{
     name: {
       type: String,
@@ -76,6 +81,10 @@ technologyRatingSchema.index(
 technologyRatingSchema.index({ createdAt: -1, userId: 1 });
 technologyRatingSchema.index({ updatedAt: -1, userId: 1 });
 
+// Index for filtering by saved status
+technologyRatingSchema.index({ saved: 1, userId: 1 });
+technologyRatingSchema.index({ saved: 1, updatedAt: -1 });
+
 // Virtual for getting the rating age
 technologyRatingSchema.virtual('age').get(function() {
   return new Date() - this.createdAt;
@@ -113,6 +122,16 @@ technologyRatingSchema.statics.findByUser = function(userId) {
   return this.find({ userId }).sort({ updatedAt: -1 });
 };
 
+// Static method to find saved ratings by user
+technologyRatingSchema.statics.findSavedByUser = function(userId) {
+  return this.find({ userId, saved: true }).sort({ updatedAt: -1 });
+};
+
+// Static method to find unsaved/draft ratings by user
+technologyRatingSchema.statics.findDraftsByUser = function(userId) {
+  return this.find({ userId, saved: false }).sort({ updatedAt: -1 });
+};
+
 // Static method to find ratings by resume hash
 technologyRatingSchema.statics.findByResumeHash = function(resumeHash) {
   return this.find({ resumeHash }).sort({ updatedAt: -1 });
@@ -126,6 +145,18 @@ technologyRatingSchema.statics.findUserRating = function(userId, resumeHash) {
 // Instance method to check if rating belongs to user
 technologyRatingSchema.methods.belongsToUser = function(userId) {
   return this.userId === userId;
+};
+
+// Instance method to mark rating as saved
+technologyRatingSchema.methods.markAsSaved = function() {
+  this.saved = true;
+  return this.save();
+};
+
+// Instance method to mark rating as draft/unsaved
+technologyRatingSchema.methods.markAsDraft = function() {
+  this.saved = false;
+  return this.save();
 };
 
 // Create and export the model
