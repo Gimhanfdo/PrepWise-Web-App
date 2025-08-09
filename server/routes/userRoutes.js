@@ -5,19 +5,13 @@ import {
   updateUserProfile,
   changePassword,
   upgradeToPremium,
-  downgradeToBasic,
-  getSavedAnalyses,
-  getSkillsAssessments,
-  deleteAnalysis,
-  deleteAssessment
+  downgradeToBasic
 } from "../controllers/userController.js";
 
 // Import CV Analysis controller methods
 import { 
-  getSavedAnalyses, 
-  deleteAnalysis, 
-  getAllAnalyses, 
-  getAnalysisStats 
+  getSavedAnalysis, // Singular - matches the actual method name
+  deleteAnalysis
 } from '../controllers/cvAnalysiscontroller.js';
 
 // Import Skills Assessment controller methods
@@ -27,19 +21,6 @@ import {
   getRatingsStats,
   getRatingDetails 
 } from '../controllers/skillAssessorController.js';
-
-
-// CV Analysis routes
-router.get('/saved-analyses', userAuth, getSavedAnalyses);
-router.get('/all-analyses', userAuth, getAllAnalyses);
-router.get('/analysis-stats', userAuth, getAnalysisStats);
-router.delete('/analysis/:id', userAuth, deleteAnalysis);
-
-// Skills Assessment routes  
-router.get('/skills-assessments', userAuth, getRatings);
-router.get('/skills-stats', userAuth, getRatingsStats);
-router.get('/skills-assessment/:id', userAuth, getRatingDetails);
-router.delete('/assessment/:id', userAuth, deleteRatings);
 
 const userRouter = express.Router();
 
@@ -55,10 +36,14 @@ userRouter.put('/change-password', changePassword);
 userRouter.put('/upgrade-premium', upgradeToPremium);
 userRouter.put('/downgrade-basic', downgradeToBasic);
 
-// Data routes
-userRouter.get('/saved-analyses', getSavedAnalyses);
-userRouter.get('/skills-assessments', getSkillsAssessments);
+// CV Analysis routes
+userRouter.get('/saved-analyses', getSavedAnalysis); // Uses singular method name
 userRouter.delete('/analysis/:id', deleteAnalysis);
-userRouter.delete('/assessment/:id', deleteAssessment);
+
+// Skills Assessment routes  
+userRouter.get('/skills-assessments', getRatings);
+userRouter.get('/skills-stats', getRatingsStats);
+userRouter.get('/skills-assessment/:id', getRatingDetails);
+userRouter.delete('/assessment/:id', deleteRatings);
 
 export default userRouter;

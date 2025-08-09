@@ -484,44 +484,193 @@ export const analyzeResume = async (req, res) => {
   }
 };
 
+// ENHANCED: Get saved CV analyses with better formatting (from first file)
+export const getSavedAnalysis = async (req, res) => {
+  try {
+    console.log('🔍 Getting saved analyses for user:', req.user.id);
+    
+    const savedAnalyses = await CVAnalysis.find({
+      userId: req.user.id,
+      isSaved: true
+    })
+    .sort({ updatedAt: -1 })
+    .limit(20)
+    .select('-userId -resumeText'); // Exclude sensitive data
+
+    console.log(`✅ Found ${savedAnalyses.length} saved analyses`);
+
+    // Transform data to match what UserProfile.js expects
+    const formattedAnalyses = savedAnalyses.map(analysis => {
+      const results = analysis.results || [];
+      const softwareRoles = results.filter(r => !r.isNonTechRole);
+      
+      // Calculate average match percentage
+      const avgMatch = softwareRoles.length > 0 
+        ? Math.round(softwareRoles.reduce((sum, r) => sum + (r.matchPercentage || 0), 0) / softwareRoles.length)
+        : 0;
+
+      // Get the best matching job (highest percentage)
+      const bestMatch = results.length > 0 
+        ? results.reduce((best, current) => 
+            (current.matchPercentage || 0) > (best.matchPercentage || 0) ? current : best, 
+            { matchPercentage: 0, strengths: [], contentRecommendations: [], structureRecommendations: [] }
+          )
+        : { matchPercentage: 0, strengths: [], contentRecommendations: [], structureRecommendations: [] };
+
+      // Extract job title and company from results or job descriptions
+      let jobTitle = 'Software Engineering Position';
+      let company = 'Company';
+      
+      // Try to get from first result
+      if (results.length > 0 && results[0].jobTitle) {
+        jobTitle = results[0].jobTitle;
+      }
+      if (results.length > 0 && results[0].company) {
+        company = results[0].company;
+      }
+      
+      // Fallback: try to extract from job descriptions
+      if (analysis.jobDescriptions && analysis.jobDescriptions.length > 0) {
+        const firstJobDesc = analysis.jobDescriptions[0];
+        const titleMatch = firstJobDesc.match(/(?:position|role|title):\s*([^\n<]+)/i);
+        const companyMatch = firstJobDesc.match(/(?:company|organization):\s*([^\n<]+)/i) || 
+                           firstJobDesc.match(/<strong>([^<]+)<\/strong>/);
+        
+        if (titleMatch && !results[0]?.jobTitle) jobTitle = titleMatch[1].trim();
+        if (companyMatch && !results[0]?.company) company = companyMatch[1].trim();
+      }
+
+      return {
+        id: analysis._id,
+        jobTitle,
+        company,
+        matchPercentage: avgMatch,
+        totalJobs: results.length,
+        softwareJobs: softwareRoles.length,
+        createdAt: analysis.createdAt,
+        updatedAt: analysis.updatedAt,
+        strengths: bestMatch.strengths || [],
+        recommendations: [
+          ...(bestMatch.contentRecommendations || []),
+          ...(bestMatch.structureRecommendations || [])
+        ].slice(0, 5), // Limit to 5 recommendations
+        hasMultipleJobs: results.length > 1,
+        // Additional fields from the enhanced version
+        summary: {
+          totalRoles: results.length,
+          softwareRoles: softwareRoles.length,
+          nonTechRoles: results.filter(r => r.isNonTechRole).length,
+          avgMatchScore: avgMatch,
+          hasHighMatches: softwareRoles.some(r => (r.matchPercentage || 0) >= 70),
+          recommendationCount: results.reduce((sum, r) => sum + (r.contentRecommendations?.length || 0) + (r.structureRecommendations?.length || 0), 0),
+          isSaved: analysis.isSaved
+        }
+      };
+    });
+
+    console.log('✅ Sending formatted analyses:', formattedAnalyses.length);
+
+    res.json({
+      success: true,
+      data: formattedAnalyses,
+      count: formattedAnalyses.length,
+      // Additional metadata from enhanced version
+      metadata: {
+        totalSoftwareAnalyses: formattedAnalyses.reduce((sum, a) => sum + a.summary.softwareRoles, 0),
+        totalNonTechAnalyses: formattedAnalyses.reduce((sum, a) => sum + a.summary.nonTechRoles, 0),
+        avgOverallMatch: formattedAnalyses.length > 0 
+          ? Math.round(formattedAnalyses.reduce((sum, a) => sum + a.summary.avgMatchScore, 0) / formattedAnalyses.length)
+          : 0,
+        savedCount: formattedAnalyses.filter(a => a.summary.isSaved).length,
+        unsavedCount: formattedAnalyses.filter(a => !a.summary.isSaved).length
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching saved analyses:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch saved CV analyses',
+      error: error.message
+    });
+  }
+};
+
 // UPDATED: Enhanced save analysis - now toggles isSaved field instead of creating separate collection
 export const saveAnalysis = async (req, res) => {
   try {
-    let { resumeHash, shouldSave = true } = req.body;
+    console.log('🔍 Saving CV analysis...');
     
-    if (!resumeHash) {
+    let { resumeText, resumeHash, jobDescriptions, results, shouldSave = true } = req.body;
+    
+    // Handle both old and new API patterns
+    if (!resumeHash && (resumeText || jobDescriptions || results)) {
+      // Old pattern: saving new analysis with full data
+      if (!resumeText || !jobDescriptions || !results) {
+        return res.status(400).json({
+          success: false,
+          message: 'Missing required fields for saving analysis',
+          required: ['resumeText', 'resumeHash', 'jobDescriptions', 'results']
+        });
+      }
+      
+      // Generate hash if not provided
+      resumeHash = resumeHash || createResumeHash(resumeText);
+    } else if (resumeHash && !resumeText && !jobDescriptions && !results) {
+      // New pattern: toggling save status of existing analysis
+      // (handled below)
+    } else if (!resumeHash) {
       return res.status(400).json({ 
+        success: false,
         message: "Resume hash is required to save/unsave analysis.",
         required: ["resumeHash"]
       });
     }
 
     // Find the analysis by user and resume hash
-    const analysis = await CVAnalysis.findOne({
+    let analysis = await CVAnalysis.findOne({
       userId: req.user.id,
       resumeHash: resumeHash
     });
 
-    if (!analysis) {
+    if (analysis) {
+      // Update existing analysis
+      if (jobDescriptions && results) {
+        // Old pattern: update with new data
+        analysis.jobDescriptions = jobDescriptions;
+        analysis.results = results;
+        if (resumeText) {
+          analysis.resumeText = resumeText.substring(0, 15000);
+        }
+      }
+      analysis.isSaved = shouldSave;
+      analysis.updatedAt = new Date();
+      
+      await analysis.save();
+      console.log(`${shouldSave ? 'Saved' : 'Updated'} existing analysis ${analysis._id}`);
+    } else if (resumeText && jobDescriptions && results) {
+      // Create new analysis (old pattern)
+      analysis = new CVAnalysis({
+        userId: req.user.id,
+        resumeText: resumeText.substring(0, 15000),
+        resumeHash,
+        jobDescriptions,
+        results,
+        isSaved: shouldSave
+      });
+      
+      await analysis.save();
+      console.log('✅ New analysis created and saved successfully');
+    } else {
       return res.status(404).json({ 
+        success: false,
         message: "CV analysis not found. Please analyze your resume first.",
         resumeHash: resumeHash
       });
     }
 
-    // Update the isSaved field
-    const updatedAnalysis = await CVAnalysis.findByIdAndUpdate(
-      analysis._id,
-      { 
-        isSaved: shouldSave,
-        updatedAt: new Date()
-      },
-      { new: true }
-    );
-
-    console.log(`${shouldSave ? 'Saved' : 'Unsaved'} analysis ${analysis._id} for user ${req.user.id}`);
-
-    const validatedResults = updatedAnalysis.results.map((result, index) => {
+    // Validate results for response
+    const validatedResults = (analysis.results || []).map((result, index) => {
       return {
         matchPercentage: typeof result.matchPercentage === 'number' ? Math.max(0, Math.min(100, result.matchPercentage)) : 0,
         isNonTechRole: typeof result.isNonTechRole === 'boolean' ? result.isNonTechRole : false,
@@ -537,18 +686,22 @@ export const saveAnalysis = async (req, res) => {
       };
     });
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: shouldSave 
         ? "CV analysis saved successfully." 
         : "CV analysis unsaved successfully.",
       saved: shouldSave,
+      data: {
+        id: analysis._id,
+        isSaved: analysis.isSaved
+      },
       analysis: {
-        id: updatedAnalysis._id,
-        resumeText: updatedAnalysis.resumeText,
-        isSaved: updatedAnalysis.isSaved,
+        id: analysis._id,
+        resumeText: analysis.resumeText,
+        isSaved: analysis.isSaved,
         analysisCount: validatedResults.length,
-        updatedAt: updatedAnalysis.updatedAt
+        updatedAt: analysis.updatedAt
       },
       stats: {
         totalAnalyses: validatedResults.length,
@@ -559,90 +712,27 @@ export const saveAnalysis = async (req, res) => {
       }
     });
 
-  } catch (err) {
-    console.error("Enhanced save analysis error:", err);
-    res.status(500).json({ 
-      message: "Server error while saving/unsaving CV analysis.",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  } catch (error) {
+    console.error('❌ Error saving analysis:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to save analysis',
+      error: error.message
     });
   }
 };
 
-// UPDATED: Enhanced get saved analysis - now filters by isSaved field
-export const getSavedAnalysis = async (req, res) => {
-  try {
-    const { includeUnsaved = false } = req.query;
-
-    // Build query filter
-    const filter = { userId: req.user.id };
-    if (!includeUnsaved || includeUnsaved === 'false') {
-      filter.isSaved = true; // Only get saved analyses by default
-    }
-
-    const savedAnalyses = await CVAnalysis.find(filter)
-      .sort({ updatedAt: -1, createdAt: -1 })
-      .limit(50)
-      .select('-userId'); // Exclude sensitive user ID from response
-
-    // Add summary statistics for each analysis
-    const enhancedAnalyses = savedAnalyses.map(analysis => {
-      const results = analysis.results || [];
-      const softwareRoles = results.filter(r => !r.isNonTechRole);
-      const nonTechRoles = results.filter(r => r.isNonTechRole);
-      
-      return {
-        ...analysis.toObject(),
-        summary: {
-          totalRoles: results.length,
-          softwareRoles: softwareRoles.length,
-          nonTechRoles: nonTechRoles.length,
-          avgMatchScore: softwareRoles.length > 0 
-            ? Math.round(softwareRoles.reduce((sum, r) => sum + (r.matchPercentage || 0), 0) / softwareRoles.length)
-            : 0,
-          hasHighMatches: softwareRoles.some(r => (r.matchPercentage || 0) >= 70),
-          recommendationCount: results.reduce((sum, r) => sum + (r.contentRecommendations?.length || 0) + (r.structureRecommendations?.length || 0), 0),
-          isSaved: analysis.isSaved
-        }
-      };
-    });
-
-    res.json({ 
-      savedAnalyses: enhancedAnalyses,
-      count: enhancedAnalyses.length,
-      metadata: {
-        totalSoftwareAnalyses: enhancedAnalyses.reduce((sum, a) => sum + a.summary.softwareRoles, 0),
-        totalNonTechAnalyses: enhancedAnalyses.reduce((sum, a) => sum + a.summary.nonTechRoles, 0),
-        avgOverallMatch: enhancedAnalyses.length > 0 
-          ? Math.round(enhancedAnalyses.reduce((sum, a) => sum + a.summary.avgMatchScore, 0) / enhancedAnalyses.length)
-          : 0,
-        savedCount: enhancedAnalyses.filter(a => a.isSaved).length,
-        unsavedCount: enhancedAnalyses.filter(a => !a.isSaved).length
-      }
-    });
-  } catch (err) {
-    console.error("Enhanced get saved analyses error:", err);
-    res.status(500).json({ 
-      message: "Failed to fetch CV analyses.",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-  }
-};
-
-// UPDATED: Enhanced delete analysis - now works with single collection
+// DELETE /api/analyze/delete/:id - Delete specific CV analysis (from first file)
 export const deleteAnalysis = async (req, res) => {
   try {
+    console.log('🔍 Deleting analysis:', req.params.id);
+    
     const { id } = req.params;
-
-    if (!id) {
-      return res.status(400).json({ 
-        message: "Analysis ID is required for deletion.",
-        example: "DELETE /api/analysis/delete/[analysis_id]"
-      });
-    }
 
     // Validate ObjectId format
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ 
+        success: false,
         message: "Invalid analysis ID format.",
         received: id
       });
@@ -650,22 +740,21 @@ export const deleteAnalysis = async (req, res) => {
 
     const deleted = await CVAnalysis.findOneAndDelete({
       _id: id,
-      userId: req.user.id,
+      userId: req.user.id
     });
 
     if (!deleted) {
-      return res.status(404).json({ 
-        message: "CV analysis not found or unauthorized.",
-        analysisId: id
+      return res.status(404).json({
+        success: false,
+        message: 'CV analysis not found'
       });
     }
 
-    // Log deletion for audit
-    console.log(`Deleted analysis ${id} for user ${req.user.id}`);
+    console.log('✅ Analysis deleted successfully');
 
-    res.json({ 
-      success: true, 
-      message: "CV analysis deleted successfully.",
+    res.json({
+      success: true,
+      message: 'CV analysis deleted successfully',
       deletedAnalysis: {
         id: deleted._id,
         resumeText: deleted.resumeText,
@@ -674,11 +763,13 @@ export const deleteAnalysis = async (req, res) => {
         deletedAt: new Date().toISOString()
       }
     });
-  } catch (err) {
-    console.error("Enhanced delete analysis error:", err);
-    res.status(500).json({ 
-      message: "Server error while deleting CV analysis.",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined
+
+  } catch (error) {
+    console.error('❌ Error deleting CV analysis:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete CV analysis',
+      error: error.message
     });
   }
 };

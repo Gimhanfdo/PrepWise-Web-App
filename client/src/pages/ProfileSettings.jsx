@@ -66,27 +66,120 @@ const UserProfile = () => {
     }
   }, [userData]);
 
-  const fetchSavedAnalyses = async () => {
-    try {
-      const { data } = await axios.get(backendUrl + '/api/user/saved-analyses');
-      if (data.success) {
-        setSavedAnalyses(data.data);
-      }
-    } catch (error) {
-      console.error('Error fetching saved analyses:', error);
-    }
-  };
+ const fetchSavedAnalyses = async () => {
+  try {
+    // Use the correct endpoint from analysisRouter
+    const { data } = await axios.get(backendUrl + '/api/analyze/saved');
+    if (data.success) {
+      // Transform the data to match what your UI expects
+      const formattedAnalyses = data.data.map(analysis => {
+        const results = analysis.results || [];
+        const softwareRoles = results.filter(r => !r.isNonTechRole);
+        
+        // Calculate average match percentage
+        const avgMatch = softwareRoles.length > 0 
+          ? Math.round(softwareRoles.reduce((sum, r) => sum + (r.matchPercentage || 0), 0) / softwareRoles.length)
+          : 0;
 
-  const fetchSkillsAssessments = async () => {
-    try {
-      const { data } = await axios.get(backendUrl + '/api/user/skills-assessments');
-      if (data.success) {
-        setSkillsAssessments(data.data);
-      }
-    } catch (error) {
-      console.error('Error fetching skills assessments:', error);
+        // Get the best matching job (highest percentage)
+        const bestMatch = softwareRoles.reduce((best, current) => 
+          (current.matchPercentage || 0) > (best.matchPercentage || 0) ? current : best, 
+          { matchPercentage: 0 }
+        );
+
+        // Extract job title and company from job description if available
+        let jobTitle = 'Software Engineering Position';
+        let company = 'Company';
+        
+        if (analysis.jobDescriptions && analysis.jobDescriptions.length > 0) {
+          const firstJobDesc = analysis.jobDescriptions[0];
+          // Simple extraction logic
+          const titleMatch = firstJobDesc.match(/(?:position|role|title):\s*([^\n<]+)/i);
+          const companyMatch = firstJobDesc.match(/(?:company|organization):\s*([^\n<]+)/i) || 
+                             firstJobDesc.match(/<strong>([^<]+)<\/strong>/);
+          
+          if (titleMatch) jobTitle = titleMatch[1].trim();
+          if (companyMatch) company = companyMatch[1].trim();
+        }
+
+        return {
+          id: analysis._id,
+          jobTitle,
+          company,
+          matchPercentage: avgMatch,
+          totalJobs: results.length,
+          softwareJobs: softwareRoles.length,
+          createdAt: analysis.createdAt,
+          updatedAt: analysis.updatedAt,
+          strengths: bestMatch.strengths || [],
+          recommendations: [
+            ...(bestMatch.contentRecommendations || []),
+            ...(bestMatch.structureRecommendations || [])
+          ].slice(0, 5),
+          hasMultipleJobs: results.length > 1
+        };
+      });
+      
+      setSavedAnalyses(formattedAnalyses);
     }
-  };
+  } catch (error) {
+    console.error('Error fetching saved analyses:', error);
+  }
+};
+
+ const fetchSkillsAssessments = async () => {
+  try {
+    // Use the correct endpoint from skillAssessor
+    const { data } = await axios.get(backendUrl + '/api/swot/ratings');
+    if (data.success) {
+      // Transform the data to match what your UI expects
+      const formattedAssessments = data.data.map(assessment => {
+        const technologies = assessment.technologies || [];
+        const summary = assessment.summary || {};
+        
+        // Calculate overall score based on confidence levels
+        const avgConfidence = summary.averageConfidence || 0;
+        const score = Math.round((avgConfidence / 10) * 100);
+
+        // Determine assessment type
+        let assessmentType = 'Technical Skills Assessment';
+        const techCategories = [...new Set(technologies.map(t => t.category))];
+        if (techCategories.length > 0) {
+          assessmentType = techCategories.join(', ') + ' Assessment';
+        }
+
+        // Determine level based on average confidence
+        let level = 'Beginner';
+        if (avgConfidence >= 8) level = 'Expert';
+        else if (avgConfidence >= 6) level = 'Advanced';
+        else if (avgConfidence >= 4) level = 'Intermediate';
+
+        return {
+          id: assessment._id,
+          assessmentType,
+          level,
+          score,
+          totalTechnologies: summary.totalTechnologies || technologies.length,
+          averageConfidence: avgConfidence,
+          expertCount: summary.expertCount || 0,
+          proficientCount: summary.proficientCount || 0,
+          learningCount: summary.learningCount || 0,
+          completedAt: assessment.updatedAt,
+          createdAt: assessment.createdAt,
+          topTechnologies: technologies
+            .sort((a, b) => b.confidenceLevel - a.confidenceLevel)
+            .slice(0, 5)
+            .map(t => ({ name: t.name, confidence: t.confidenceLevel })),
+          isRecent: assessment.isRecent
+        };
+      });
+      
+      setSkillsAssessments(formattedAssessments);
+    }
+  } catch (error) {
+    console.error('Error fetching skills assessments:', error);
+  }
+};
 
   const updateProfile = async () => {
     setLoading(true);
@@ -187,44 +280,46 @@ const UserProfile = () => {
   };
 
   const deleteAnalysis = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this CV analysis?')) {
-      return;
+  if (!window.confirm('Are you sure you want to delete this CV analysis?')) {
+    return;
+  }
+
+  try {
+    // Use the correct endpoint
+    const { data } = await axios.delete(backendUrl + `/api/analyze/delete/${id}`);
+
+    if (data.success) {
+      setSavedAnalyses(prev => prev.filter(analysis => analysis.id !== id));
+      toast.success('Analysis deleted successfully');
+    } else {
+      toast.error(data.message || 'Failed to delete analysis');
     }
+  } catch (error) {
+    const msg = error.response?.data?.message || error.message || 'Failed to delete analysis';
+    toast.error(msg);
+  }
+};
 
-    try {
-      const { data } = await axios.delete(backendUrl + `/api/user/analysis/${id}`);
+const deleteAssessment = async (id) => {
+  if (!window.confirm('Are you sure you want to delete this skills assessment?')) {
+    return;
+  }
 
-      if (data.success) {
-        setSavedAnalyses(prev => prev.filter(analysis => analysis.id !== id));
-        toast.success('Analysis deleted successfully');
-      } else {
-        toast.error(data.message || 'Failed to delete analysis');
-      }
-    } catch (error) {
-      const msg = error.response?.data?.message || error.message || 'Failed to delete analysis';
-      toast.error(msg);
+  try {
+    // Use the correct endpoint
+    const { data } = await axios.delete(backendUrl + `/api/swot/delete/${id}`);
+
+    if (data.success) {
+      setSkillsAssessments(prev => prev.filter(assessment => assessment.id !== id));
+      toast.success('Assessment deleted successfully');
+    } else {
+      toast.error(data.message || 'Failed to delete assessment');
     }
-  };
-
-  const deleteAssessment = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this skills assessment?')) {
-      return;
-    }
-
-    try {
-      const { data } = await axios.delete(backendUrl + `/api/user/assessment/${id}`);
-
-      if (data.success) {
-        setSkillsAssessments(prev => prev.filter(assessment => assessment.id !== id));
-        toast.success('Assessment deleted successfully');
-      } else {
-        toast.error(data.message || 'Failed to delete assessment');
-      }
-    } catch (error) {
-      const msg = error.response?.data?.message || error.message || 'Failed to delete assessment';
-      toast.error(msg);
-    }
-  };
+  } catch (error) {
+    const msg = error.response?.data?.message || error.message || 'Failed to delete assessment';
+    toast.error(msg);
+  }
+};
 
   const downloadAnalysis = async (id) => {
     try {
