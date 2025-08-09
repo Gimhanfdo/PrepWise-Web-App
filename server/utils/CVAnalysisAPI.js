@@ -1,9 +1,10 @@
-import OpenAI from "openai";
+// Enhanced CV Analysis API using Gemini 2.5 Flash directly
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import crypto from "crypto";
 
-const AI = new OpenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"
-});
+// Initialize Gemini AI
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 const validateInputs = (text1, text2) => {
   if (
@@ -19,7 +20,7 @@ const validateInputs = (text1, text2) => {
   }
 };
 
-// Enhanced software engineering internship-specific keywords and patterns
+// Enhanced software engineering internship-specific keywords
 const SOFTWARE_ENGINEERING_KEYWORDS = [
   // Programming Languages
   'python', 'java', 'javascript', 'typescript', 'c++', 'c#', 'go', 'rust', 'swift', 'kotlin', 'scala', 'ruby', 'php',
@@ -35,7 +36,7 @@ const SOFTWARE_ENGINEERING_KEYWORDS = [
   'git', 'github', 'gitlab', 'jira', 'confluence', 'slack', 'figma', 'postman', 'swagger',
   // Concepts
   'api', 'rest', 'graphql', 'microservices', 'agile', 'scrum', 'ci/cd', 'testing', 'unit testing', 'integration testing',
-  // Data Science/ML (for relevant internships)
+  // Data Science/ML
   'machine learning', 'data science', 'tensorflow', 'pytorch', 'pandas', 'numpy', 'scikit-learn',
   // Common intern-level skills
   'software development', 'web development', 'mobile development', 'full stack', 'frontend', 'backend', 'debugging'
@@ -54,12 +55,17 @@ const NON_TECH_INDICATORS = [
   'warehouse', 'logistics', 'driver', 'delivery', 'shipping'
 ];
 
-// Enhanced similarity scoring with strict software engineering focus
+// Function to create a hash of the resume text for comparison
+function createResumeHash(resumeText) {
+  return crypto.createHash('sha256').update(resumeText.trim()).digest('hex');
+}
+
+// Enhanced similarity scoring using Gemini 2.5 Flash
 const getSimilarityScore = async (resumeText, jobDesc) => {
   try {
     validateInputs(resumeText, jobDesc);
 
-    // First, strict check for non-tech roles
+    // Pre-screening for non-tech roles
     const jobDescLower = jobDesc.toLowerCase();
     const hasNonTechIndicators = NON_TECH_INDICATORS.some(indicator => 
       jobDescLower.includes(indicator.toLowerCase())
@@ -69,7 +75,6 @@ const getSimilarityScore = async (resumeText, jobDesc) => {
       jobDescLower.includes(keyword.toLowerCase())
     );
 
-    // If it has non-tech indicators and no software indicators, immediately return 0
     if (hasNonTechIndicators && !hasSoftwareIndicators) {
       console.log("Non-tech role detected, returning 0 similarity");
       return 0;
@@ -127,23 +132,9 @@ Return ONLY a decimal between 0.0-1.0:
 
 Score:`;
 
-    const response = await AI.chat.completions.create({
-      model: "gemini-2.0-flash",
-      messages: [
-        {
-          role: "system",
-          content: "You are a senior technical recruiter specializing in software engineering internships. Respond only with a decimal number between 0 and 1, no explanations."
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: 0.1,
-      max_tokens: 10
-    });
-
-    const scoreText = response.choices?.[0]?.message?.content?.trim();
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const scoreText = response.text().trim();
     const score = parseFloat(scoreText);
 
     if (isNaN(score) || score < 0 || score > 1) {
@@ -183,7 +174,7 @@ const getFallbackSimilarity = async (resumeText, jobDesc) => {
     );
 
     if (requiredKeywords.length === 0) {
-      return 0.1; // Probably not a tech role
+      return 0.1;
     }
 
     const matchRatio = matchedKeywords.length / requiredKeywords.length;
@@ -191,6 +182,45 @@ const getFallbackSimilarity = async (resumeText, jobDesc) => {
   } catch (err) {
     console.error("Fallback similarity failed:", err.message);
     return 0.1;
+  }
+};
+
+// Extract technologies from resume using Gemini 2.5 Flash
+const extractTechnologiesFromResume = async (resumeText) => {
+  try {
+    const prompt = `Analyze the following resume and extract all technical skills, programming languages, frameworks, tools, and technologies mentioned. 
+
+Resume text:
+${resumeText}
+
+Return a JSON array where each technology has:
+- name: the technology name
+- category: one of ["Programming Languages", "Frameworks", "Tools", "Databases", "Cloud Services", "Other"]
+- confidenceLevel: estimated proficiency level 1-10 based on context (default 5 if unclear)
+
+Example format:
+[
+  {"name": "JavaScript", "category": "Programming Languages", "confidenceLevel": 7},
+  {"name": "React", "category": "Frameworks", "confidenceLevel": 6}
+]
+
+Only return the JSON array, no other text.`;
+
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const content = response.text().trim();
+    
+    // Clean up the response to extract JSON
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const technologies = JSON.parse(jsonMatch[0]);
+      return technologies.filter(tech => tech.name && tech.category);
+    }
+    
+    return [];
+  } catch (error) {
+    console.error("Technology extraction error:", error);
+    return [];
   }
 };
 
@@ -208,7 +238,7 @@ const parseJSONResponse = (responseText) => {
   }
 };
 
-// Comprehensive software engineering internship-specific recommendations
+// Comprehensive software engineering internship-specific recommendations using Gemini 2.5 Flash
 const getStructuredRecommendations = async (resumeText, jobDesc) => {
   try {
     validateInputs(resumeText, jobDesc);
@@ -287,24 +317,11 @@ ${truncatedJobDesc}
 
 Remember: Focus specifically on SOFTWARE ENGINEERING INTERNSHIP requirements. Be extremely specific about missing technical skills, provide actionable recommendations with exact technologies to learn, and reference current industry standards for intern-level positions.`;
 
-    const response = await AI.chat.completions.create({
-      model: "gemini-2.0-flash",
-      messages: [
-        {
-          role: "system",
-          content: "You are a world-class software engineering internship recruiter. Respond with either 'NON_TECH_ROLE' or valid JSON only. No additional text or explanations."
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: 0.2,
-      max_tokens: 3000
-    });
-
-    const responseText = response.choices?.[0]?.message?.content?.trim();
-    console.log("Raw AI response:", responseText);
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const responseText = response.text().trim();
+    
+    console.log("Raw Gemini response:", responseText);
 
     if (responseText === "NON_TECH_ROLE" || responseText.includes("NON_TECH_ROLE")) {
       return {
@@ -316,7 +333,7 @@ Remember: Focus specifically on SOFTWARE ENGINEERING INTERNSHIP requirements. Be
     try {
       const structuredData = parseJSONResponse(responseText);
       
-      // Enhanced validation with comprehensive defaults based on research
+      // Enhanced validation with comprehensive defaults
       const result = {
         isNonTechRole: false,
         strengths: Array.isArray(structuredData.strengths) && structuredData.strengths.length > 0 
@@ -389,7 +406,7 @@ const getFallbackStructuredRecommendations = async (responseText) => {
   return getDefaultInternshipRecommendations();
 };
 
-// Comprehensive default recommendations based on industry research
+// Comprehensive default recommendations
 const getDefaultInternshipRecommendations = () => {
   return {
     isNonTechRole: false,
@@ -499,15 +516,15 @@ const analyzeResumeMatch = async (resumeText, jobDesc) => {
     if (similarity === 0) {
       matchPercentage = 0;
     } else if (similarity < 0.3) {
-      matchPercentage = Math.round(similarity * 33); // 0-10%
+      matchPercentage = Math.round(similarity * 33);
     } else if (similarity < 0.5) {
-      matchPercentage = Math.round(10 + (similarity - 0.3) * 75); // 10-25%
+      matchPercentage = Math.round(10 + (similarity - 0.3) * 75);
     } else if (similarity < 0.7) {
-      matchPercentage = Math.round(25 + (similarity - 0.5) * 125); // 25-50%
+      matchPercentage = Math.round(25 + (similarity - 0.5) * 125);
     } else if (similarity < 0.85) {
-      matchPercentage = Math.round(50 + (similarity - 0.7) * 200); // 50-80%
+      matchPercentage = Math.round(50 + (similarity - 0.7) * 200);
     } else {
-      matchPercentage = Math.round(80 + (similarity - 0.85) * 133); // 80-100%
+      matchPercentage = Math.round(80 + (similarity - 0.85) * 133);
     }
 
     matchPercentage = Math.max(0, Math.min(100, matchPercentage));
@@ -542,5 +559,7 @@ export {
   getSimilarityScore,
   getImprovementSuggestions,
   getStructuredRecommendations,
-  analyzeResumeMatch
+  analyzeResumeMatch,
+  extractTechnologiesFromResume,
+  createResumeHash
 };

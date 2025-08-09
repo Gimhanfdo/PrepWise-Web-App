@@ -4,22 +4,10 @@ import {
   getImprovementSuggestions,
   getStructuredRecommendations,
   analyzeResumeMatch,
+  extractTechnologiesFromResume,
+  createResumeHash
 } from "../utils/CVAnalysisAPI.js";
 import CVAnalysis from "../models/CVAnalysisModel.js";
-// Removed SavedCVAnalysis import since we're using isSaved field instead
-import OpenAI from "openai";
-import crypto from "crypto";
-
-// Initialize the OpenAI instance with Gemini
-const AI = new OpenAI({
-    apiKey: process.env.GEMINI_API_KEY,
-    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"
-});
-
-// Function to create a hash of the resume text for comparison
-function createResumeHash(resumeText) {
-  return crypto.createHash('sha256').update(resumeText.trim()).digest('hex');
-}
 
 // Function to convert markdown-style formatting to basic HTML
 function convertMarkdownToHTML(text) {
@@ -39,49 +27,6 @@ function stripHTMLToText(html) {
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .trim();
-}
-
-// NEW: Function to extract technologies from resume text
-async function extractTechnologiesFromResume(resumeText) {
-  try {
-    const prompt = `Analyze the following resume and extract all technical skills, programming languages, frameworks, tools, and technologies mentioned. 
-
-Resume text:
-${resumeText}
-
-Return a JSON array where each technology has:
-- name: the technology name
-- category: one of ["Programming Languages", "Frameworks", "Tools", "Databases", "Cloud Services", "Other"]
-- confidenceLevel: estimated proficiency level 1-10 based on context (default 5 if unclear)
-
-Example format:
-[
-  {"name": "JavaScript", "category": "Programming Languages", "confidenceLevel": 7},
-  {"name": "React", "category": "Frameworks", "confidenceLevel": 6}
-]
-
-Only return the JSON array, no other text.`;
-
-    const response = await AI.chat.completions.create({
-      model: "gemini-1.5-flash",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.3,
-    });
-
-    const content = response.choices[0].message.content.trim();
-    
-    // Clean up the response to extract JSON
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      const technologies = JSON.parse(jsonMatch[0]);
-      return technologies.filter(tech => tech.name && tech.category);
-    }
-    
-    return [];
-  } catch (error) {
-    console.error("Technology extraction error:", error);
-    return [];
-  }
 }
 
 // Enhanced resume text validation for software engineering context
@@ -173,7 +118,7 @@ export const analyzeResume = async (req, res) => {
       });
     }
 
-    // NEW: Extract technologies from resume text
+    // Extract technologies from resume text using Gemini 2.5 Flash
     console.log("Extracting technologies from resume...");
     const extractedTechnologies = await extractTechnologiesFromResume(resumeText);
     console.log(`Extracted ${extractedTechnologies.length} technologies:`, extractedTechnologies.map(t => t.name));
@@ -223,7 +168,7 @@ export const analyzeResume = async (req, res) => {
 
       console.log(`Analyzing with enhanced software engineering internship focus...`);
 
-      // Use the comprehensive analyzeResumeMatch function
+      // Use the comprehensive analyzeResumeMatch function with Gemini 2.5 Flash
       try {
         analysisResult = await analyzeResumeMatch(resumeText, jobDescForAnalysis);
         
@@ -381,9 +326,9 @@ export const analyzeResume = async (req, res) => {
           timestamp: a.timestamp || new Date().toISOString(),
           analysisQuality: a.analysisQuality || null
         })),
-        // NEW: Add extracted technologies to database storage
+        // Add extracted technologies to database storage
         extractedTechnologies: extractedTechnologies,
-        // UPDATED: Always save as unsaved initially (isSaved: false)
+        // Always save as unsaved initially (isSaved: false)
         isSaved: false,
         analysisMetadata: {
           totalProcessed,
@@ -392,7 +337,8 @@ export const analyzeResume = async (req, res) => {
           avgMatchScore: analysis.filter(a => !a.isNonTechRole)
             .reduce((sum, a) => sum + a.matchPercentage, 0) / Math.max(1, totalProcessed - totalNonTechRoles),
           technologiesExtracted: extractedTechnologies.length,
-          processingDate: new Date().toISOString()
+          processingDate: new Date().toISOString(),
+          geminiModel: "gemini-2.5-flash"
         }
       };
 
@@ -411,7 +357,7 @@ export const analyzeResume = async (req, res) => {
       // Continue with response even if save fails
     }
 
-    // UPDATED: Return comprehensive analysis results with extracted technologies
+    // Return comprehensive analysis results with extracted technologies
     const responseData = {
       analysis: analysis.map(a => ({
         matchPercentage: a.matchPercentage,
@@ -426,7 +372,7 @@ export const analyzeResume = async (req, res) => {
         timestamp: a.timestamp,
         analysisQuality: a.analysisQuality
       })),
-      // NEW: Include required fields for SWOT analysis
+      // Include required fields for SWOT analysis
       resumeText: resumeText, // Full resume text
       extractedTechnologies: extractedTechnologies, // Extracted technologies
       resumeHash: resumeHash, // Resume hash for SWOT
@@ -443,7 +389,7 @@ export const analyzeResume = async (req, res) => {
           resumeHash: resumeHash
         }),
         processingTime: new Date().toISOString(),
-        analysisVersion: "2.1-with-tech-extraction"
+        analysisVersion: "3.0-gemini-2.5-flash"
       },
       recommendations: {
         overallFeedback: totalNonTechRoles === totalProcessed 
@@ -484,7 +430,7 @@ export const analyzeResume = async (req, res) => {
   }
 };
 
-// ENHANCED: Get saved CV analyses with better formatting (from first file)
+// Get saved CV analyses with better formatting
 export const getSavedAnalysis = async (req, res) => {
   try {
     console.log('🔍 Getting saved analyses for user:', req.user.id);
@@ -499,7 +445,7 @@ export const getSavedAnalysis = async (req, res) => {
 
     console.log(`✅ Found ${savedAnalyses.length} saved analyses`);
 
-    // Transform data to match what UserProfile.js expects
+    // Transform data to match expected format
     const formattedAnalyses = savedAnalyses.map(analysis => {
       const results = analysis.results || [];
       const softwareRoles = results.filter(r => !r.isNonTechRole);
@@ -555,7 +501,7 @@ export const getSavedAnalysis = async (req, res) => {
           ...(bestMatch.structureRecommendations || [])
         ].slice(0, 5), // Limit to 5 recommendations
         hasMultipleJobs: results.length > 1,
-        // Additional fields from the enhanced version
+        // Additional fields
         summary: {
           totalRoles: results.length,
           softwareRoles: softwareRoles.length,
@@ -563,7 +509,10 @@ export const getSavedAnalysis = async (req, res) => {
           avgMatchScore: avgMatch,
           hasHighMatches: softwareRoles.some(r => (r.matchPercentage || 0) >= 70),
           recommendationCount: results.reduce((sum, r) => sum + (r.contentRecommendations?.length || 0) + (r.structureRecommendations?.length || 0), 0),
-          isSaved: analysis.isSaved
+          isSaved: analysis.isSaved,
+          extractedTechnologies: analysis.extractedTechnologies || [],
+          technologiesCount: (analysis.extractedTechnologies || []).length,
+          analysisVersion: analysis.analysisMetadata?.geminiModel || "legacy"
         }
       };
     });
@@ -574,7 +523,6 @@ export const getSavedAnalysis = async (req, res) => {
       success: true,
       data: formattedAnalyses,
       count: formattedAnalyses.length,
-      // Additional metadata from enhanced version
       metadata: {
         totalSoftwareAnalyses: formattedAnalyses.reduce((sum, a) => sum + a.summary.softwareRoles, 0),
         totalNonTechAnalyses: formattedAnalyses.reduce((sum, a) => sum + a.summary.nonTechRoles, 0),
@@ -582,7 +530,9 @@ export const getSavedAnalysis = async (req, res) => {
           ? Math.round(formattedAnalyses.reduce((sum, a) => sum + a.summary.avgMatchScore, 0) / formattedAnalyses.length)
           : 0,
         savedCount: formattedAnalyses.filter(a => a.summary.isSaved).length,
-        unsavedCount: formattedAnalyses.filter(a => !a.summary.isSaved).length
+        unsavedCount: formattedAnalyses.filter(a => !a.summary.isSaved).length,
+        totalTechnologies: formattedAnalyses.reduce((sum, a) => sum + a.summary.technologiesCount, 0),
+        geminiAnalyses: formattedAnalyses.filter(a => a.summary.analysisVersion.includes("gemini")).length
       }
     });
 
@@ -596,10 +546,10 @@ export const getSavedAnalysis = async (req, res) => {
   }
 };
 
-// UPDATED: Enhanced save analysis - now toggles isSaved field instead of creating separate collection
+// Enhanced save analysis - toggles isSaved field
 export const saveAnalysis = async (req, res) => {
   try {
-    console.log('🔍 Saving CV analysis...');
+    console.log('🔍 Saving/Updating CV analysis...');
     
     let { resumeText, resumeHash, jobDescriptions, results, shouldSave = true } = req.body;
     
@@ -656,7 +606,11 @@ export const saveAnalysis = async (req, res) => {
         resumeHash,
         jobDescriptions,
         results,
-        isSaved: shouldSave
+        isSaved: shouldSave,
+        analysisMetadata: {
+          geminiModel: "gemini-2.5-flash",
+          processingDate: new Date().toISOString()
+        }
       });
       
       await analysis.save();
@@ -701,14 +655,18 @@ export const saveAnalysis = async (req, res) => {
         resumeText: analysis.resumeText,
         isSaved: analysis.isSaved,
         analysisCount: validatedResults.length,
-        updatedAt: analysis.updatedAt
+        updatedAt: analysis.updatedAt,
+        extractedTechnologies: analysis.extractedTechnologies || [],
+        technologiesCount: (analysis.extractedTechnologies || []).length,
+        analysisVersion: analysis.analysisMetadata?.geminiModel || "legacy"
       },
       stats: {
         totalAnalyses: validatedResults.length,
         softwareRoles: validatedResults.filter(r => !r.isNonTechRole).length,
         nonTechRoles: validatedResults.filter(r => r.isNonTechRole).length,
         avgMatchScore: validatedResults.filter(r => !r.isNonTechRole && r.matchPercentage > 0)
-          .reduce((sum, r) => sum + r.matchPercentage, 0) / Math.max(1, validatedResults.filter(r => !r.isNonTechRole && r.matchPercentage > 0).length) || 0
+          .reduce((sum, r) => sum + r.matchPercentage, 0) / Math.max(1, validatedResults.filter(r => !r.isNonTechRole && r.matchPercentage > 0).length) || 0,
+        technologiesExtracted: (analysis.extractedTechnologies || []).length
       }
     });
 
@@ -722,7 +680,7 @@ export const saveAnalysis = async (req, res) => {
   }
 };
 
-// DELETE /api/analyze/delete/:id - Delete specific CV analysis (from first file)
+// Delete specific CV analysis
 export const deleteAnalysis = async (req, res) => {
   try {
     console.log('🔍 Deleting analysis:', req.params.id);
@@ -755,12 +713,14 @@ export const deleteAnalysis = async (req, res) => {
     res.json({
       success: true,
       message: 'CV analysis deleted successfully',
-      deletedAnalysis: {
+              deletedAnalysis: {
         id: deleted._id,
         resumeText: deleted.resumeText,
         analysisCount: deleted.results?.length || 0,
         wasSaved: deleted.isSaved,
-        deletedAt: new Date().toISOString()
+        technologiesCount: (deleted.extractedTechnologies || []).length,
+        deletedAt: new Date().toISOString(),
+        analysisVersion: deleted.analysisMetadata?.geminiModel || "legacy"
       }
     });
 
@@ -769,6 +729,260 @@ export const deleteAnalysis = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete CV analysis',
+      error: error.message
+    });
+  }
+};
+
+// NEW: Get all analyses (saved and unsaved) for user dashboard
+export const getAllAnalyses = async (req, res) => {
+  try {
+    console.log('🔍 Getting all analyses for user:', req.user.id);
+    
+    const { page = 1, limit = 10, includeUnsaved = true } = req.query;
+    const skip = (page - 1) * limit;
+    
+    const filter = { userId: req.user.id };
+    if (!includeUnsaved) {
+      filter.isSaved = true;
+    }
+
+    const [analyses, total] = await Promise.all([
+      CVAnalysis.find(filter)
+        .sort({ updatedAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .select('-userId -resumeText'),
+      CVAnalysis.countDocuments(filter)
+    ]);
+
+    console.log(`✅ Found ${analyses.length} analyses (${total} total)`);
+
+    const formattedAnalyses = analyses.map(analysis => {
+      const results = analysis.results || [];
+      const softwareRoles = results.filter(r => !r.isNonTechRole);
+      const avgMatch = softwareRoles.length > 0 
+        ? Math.round(softwareRoles.reduce((sum, r) => sum + (r.matchPercentage || 0), 0) / softwareRoles.length)
+        : 0;
+
+      return {
+        id: analysis._id,
+        isSaved: analysis.isSaved,
+        matchPercentage: avgMatch,
+        totalJobs: results.length,
+        softwareJobs: softwareRoles.length,
+        nonTechJobs: results.filter(r => r.isNonTechRole).length,
+        createdAt: analysis.createdAt,
+        updatedAt: analysis.updatedAt,
+        extractedTechnologies: (analysis.extractedTechnologies || []).slice(0, 10), // Limit for performance
+        technologiesCount: (analysis.extractedTechnologies || []).length,
+        analysisVersion: analysis.analysisMetadata?.geminiModel || "legacy",
+        hasHighMatches: softwareRoles.some(r => (r.matchPercentage || 0) >= 70),
+        summary: {
+          topMatch: Math.max(...softwareRoles.map(r => r.matchPercentage || 0), 0),
+          avgMatch: avgMatch,
+          hasErrors: results.some(r => r.hasError),
+          isComprehensive: results.some(r => r.analysisQuality?.isComprehensive)
+        }
+      };
+    });
+
+    res.json({
+      success: true,
+      data: formattedAnalyses,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit),
+        hasNext: skip + analyses.length < total,
+        hasPrev: page > 1
+      },
+      metadata: {
+        savedCount: analyses.filter(a => a.isSaved).length,
+        unsavedCount: analyses.filter(a => !a.isSaved).length,
+        geminiAnalyses: analyses.filter(a => a.analysisMetadata?.geminiModel?.includes("gemini")).length,
+        totalTechnologies: analyses.reduce((sum, a) => sum + (a.extractedTechnologies || []).length, 0),
+        avgOverallMatch: formattedAnalyses.length > 0 
+          ? Math.round(formattedAnalyses.reduce((sum, a) => sum + a.summary.avgMatch, 0) / formattedAnalyses.length)
+          : 0
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching all analyses:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch CV analyses',
+      error: error.message
+    });
+  }
+};
+
+// NEW: Get specific analysis by ID with full details
+export const getAnalysisById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Invalid analysis ID format."
+      });
+    }
+
+    const analysis = await CVAnalysis.findOne({
+      _id: id,
+      userId: req.user.id
+    }).select('-userId');
+
+    if (!analysis) {
+      return res.status(404).json({
+        success: false,
+        message: 'CV analysis not found'
+      });
+    }
+
+    const results = analysis.results || [];
+    const softwareRoles = results.filter(r => !r.isNonTechRole);
+
+    const responseData = {
+      success: true,
+      data: {
+        id: analysis._id,
+        resumeText: analysis.resumeText,
+        resumeHash: analysis.resumeHash,
+        isSaved: analysis.isSaved,
+        jobDescriptions: analysis.jobDescriptions || [],
+        results: results,
+        extractedTechnologies: analysis.extractedTechnologies || [],
+        createdAt: analysis.createdAt,
+        updatedAt: analysis.updatedAt,
+        analysisMetadata: analysis.analysisMetadata || {},
+        summary: {
+          totalJobs: results.length,
+          softwareJobs: softwareRoles.length,
+          nonTechJobs: results.filter(r => r.isNonTechRole).length,
+          avgMatchScore: softwareRoles.length > 0 
+            ? Math.round(softwareRoles.reduce((sum, r) => sum + (r.matchPercentage || 0), 0) / softwareRoles.length)
+            : 0,
+          topMatchScore: Math.max(...softwareRoles.map(r => r.matchPercentage || 0), 0),
+          technologiesCount: (analysis.extractedTechnologies || []).length,
+          hasErrors: results.some(r => r.hasError),
+          isComprehensive: results.some(r => r.analysisQuality?.isComprehensive),
+          analysisVersion: analysis.analysisMetadata?.geminiModel || "legacy"
+        }
+      }
+    };
+
+    res.json(responseData);
+
+  } catch (error) {
+    console.error('❌ Error fetching analysis by ID:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch CV analysis',
+      error: error.message
+    });
+  }
+};
+
+// NEW: Get technology statistics across all user's analyses
+export const getTechnologyStats = async (req, res) => {
+  try {
+    console.log('🔍 Getting technology stats for user:', req.user.id);
+
+    const analyses = await CVAnalysis.find({
+      userId: req.user.id,
+      extractedTechnologies: { $exists: true, $ne: [] }
+    }).select('extractedTechnologies analysisMetadata');
+
+    if (analyses.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          totalAnalyses: 0,
+          uniqueTechnologies: 0,
+          technologies: [],
+          categories: [],
+          recommendations: []
+        }
+      });
+    }
+
+    // Aggregate all technologies
+    const allTechnologies = analyses.flatMap(a => a.extractedTechnologies || []);
+    
+    // Count technology frequency and calculate average confidence
+    const techMap = new Map();
+    allTechnologies.forEach(tech => {
+      if (techMap.has(tech.name)) {
+        const existing = techMap.get(tech.name);
+        existing.count++;
+        existing.totalConfidence += tech.confidenceLevel || 5;
+        existing.avgConfidence = existing.totalConfidence / existing.count;
+      } else {
+        techMap.set(tech.name, {
+          name: tech.name,
+          category: tech.category,
+          count: 1,
+          totalConfidence: tech.confidenceLevel || 5,
+          avgConfidence: tech.confidenceLevel || 5
+        });
+      }
+    });
+
+    const technologies = Array.from(techMap.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 50); // Top 50 technologies
+
+    // Group by categories
+    const categories = technologies.reduce((acc, tech) => {
+      const category = tech.category || 'Other';
+      if (!acc[category]) {
+        acc[category] = {
+          name: category,
+          count: 0,
+          technologies: []
+        };
+      }
+      acc[category].count++;
+      acc[category].technologies.push(tech);
+      return acc;
+    }, {});
+
+    // Generate recommendations based on missing common technologies
+    const commonTech = ['JavaScript', 'Python', 'Java', 'React', 'Node.js', 'Git', 'SQL', 'HTML', 'CSS'];
+    const userTech = new Set(technologies.map(t => t.name.toLowerCase()));
+    const recommendations = commonTech
+      .filter(tech => !userTech.has(tech.toLowerCase()))
+      .map(tech => `Consider learning ${tech} - commonly required for software engineering roles`);
+
+    res.json({
+      success: true,
+      data: {
+        totalAnalyses: analyses.length,
+        uniqueTechnologies: technologies.length,
+        technologies: technologies,
+        categories: Object.values(categories),
+        topTechnologies: technologies.slice(0, 10),
+        recommendations: recommendations.slice(0, 5),
+        stats: {
+          avgConfidenceLevel: Math.round(
+            technologies.reduce((sum, t) => sum + t.avgConfidence, 0) / Math.max(technologies.length, 1)
+          ),
+          mostFrequentCategory: Object.values(categories)
+            .sort((a, b) => b.count - a.count)[0]?.name || 'None',
+          geminiAnalyses: analyses.filter(a => a.analysisMetadata?.geminiModel?.includes('gemini')).length
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting technology stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch technology statistics',
       error: error.message
     });
   }
