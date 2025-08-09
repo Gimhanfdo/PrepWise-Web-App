@@ -1,4 +1,4 @@
-// UserProfile.jsx - Fixed version with correct data mapping for your backend
+// UserProfile.jsx - Fixed version with proper authentication and data handling
 import React, { useState, useEffect, useContext } from 'react';
 import { User, Mail, Lock, FileText, Brain, Crown, Settings, Save, Eye, EyeOff, Download, Trash2, ChevronDown, ChevronUp, Star, TrendingUp, Target, Award } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
@@ -26,6 +26,54 @@ const UserProfile = () => {
 
   // Local user state for editing
   const [localUser, setLocalUser] = useState(null);
+
+  // Setup axios interceptor for authentication
+  useEffect(() => {
+    // Add request interceptor to include credentials
+    const requestInterceptor = axios.interceptors.request.use(
+      (config) => {
+        // Ensure credentials are included
+        config.withCredentials = true;
+        
+        // Add token from localStorage if it exists
+        const token = localStorage.getItem('token');
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+        
+        return config;
+      },
+      (error) => {
+        return Promise.reject(error);
+      }
+    );
+
+    // Add response interceptor to handle auth errors
+    const responseInterceptor = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          // Clear auth state on 401
+          setIsLoggedin(false);
+          setUserData(null);
+          localStorage.removeItem('token');
+          
+          // Only show toast if not already on login page
+          if (window.location.pathname !== '/login') {
+            toast.error('Please log in to continue');
+            navigate('/login');
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    // Cleanup interceptors on unmount
+    return () => {
+      axios.interceptors.request.eject(requestInterceptor);
+      axios.interceptors.response.eject(responseInterceptor);
+    };
+  }, [setIsLoggedin, setUserData, navigate]);
 
   useEffect(() => {
     // Check if user is logged in
@@ -67,76 +115,54 @@ const UserProfile = () => {
     }
   }, [userData]);
 
-  // Fixed function to fetch saved CV analyses - matches your CVAnalysisModel exactly
   const fetchSavedAnalyses = async () => {
     try {
+      console.log('🔍 Fetching saved analyses from:', `${backendUrl}/api/analyze/saved`);
+      
       const { data } = await axios.get(`${backendUrl}/api/analyze/saved`);
+      
+      console.log('📊 Raw response data:', data);
       
       if (data.success) {
         const analyses = data.data || [];
+        console.log('📊 Analyses count:', analyses.length);
         
         // Transform the data to match what the UI expects
-        const formattedAnalyses = analyses.map(analysis => {
+        const formattedAnalyses = analyses.map((analysis) => {
+          console.log('📊 Processing analysis:', {
+            id: analysis._id,
+            results: analysis.results?.length || 0,
+            jobDescriptions: analysis.jobDescriptions?.length || 0,
+            createdAt: analysis.createdAt
+          });
+          
           const results = analysis.results || [];
           const softwareRoles = results.filter(r => !r.isNonTechRole);
           
-          // Calculate average match percentage
+          // Calculate average match percentage using actual field names from model
           const avgMatch = softwareRoles.length > 0 
             ? Math.round(softwareRoles.reduce((sum, r) => sum + (r.matchPercentage || 0), 0) / softwareRoles.length)
             : 0;
 
           // Get the best matching job (highest percentage)
-          const bestMatch = softwareRoles.reduce((best, current) => 
-            (current.matchPercentage || 0) > (best.matchPercentage || 0) ? current : best, 
-            { matchPercentage: 0 }
-          );
+          const bestMatch = softwareRoles.length > 0 
+            ? softwareRoles.reduce((best, current) => 
+                (current.matchPercentage || 0) > (best.matchPercentage || 0) ? current : best, 
+                { matchPercentage: 0 }
+              )
+            : { matchPercentage: 0 };
 
           // Extract job title and company from best match or use defaults
           let jobTitle = bestMatch.jobTitle || 'Software Engineering Position';
           let company = bestMatch.company || 'Company';
 
-          // If still defaults, try to extract from first job description
-          if ((jobTitle === 'Software Engineering Position' || company === 'Company') && 
-              analysis.jobDescriptions && analysis.jobDescriptions.length > 0) {
-            const firstJobDesc = analysis.jobDescriptions[0];
-            
-            // Try to extract job title
-            if (jobTitle === 'Software Engineering Position') {
-              const titlePatterns = [
-                /(?:Job Title|Position|Role):\s*([^\n<]+)/i,
-                /<h[1-3][^>]*>([^<]+(?:Developer|Engineer|Analyst|Manager|Designer|Architect))/i,
-                /(?:^|\n)([A-Za-z\s]+(?:Developer|Engineer|Analyst|Manager|Designer))/im
-              ];
-              
-              for (const pattern of titlePatterns) {
-                const match = firstJobDesc.match(pattern);
-                if (match && match[1] && match[1].trim().length > 3) {
-                  jobTitle = match[1].trim();
-                  break;
-                }
-              }
-            }
-            
-            // Try to extract company name
-            if (company === 'Company') {
-              const companyPatterns = [
-                /(?:Company|Organization|Employer):\s*([^\n<]+)/i,
-                /<strong>([^<]+)<\/strong>/,
-                /(?:at|@)\s+([A-Z][A-Za-z\s&.,-]+)(?:\n|$|\.)/,
-                /\b([A-Z][a-zA-Z\s&.,-]{2,30})\s+(?:Inc|LLC|Ltd|Corp|Limited|Company)/i
-              ];
-              
-              for (const pattern of companyPatterns) {
-                const match = firstJobDesc.match(pattern);
-                if (match && match[1] && match[1].trim().length > 1) {
-                  company = match[1].trim();
-                  break;
-                }
-              }
-            }
-          }
+          // Combine all recommendations from the model structure
+          const allRecommendations = [
+            ...(bestMatch.contentRecommendations || []),
+            ...(bestMatch.structureRecommendations || [])
+          ].slice(0, 5);
 
-          return {
+          const formatted = {
             id: analysis._id,
             jobTitle,
             company,
@@ -146,41 +172,56 @@ const UserProfile = () => {
             createdAt: analysis.createdAt,
             updatedAt: analysis.updatedAt,
             strengths: bestMatch.strengths || [],
-            recommendations: [
-              ...(bestMatch.contentRecommendations || []),
-              ...(bestMatch.structureRecommendations || [])
-            ].slice(0, 5),
+            recommendations: allRecommendations,
             hasMultipleJobs: results.length > 1,
-            isSaved: analysis.isSaved !== false // Should be true for saved analyses
+            isSaved: analysis.isSaved !== false
           };
+          
+          console.log(`📊 Formatted analysis:`, formatted);
+          return formatted;
         });
         
+        console.log('📊 Final formatted analyses:', formattedAnalyses);
         setSavedAnalyses(formattedAnalyses);
+      } else {
+        console.log('❌ API returned success: false', data.message);
+        setSavedAnalyses([]);
       }
     } catch (error) {
-      console.error('Error fetching saved analyses:', error);
-      if (error.response?.status === 401) {
-        toast.error('Please log in to view your analyses');
-        navigate('/login');
-      } else if (error.response?.status === 404) {
+      console.error('❌ Error fetching saved analyses:', error);
+      
+      if (error.response?.status === 404) {
+        console.log('📊 No saved analyses found (404)');
         setSavedAnalyses([]);
-      } else {
+      } else if (error.response?.status !== 401) {
+        // Don't show error for 401 as it's handled by interceptor
         toast.error('Failed to fetch saved analyses');
         setSavedAnalyses([]);
       }
     }
   };
 
-  // Fixed function to fetch skills assessments - matches your SkillsAssessmentModel exactly
   const fetchSkillsAssessments = async () => {
     try {
+      console.log('🧠 Fetching skills assessments from:', `${backendUrl}/api/swot/ratings`);
+      
       const { data } = await axios.get(`${backendUrl}/api/swot/ratings`);
+      
+      console.log('🧠 Raw skills response:', data);
       
       if (data.success) {
         const assessments = data.data || [];
+        console.log('🧠 Assessments count:', assessments.length);
         
         // Transform the data to match what your UI expects
-        const formattedAssessments = assessments.map(assessment => {
+        const formattedAssessments = assessments.map((assessment) => {
+          console.log('🧠 Processing assessment:', {
+            id: assessment._id,
+            skills: assessment.skills?.length || 0,
+            assessmentType: assessment.assessmentType,
+            overallScore: assessment.overallScore
+          });
+          
           // Your model uses 'skills' array with 'proficiencyLevel' field
           const skills = assessment.skills || [];
           
@@ -190,7 +231,7 @@ const UserProfile = () => {
             ? skills.reduce((sum, skill) => sum + (skill.proficiencyLevel || 0), 0) / totalTechnologies
             : 0;
           
-          // Count by proficiency levels (based on your model's proficiencyLevel field)
+          // Count by proficiency levels based on model structure
           const expertCount = skills.filter(s => (s.proficiencyLevel || 0) >= 8).length;
           const proficientCount = skills.filter(s => {
             const level = s.proficiencyLevel || 0;
@@ -198,23 +239,15 @@ const UserProfile = () => {
           }).length;
           const learningCount = skills.filter(s => (s.proficiencyLevel || 0) < 6).length;
 
-          // Use overallScore from model or calculate from proficiency
           const score = assessment.overallScore || Math.round((avgConfidence / 10) * 100);
-
-          // Use assessmentType from model or create based on skill categories
           let assessmentType = assessment.assessmentType || 'SWOT Analysis';
-          const skillCategories = [...new Set(skills.map(s => s.category).filter(c => c))];
-          if (skillCategories.length > 0 && assessmentType === 'SWOT Analysis') {
-            assessmentType = skillCategories.join(', ') + ' Assessment';
-          }
-
-          // Determine level based on average confidence
+          
           let level = 'Beginner';
           if (avgConfidence >= 8) level = 'Expert';
           else if (avgConfidence >= 6) level = 'Advanced';
           else if (avgConfidence >= 4) level = 'Intermediate';
 
-          return {
+          const formatted = {
             id: assessment._id,
             assessmentType,
             level,
@@ -237,25 +270,31 @@ const UserProfile = () => {
             isRecent: assessment.isRecent || false,
             isSaved: assessment.isSaved !== false,
             overallScore: score,
-            // Include SWOT analysis data if available
             strengths: assessment.strengths || [],
             weaknesses: assessment.weaknesses || [],
             opportunities: assessment.opportunities || [],
             threats: assessment.threats || [],
             recommendations: assessment.recommendations || []
           };
+          
+          console.log(`🧠 Formatted assessment:`, formatted);
+          return formatted;
         });
         
+        console.log('🧠 Final formatted assessments:', formattedAssessments);
         setSkillsAssessments(formattedAssessments);
+      } else {
+        console.log('❌ Skills API returned success: false', data.message);
+        setSkillsAssessments([]);
       }
     } catch (error) {
-      console.error('Error fetching skills assessments:', error);
-      if (error.response?.status === 401) {
-        toast.error('Please log in to view your assessments');
-        navigate('/login');
-      } else if (error.response?.status === 404) {
+      console.error('❌ Error fetching skills assessments:', error);
+      
+      if (error.response?.status === 404) {
+        console.log('🧠 No assessments found (404)');
         setSkillsAssessments([]);
-      } else {
+      } else if (error.response?.status !== 401) {
+        // Don't show error for 401 as it's handled by interceptor
         toast.error('Failed to fetch skills assessments');
         setSkillsAssessments([]);
       }
@@ -414,6 +453,7 @@ const UserProfile = () => {
       await axios.post(backendUrl + '/api/auth/logout');
       setIsLoggedin(false);
       setUserData(null);
+      localStorage.removeItem('token'); // Clear token
       navigate('/login');
       toast.success('Logged out successfully');
     } catch (error) {
@@ -421,6 +461,7 @@ const UserProfile = () => {
       // Force logout even if request fails
       setIsLoggedin(false);
       setUserData(null);
+      localStorage.removeItem('token'); // Clear token
       navigate('/login');
     }
   };
@@ -572,13 +613,13 @@ const UserProfile = () => {
                           <p className="text-sm font-medium text-gray-700 mb-1">Top Recommendations:</p>
                           <ul className="text-sm text-gray-600 space-y-1">
                             {analysis.recommendations.slice(0, 2).map((rec, idx) => (
-                              <li key={idx} className="flex items-start">
+                              <li key={`rec-preview-${analysis.id}-${idx}`} className="flex items-start">
                                 <Target className="mr-2 mt-1 flex-shrink-0" size={12} />
                                 <span className="line-clamp-1">{rec}</span>
                               </li>
                             ))}
                             {analysis.recommendations.length > 2 && (
-                              <li className="text-blue-600 cursor-pointer" 
+                              <li key={`more-recs-${analysis.id}`} className="text-blue-600 cursor-pointer" 
                                   onClick={() => setExpandedAnalysis(expandedAnalysis === analysis.id ? null : analysis.id)}>
                                 +{analysis.recommendations.length - 2} more recommendations
                               </li>
@@ -627,7 +668,7 @@ const UserProfile = () => {
                           </h5>
                           <ul className="space-y-1">
                             {analysis.strengths.slice(0, 5).map((strength, idx) => (
-                              <li key={idx} className="text-sm text-gray-700 flex items-start">
+                              <li key={`strength-${analysis.id}-${idx}`} className="text-sm text-gray-700 flex items-start">
                                 <div className="w-2 h-2 bg-green-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
                                 {strength}
                               </li>
@@ -645,7 +686,7 @@ const UserProfile = () => {
                           </h5>
                           <ul className="space-y-1">
                             {analysis.recommendations.map((rec, idx) => (
-                              <li key={idx} className="text-sm text-gray-700 flex items-start">
+                              <li key={`all-rec-${analysis.id}-${idx}`} className="text-sm text-gray-700 flex items-start">
                                 <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
                                 {rec}
                               </li>
@@ -802,12 +843,12 @@ const UserProfile = () => {
                         <p className="text-sm font-medium text-gray-700 mb-2">Top Skills:</p>
                         <div className="flex flex-wrap gap-2">
                           {assessment.topTechnologies.slice(0, 5).map((tech, idx) => (
-                            <div key={idx} className="flex items-center space-x-1 bg-gray-100 rounded-full px-3 py-1">
+                            <div key={`tech-preview-${assessment.id}-${idx}-${tech.name}`} className="flex items-center space-x-1 bg-gray-100 rounded-full px-3 py-1">
                               <span className="text-sm font-medium">{tech.name}</span>
                               <div className="flex">
                                 {[...Array(10)].map((_, i) => (
                                   <Star 
-                                    key={`${tech.name}-${i}`}
+                                    key={`star-preview-${assessment.id}-${tech.name}-${i}`}
                                     size={10} 
                                     className={i < tech.confidence ? 'text-yellow-400 fill-current' : 'text-gray-300'} 
                                   />
@@ -886,7 +927,7 @@ const UserProfile = () => {
                         </h5>
                         <div className="max-h-48 overflow-y-auto space-y-2">
                           {assessment.topTechnologies.map((tech, idx) => (
-                            <div key={`${tech.name}-${idx}`} className="flex items-center justify-between p-2 bg-white rounded border">
+                            <div key={`all-tech-${assessment.id}-${idx}-${tech.name}`} className="flex items-center justify-between p-2 bg-white rounded border">
                               <div className="flex-1">
                                 <span className="text-sm font-medium">{tech.name}</span>
                                 {tech.category && (
@@ -897,7 +938,7 @@ const UserProfile = () => {
                                 <div className="flex">
                                   {[...Array(10)].map((_, i) => (
                                     <Star 
-                                      key={`${tech.name}-detail-${i}`}
+                                      key={`detail-star-${assessment.id}-${tech.name}-${i}`}
                                       size={12} 
                                       className={i < tech.confidence ? 'text-yellow-400 fill-current' : 'text-gray-300'} 
                                     />
@@ -925,7 +966,7 @@ const UserProfile = () => {
                               <h6 className="font-medium text-green-700 mb-2">Strengths</h6>
                               <ul className="text-sm space-y-1">
                                 {assessment.strengths.slice(0, 3).map((item, idx) => (
-                                  <li key={idx} className="flex items-start">
+                                  <li key={`swot-strength-${assessment.id}-${idx}`} className="flex items-start">
                                     <div className="w-2 h-2 bg-green-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
                                     {item}
                                   </li>
@@ -938,7 +979,7 @@ const UserProfile = () => {
                               <h6 className="font-medium text-red-700 mb-2">Weaknesses</h6>
                               <ul className="text-sm space-y-1">
                                 {assessment.weaknesses.slice(0, 3).map((item, idx) => (
-                                  <li key={idx} className="flex items-start">
+                                  <li key={`swot-weakness-${assessment.id}-${idx}`} className="flex items-start">
                                     <div className="w-2 h-2 bg-red-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
                                     {item}
                                   </li>
@@ -951,7 +992,7 @@ const UserProfile = () => {
                               <h6 className="font-medium text-blue-700 mb-2">Opportunities</h6>
                               <ul className="text-sm space-y-1">
                                 {assessment.opportunities.slice(0, 3).map((item, idx) => (
-                                  <li key={idx} className="flex items-start">
+                                  <li key={`swot-opportunity-${assessment.id}-${idx}`} className="flex items-start">
                                     <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
                                     {item}
                                   </li>
@@ -964,7 +1005,7 @@ const UserProfile = () => {
                               <h6 className="font-medium text-orange-700 mb-2">Threats</h6>
                               <ul className="text-sm space-y-1">
                                 {assessment.threats.slice(0, 3).map((item, idx) => (
-                                  <li key={idx} className="flex items-start">
+                                  <li key={`swot-threat-${assessment.id}-${idx}`} className="flex items-start">
                                     <div className="w-2 h-2 bg-orange-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
                                     {item}
                                   </li>
@@ -1006,13 +1047,13 @@ const UserProfile = () => {
             <h4 className="text-xl font-semibold">Basic Plan</h4>
             <p className="text-3xl font-bold text-gray-900 mt-2">Free</p>
             <ul className="mt-4 space-y-2 text-sm text-left">
-              <li>✓ 5 CV analyses per month</li>
-              <li>✓ 1 job description per analysis</li>
-              <li>✓ Basic skills assessment</li>
-              <li>✓ Standard support</li>
-              <li>✗ Multiple job comparison</li>
-              <li>✗ Advanced analytics</li>
-              <li>✗ Priority support</li>
+              <li key="basic-feature-1">✓ 5 CV analyses per month</li>
+              <li key="basic-feature-2">✓ 1 job description per analysis</li>
+              <li key="basic-feature-3">✓ Basic skills assessment</li>
+              <li key="basic-feature-4">✓ Standard support</li>
+              <li key="basic-feature-5">✗ Multiple job comparison</li>
+              <li key="basic-feature-6">✗ Advanced analytics</li>
+              <li key="basic-feature-7">✗ Priority support</li>
             </ul>
             {localUser.accountPlan === 'basic' ? (
               <div className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md">
@@ -1035,14 +1076,14 @@ const UserProfile = () => {
             <h4 className="text-xl font-semibold">Premium Plan</h4>
             <p className="text-3xl font-bold text-gray-900 mt-2">LKR 2,500<span className="text-sm font-normal">/month</span></p>
             <ul className="mt-4 space-y-2 text-sm text-left">
-              <li>✓ Unlimited CV analyses</li>
-              <li>✓ Compare against 5 job descriptions</li>
-              <li>✓ Advanced skills assessment</li>
-              <li>✓ Detailed analytics & insights</li>
-              <li>✓ Priority support</li>
-              <li>✓ Export reports to PDF</li>
-              <li>✓ Job matching recommendations</li>
-              <li>✓ Interview preparation tips</li>
+              <li key="premium-feature-1">✓ Unlimited CV analyses</li>
+              <li key="premium-feature-2">✓ Compare against 5 job descriptions</li>
+              <li key="premium-feature-3">✓ Advanced skills assessment</li>
+              <li key="premium-feature-4">✓ Detailed analytics & insights</li>
+              <li key="premium-feature-5">✓ Priority support</li>
+              <li key="premium-feature-6">✓ Export reports to PDF</li>
+              <li key="premium-feature-7">✓ Job matching recommendations</li>
+              <li key="premium-feature-8">✓ Interview preparation tips</li>
             </ul>
             {localUser.accountPlan === 'premium' ? (
               <div className="mt-4 px-4 py-2 bg-yellow-600 text-white rounded-md">
@@ -1105,6 +1146,7 @@ const UserProfile = () => {
             <p>Saved Analyses: {savedAnalyses.length}</p>
             <p>Skills Assessments: {skillsAssessments.length}</p>
             <p>Backend URL: {backendUrl}</p>
+            <p>Auth Token: {localStorage.getItem('token') ? 'Present' : 'Missing'}</p>
           </div>
         </div>
       </div>
