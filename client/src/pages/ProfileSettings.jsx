@@ -1,3 +1,4 @@
+// UserProfile.jsx - Fixed version with correct data mapping for your backend
 import React, { useState, useEffect, useContext } from 'react';
 import { User, Mail, Lock, FileText, Brain, Crown, Settings, Save, Eye, EyeOff, Download, Trash2, ChevronDown, ChevronUp, Star, TrendingUp, Target, Award } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
@@ -66,120 +67,200 @@ const UserProfile = () => {
     }
   }, [userData]);
 
- const fetchSavedAnalyses = async () => {
-  try {
-    // Use the correct endpoint from analysisRouter
-    const { data } = await axios.get(backendUrl + '/api/analyze/saved');
-    if (data.success) {
-      // Transform the data to match what your UI expects
-      const formattedAnalyses = data.data.map(analysis => {
-        const results = analysis.results || [];
-        const softwareRoles = results.filter(r => !r.isNonTechRole);
+  // Fixed function to fetch saved CV analyses - matches your CVAnalysisModel exactly
+  const fetchSavedAnalyses = async () => {
+    try {
+      const { data } = await axios.get(`${backendUrl}/api/analyze/saved`);
+      
+      if (data.success) {
+        const analyses = data.data || [];
         
-        // Calculate average match percentage
-        const avgMatch = softwareRoles.length > 0 
-          ? Math.round(softwareRoles.reduce((sum, r) => sum + (r.matchPercentage || 0), 0) / softwareRoles.length)
-          : 0;
-
-        // Get the best matching job (highest percentage)
-        const bestMatch = softwareRoles.reduce((best, current) => 
-          (current.matchPercentage || 0) > (best.matchPercentage || 0) ? current : best, 
-          { matchPercentage: 0 }
-        );
-
-        // Extract job title and company from job description if available
-        let jobTitle = 'Software Engineering Position';
-        let company = 'Company';
-        
-        if (analysis.jobDescriptions && analysis.jobDescriptions.length > 0) {
-          const firstJobDesc = analysis.jobDescriptions[0];
-          // Simple extraction logic
-          const titleMatch = firstJobDesc.match(/(?:position|role|title):\s*([^\n<]+)/i);
-          const companyMatch = firstJobDesc.match(/(?:company|organization):\s*([^\n<]+)/i) || 
-                             firstJobDesc.match(/<strong>([^<]+)<\/strong>/);
+        // Transform the data to match what the UI expects
+        const formattedAnalyses = analyses.map(analysis => {
+          const results = analysis.results || [];
+          const softwareRoles = results.filter(r => !r.isNonTechRole);
           
-          if (titleMatch) jobTitle = titleMatch[1].trim();
-          if (companyMatch) company = companyMatch[1].trim();
-        }
+          // Calculate average match percentage
+          const avgMatch = softwareRoles.length > 0 
+            ? Math.round(softwareRoles.reduce((sum, r) => sum + (r.matchPercentage || 0), 0) / softwareRoles.length)
+            : 0;
 
-        return {
-          id: analysis._id,
-          jobTitle,
-          company,
-          matchPercentage: avgMatch,
-          totalJobs: results.length,
-          softwareJobs: softwareRoles.length,
-          createdAt: analysis.createdAt,
-          updatedAt: analysis.updatedAt,
-          strengths: bestMatch.strengths || [],
-          recommendations: [
-            ...(bestMatch.contentRecommendations || []),
-            ...(bestMatch.structureRecommendations || [])
-          ].slice(0, 5),
-          hasMultipleJobs: results.length > 1
-        };
-      });
-      
-      setSavedAnalyses(formattedAnalyses);
-    }
-  } catch (error) {
-    console.error('Error fetching saved analyses:', error);
-  }
-};
+          // Get the best matching job (highest percentage)
+          const bestMatch = softwareRoles.reduce((best, current) => 
+            (current.matchPercentage || 0) > (best.matchPercentage || 0) ? current : best, 
+            { matchPercentage: 0 }
+          );
 
- const fetchSkillsAssessments = async () => {
-  try {
-    // Use the correct endpoint from skillAssessor
-    const { data } = await axios.get(backendUrl + '/api/swot/ratings');
-    if (data.success) {
-      // Transform the data to match what your UI expects
-      const formattedAssessments = data.data.map(assessment => {
-        const technologies = assessment.technologies || [];
-        const summary = assessment.summary || {};
+          // Extract job title and company from best match or use defaults
+          let jobTitle = bestMatch.jobTitle || 'Software Engineering Position';
+          let company = bestMatch.company || 'Company';
+
+          // If still defaults, try to extract from first job description
+          if ((jobTitle === 'Software Engineering Position' || company === 'Company') && 
+              analysis.jobDescriptions && analysis.jobDescriptions.length > 0) {
+            const firstJobDesc = analysis.jobDescriptions[0];
+            
+            // Try to extract job title
+            if (jobTitle === 'Software Engineering Position') {
+              const titlePatterns = [
+                /(?:Job Title|Position|Role):\s*([^\n<]+)/i,
+                /<h[1-3][^>]*>([^<]+(?:Developer|Engineer|Analyst|Manager|Designer|Architect))/i,
+                /(?:^|\n)([A-Za-z\s]+(?:Developer|Engineer|Analyst|Manager|Designer))/im
+              ];
+              
+              for (const pattern of titlePatterns) {
+                const match = firstJobDesc.match(pattern);
+                if (match && match[1] && match[1].trim().length > 3) {
+                  jobTitle = match[1].trim();
+                  break;
+                }
+              }
+            }
+            
+            // Try to extract company name
+            if (company === 'Company') {
+              const companyPatterns = [
+                /(?:Company|Organization|Employer):\s*([^\n<]+)/i,
+                /<strong>([^<]+)<\/strong>/,
+                /(?:at|@)\s+([A-Z][A-Za-z\s&.,-]+)(?:\n|$|\.)/,
+                /\b([A-Z][a-zA-Z\s&.,-]{2,30})\s+(?:Inc|LLC|Ltd|Corp|Limited|Company)/i
+              ];
+              
+              for (const pattern of companyPatterns) {
+                const match = firstJobDesc.match(pattern);
+                if (match && match[1] && match[1].trim().length > 1) {
+                  company = match[1].trim();
+                  break;
+                }
+              }
+            }
+          }
+
+          return {
+            id: analysis._id,
+            jobTitle,
+            company,
+            matchPercentage: avgMatch,
+            totalJobs: results.length,
+            softwareJobs: softwareRoles.length,
+            createdAt: analysis.createdAt,
+            updatedAt: analysis.updatedAt,
+            strengths: bestMatch.strengths || [],
+            recommendations: [
+              ...(bestMatch.contentRecommendations || []),
+              ...(bestMatch.structureRecommendations || [])
+            ].slice(0, 5),
+            hasMultipleJobs: results.length > 1,
+            isSaved: analysis.isSaved !== false // Should be true for saved analyses
+          };
+        });
         
-        // Calculate overall score based on confidence levels
-        const avgConfidence = summary.averageConfidence || 0;
-        const score = Math.round((avgConfidence / 10) * 100);
-
-        // Determine assessment type
-        let assessmentType = 'Technical Skills Assessment';
-        const techCategories = [...new Set(technologies.map(t => t.category))];
-        if (techCategories.length > 0) {
-          assessmentType = techCategories.join(', ') + ' Assessment';
-        }
-
-        // Determine level based on average confidence
-        let level = 'Beginner';
-        if (avgConfidence >= 8) level = 'Expert';
-        else if (avgConfidence >= 6) level = 'Advanced';
-        else if (avgConfidence >= 4) level = 'Intermediate';
-
-        return {
-          id: assessment._id,
-          assessmentType,
-          level,
-          score,
-          totalTechnologies: summary.totalTechnologies || technologies.length,
-          averageConfidence: avgConfidence,
-          expertCount: summary.expertCount || 0,
-          proficientCount: summary.proficientCount || 0,
-          learningCount: summary.learningCount || 0,
-          completedAt: assessment.updatedAt,
-          createdAt: assessment.createdAt,
-          topTechnologies: technologies
-            .sort((a, b) => b.confidenceLevel - a.confidenceLevel)
-            .slice(0, 5)
-            .map(t => ({ name: t.name, confidence: t.confidenceLevel })),
-          isRecent: assessment.isRecent
-        };
-      });
-      
-      setSkillsAssessments(formattedAssessments);
+        setSavedAnalyses(formattedAnalyses);
+      }
+    } catch (error) {
+      console.error('Error fetching saved analyses:', error);
+      if (error.response?.status === 401) {
+        toast.error('Please log in to view your analyses');
+        navigate('/login');
+      } else if (error.response?.status === 404) {
+        setSavedAnalyses([]);
+      } else {
+        toast.error('Failed to fetch saved analyses');
+        setSavedAnalyses([]);
+      }
     }
-  } catch (error) {
-    console.error('Error fetching skills assessments:', error);
-  }
-};
+  };
+
+  // Fixed function to fetch skills assessments - matches your SkillsAssessmentModel exactly
+  const fetchSkillsAssessments = async () => {
+    try {
+      const { data } = await axios.get(`${backendUrl}/api/swot/ratings`);
+      
+      if (data.success) {
+        const assessments = data.data || [];
+        
+        // Transform the data to match what your UI expects
+        const formattedAssessments = assessments.map(assessment => {
+          // Your model uses 'skills' array with 'proficiencyLevel' field
+          const skills = assessment.skills || [];
+          
+          // Calculate overall metrics
+          const totalTechnologies = skills.length;
+          const avgConfidence = totalTechnologies > 0 
+            ? skills.reduce((sum, skill) => sum + (skill.proficiencyLevel || 0), 0) / totalTechnologies
+            : 0;
+          
+          // Count by proficiency levels (based on your model's proficiencyLevel field)
+          const expertCount = skills.filter(s => (s.proficiencyLevel || 0) >= 8).length;
+          const proficientCount = skills.filter(s => {
+            const level = s.proficiencyLevel || 0;
+            return level >= 6 && level < 8;
+          }).length;
+          const learningCount = skills.filter(s => (s.proficiencyLevel || 0) < 6).length;
+
+          // Use overallScore from model or calculate from proficiency
+          const score = assessment.overallScore || Math.round((avgConfidence / 10) * 100);
+
+          // Use assessmentType from model or create based on skill categories
+          let assessmentType = assessment.assessmentType || 'SWOT Analysis';
+          const skillCategories = [...new Set(skills.map(s => s.category).filter(c => c))];
+          if (skillCategories.length > 0 && assessmentType === 'SWOT Analysis') {
+            assessmentType = skillCategories.join(', ') + ' Assessment';
+          }
+
+          // Determine level based on average confidence
+          let level = 'Beginner';
+          if (avgConfidence >= 8) level = 'Expert';
+          else if (avgConfidence >= 6) level = 'Advanced';
+          else if (avgConfidence >= 4) level = 'Intermediate';
+
+          return {
+            id: assessment._id,
+            assessmentType,
+            level,
+            score,
+            totalTechnologies,
+            averageConfidence: avgConfidence,
+            expertCount,
+            proficientCount,
+            learningCount,
+            completedAt: assessment.completedAt || assessment.updatedAt,
+            createdAt: assessment.createdAt,
+            topTechnologies: skills
+              .sort((a, b) => (b.proficiencyLevel || 0) - (a.proficiencyLevel || 0))
+              .slice(0, 10)
+              .map(skill => ({ 
+                name: skill.name, 
+                confidence: skill.proficiencyLevel || 0,
+                category: skill.category || 'General'
+              })),
+            isRecent: assessment.isRecent || false,
+            isSaved: assessment.isSaved !== false,
+            overallScore: score,
+            // Include SWOT analysis data if available
+            strengths: assessment.strengths || [],
+            weaknesses: assessment.weaknesses || [],
+            opportunities: assessment.opportunities || [],
+            threats: assessment.threats || [],
+            recommendations: assessment.recommendations || []
+          };
+        });
+        
+        setSkillsAssessments(formattedAssessments);
+      }
+    } catch (error) {
+      console.error('Error fetching skills assessments:', error);
+      if (error.response?.status === 401) {
+        toast.error('Please log in to view your assessments');
+        navigate('/login');
+      } else if (error.response?.status === 404) {
+        setSkillsAssessments([]);
+      } else {
+        toast.error('Failed to fetch skills assessments');
+        setSkillsAssessments([]);
+      }
+    }
+  };
 
   const updateProfile = async () => {
     setLoading(true);
@@ -280,46 +361,44 @@ const UserProfile = () => {
   };
 
   const deleteAnalysis = async (id) => {
-  if (!window.confirm('Are you sure you want to delete this CV analysis?')) {
-    return;
-  }
-
-  try {
-    // Use the correct endpoint
-    const { data } = await axios.delete(backendUrl + `/api/analyze/delete/${id}`);
-
-    if (data.success) {
-      setSavedAnalyses(prev => prev.filter(analysis => analysis.id !== id));
-      toast.success('Analysis deleted successfully');
-    } else {
-      toast.error(data.message || 'Failed to delete analysis');
+    if (!window.confirm('Are you sure you want to delete this CV analysis?')) {
+      return;
     }
-  } catch (error) {
-    const msg = error.response?.data?.message || error.message || 'Failed to delete analysis';
-    toast.error(msg);
-  }
-};
 
-const deleteAssessment = async (id) => {
-  if (!window.confirm('Are you sure you want to delete this skills assessment?')) {
-    return;
-  }
+    try {
+      const { data } = await axios.delete(`${backendUrl}/api/analyze/delete/${id}`);
 
-  try {
-    // Use the correct endpoint
-    const { data } = await axios.delete(backendUrl + `/api/swot/delete/${id}`);
-
-    if (data.success) {
-      setSkillsAssessments(prev => prev.filter(assessment => assessment.id !== id));
-      toast.success('Assessment deleted successfully');
-    } else {
-      toast.error(data.message || 'Failed to delete assessment');
+      if (data.success) {
+        setSavedAnalyses(prev => prev.filter(analysis => analysis.id !== id));
+        toast.success('Analysis deleted successfully');
+      } else {
+        toast.error(data.message || 'Failed to delete analysis');
+      }
+    } catch (error) {
+      const msg = error.response?.data?.message || error.message || 'Failed to delete analysis';
+      toast.error(msg);
     }
-  } catch (error) {
-    const msg = error.response?.data?.message || error.message || 'Failed to delete assessment';
-    toast.error(msg);
-  }
-};
+  };
+
+  const deleteAssessment = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this skills assessment?')) {
+      return;
+    }
+
+    try {
+      const { data } = await axios.delete(`${backendUrl}/api/swot/delete/${id}`);
+
+      if (data.success) {
+        setSkillsAssessments(prev => prev.filter(assessment => assessment.id !== id));
+        toast.success('Assessment deleted successfully');
+      } else {
+        toast.error(data.message || 'Failed to delete assessment');
+      }
+    } catch (error) {
+      const msg = error.response?.data?.message || error.message || 'Failed to delete assessment';
+      toast.error(msg);
+    }
+  };
 
   const downloadAnalysis = async (id) => {
     try {
@@ -689,7 +768,7 @@ const deleteAssessment = async (id) => {
                     
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
                       <div className="text-center">
-                        <div className={`text-lg font-bold ${getScoreColor(assessment.score)}`}>
+                        <div className={`text-lg font-bold px-2 py-1 rounded ${getScoreColor(assessment.score)}`}>
                           {assessment.score}/100
                         </div>
                         <div className="text-xs text-gray-500">Overall Score</div>
@@ -728,7 +807,7 @@ const deleteAssessment = async (id) => {
                               <div className="flex">
                                 {[...Array(10)].map((_, i) => (
                                   <Star 
-                                    key={i} 
+                                    key={`${tech.name}-${i}`}
                                     size={10} 
                                     className={i < tech.confidence ? 'text-yellow-400 fill-current' : 'text-gray-300'} 
                                   />
@@ -807,13 +886,18 @@ const deleteAssessment = async (id) => {
                         </h5>
                         <div className="max-h-48 overflow-y-auto space-y-2">
                           {assessment.topTechnologies.map((tech, idx) => (
-                            <div key={idx} className="flex items-center justify-between p-2 bg-white rounded border">
-                              <span className="text-sm font-medium">{tech.name}</span>
+                            <div key={`${tech.name}-${idx}`} className="flex items-center justify-between p-2 bg-white rounded border">
+                              <div className="flex-1">
+                                <span className="text-sm font-medium">{tech.name}</span>
+                                {tech.category && (
+                                  <span className="text-xs text-gray-500 ml-2">({tech.category})</span>
+                                )}
+                              </div>
                               <div className="flex items-center space-x-2">
                                 <div className="flex">
                                   {[...Array(10)].map((_, i) => (
                                     <Star 
-                                      key={i} 
+                                      key={`${tech.name}-detail-${i}`}
                                       size={12} 
                                       className={i < tech.confidence ? 'text-yellow-400 fill-current' : 'text-gray-300'} 
                                     />
@@ -823,6 +907,71 @@ const deleteAssessment = async (id) => {
                               </div>
                             </div>
                           ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* SWOT Analysis Details if available */}
+                    {(assessment.strengths?.length > 0 || assessment.weaknesses?.length > 0 || 
+                      assessment.opportunities?.length > 0 || assessment.threats?.length > 0) && (
+                      <div className="col-span-2">
+                        <h5 className="font-medium text-gray-800 mb-3 flex items-center">
+                          <Target className="mr-2" size={16} />
+                          SWOT Analysis Details
+                        </h5>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {assessment.strengths?.length > 0 && (
+                            <div>
+                              <h6 className="font-medium text-green-700 mb-2">Strengths</h6>
+                              <ul className="text-sm space-y-1">
+                                {assessment.strengths.slice(0, 3).map((item, idx) => (
+                                  <li key={idx} className="flex items-start">
+                                    <div className="w-2 h-2 bg-green-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
+                                    {item}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {assessment.weaknesses?.length > 0 && (
+                            <div>
+                              <h6 className="font-medium text-red-700 mb-2">Weaknesses</h6>
+                              <ul className="text-sm space-y-1">
+                                {assessment.weaknesses.slice(0, 3).map((item, idx) => (
+                                  <li key={idx} className="flex items-start">
+                                    <div className="w-2 h-2 bg-red-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
+                                    {item}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {assessment.opportunities?.length > 0 && (
+                            <div>
+                              <h6 className="font-medium text-blue-700 mb-2">Opportunities</h6>
+                              <ul className="text-sm space-y-1">
+                                {assessment.opportunities.slice(0, 3).map((item, idx) => (
+                                  <li key={idx} className="flex items-start">
+                                    <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
+                                    {item}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {assessment.threats?.length > 0 && (
+                            <div>
+                              <h6 className="font-medium text-orange-700 mb-2">Threats</h6>
+                              <ul className="text-sm space-y-1">
+                                {assessment.threats.slice(0, 3).map((item, idx) => (
+                                  <li key={idx} className="flex items-start">
+                                    <div className="w-2 h-2 bg-orange-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
+                                    {item}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -946,6 +1095,17 @@ const deleteAssessment = async (id) => {
           >
             Logout
           </button>
+        </div>
+
+        {/* Debug Information */}
+        <div className="border border-gray-200 rounded-lg p-4">
+          <h4 className="font-medium text-gray-900 mb-2">Debug Information</h4>
+          <div className="text-sm text-gray-600 space-y-1">
+            <p>User ID: {userData?._id || 'Not available'}</p>
+            <p>Saved Analyses: {savedAnalyses.length}</p>
+            <p>Skills Assessments: {skillsAssessments.length}</p>
+            <p>Backend URL: {backendUrl}</p>
+          </div>
         </div>
       </div>
     </div>
