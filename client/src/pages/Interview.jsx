@@ -34,21 +34,41 @@ const MockInterviewSystem = () => {
 
   const checkAuthentication = async () => {
     try {
+      console.log('Checking authentication...');
+      
       const response = await fetch('/api/auth/is-auth', {
         method: 'GET',
-        credentials: 'include'
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
-      
+
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
+
+      // Check if response is actually JSON
+      const contentType = response.headers.get('content-type');
+      console.log('Content-Type:', contentType);
+
+      if (!contentType || !contentType.includes('application/json')) {
+        const textResponse = await response.text();
+        console.log('Non-JSON response:', textResponse.substring(0, 500));
+        throw new Error('Server returned HTML instead of JSON. Check if the API endpoint exists and is working properly.');
+      }
+
       const result = await response.json();
+      console.log('Auth response:', result);
       
-      if (result.success) {
+      if (result.success && result.user) {
         setUser(result.user);
+        setError(''); // Clear any previous errors
       } else {
-        setError('Please log in to access the mock interview system.');
-        // Redirect to login or show login form
+        setError(result.message || 'Please log in to access the mock interview system.');
       }
     } catch (err) {
-      setError('Failed to verify authentication');
+      console.error('Authentication check failed:', err);
+      setError(`Authentication failed: ${err.message}`);
     }
   };
 
@@ -58,32 +78,34 @@ const MockInterviewSystem = () => {
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Mock Interview Setup</h1>
         <p className="text-gray-600">
-          Welcome {user?.name}! Set up your software engineering internship mock interview
+          Welcome {user?.name || 'User'}! Set up your software engineering internship mock interview
         </p>
       </div>
 
       <div className="space-y-4">
         {/* User info display (read-only) */}
-        <div className="bg-gray-50 rounded-lg p-4 mb-4">
-          <h3 className="font-medium text-gray-900 mb-2">Interview Candidate</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Name</label>
-              <p className="text-gray-900">{user?.name}</p>
+        {user && (
+          <div className="bg-gray-50 rounded-lg p-4 mb-4">
+            <h3 className="font-medium text-gray-900 mb-2">Interview Candidate</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Name</label>
+                <p className="text-gray-900">{user.name}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Email</label>
+                <p className="text-gray-900">{user.email}</p>
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Email</label>
-              <p className="text-gray-900">{user?.email}</p>
+            <div className="mt-2">
+              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                user.accountPlan === 'premium' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'
+              }`}>
+                {user.accountPlan?.toUpperCase() || 'BASIC'} PLAN
+              </span>
             </div>
           </div>
-          <div className="mt-2">
-            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-              user?.accountPlan === 'premium' ? 'bg-gold-100 text-gold-700' : 'bg-blue-100 text-blue-700'
-            }`}>
-              {user?.accountPlan?.toUpperCase()} PLAN
-            </span>
-          </div>
-        </div>
+        )}
 
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Job Title *</label>
@@ -125,6 +147,21 @@ const MockInterviewSystem = () => {
             <span className="text-red-700">{error}</span>
           </div>
         )}
+
+        {/* Debug information */}
+        <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+          <h4 className="text-sm font-medium text-gray-700 mb-2">Debug Info:</h4>
+          <div className="text-xs text-gray-600">
+            <p>User loaded: {user ? 'Yes' : 'No'}</p>
+            {user && (
+              <>
+                <p>User ID: {user.id || user._id}</p>
+                <p>Account Plan: {user.accountPlan}</p>
+              </>
+            )}
+            <p>Setup valid: {isSetupValid() ? 'Yes' : 'No'}</p>
+          </div>
+        </div>
 
         <button
           onClick={createInterview}

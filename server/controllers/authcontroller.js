@@ -74,11 +74,11 @@ export const register = async (req, res) => {
       subject: "Welcome to PrepWise",
       text: `Hi ${name},
         
-Welcome to PrepWise – we’re excited to have you on board!
+Welcome to PrepWise – we're excited to have you on board!
 
 You're now part of a growing community dedicated to helping undergraduates like you prepare smarter and achieve more. Start exploring mock interviews, CV improvement tips, and curated resources designed to give you the edge in the job market.
 
-If you have any questions, feel free to reach out – we’re always here to help.
+If you have any questions, feel free to reach out – we're always here to help.
 
 Here's to building a strong future!
 Team Prepwise`,
@@ -235,10 +235,28 @@ export const verifyEmail = async (req, res) => {
   }
 };
 
-//Check if user is authenticated
+//Check if user is authenticated - FIXED TO RETURN USER DATA
 export const isAuthenticated = async (req, res) => {
   try {
-    return res.json({ success: true });
+    // req.user is already populated by the userAuth middleware with complete user data
+    // Just need to return it in the expected format
+    const userData = {
+      id: req.user._id,
+      name: req.user.name,
+      email: req.user.email,
+      accountPlan: req.user.accountPlan,
+      accountType: req.user.accountType,
+      isAccountVerified: req.user.isAccountVerified,
+      phoneNumber: req.user.phoneNumber,
+      lastActive: req.user.lastActive,
+      createdAt: req.user.createdAt,
+      updatedAt: req.user.updatedAt
+    };
+
+    return res.json({ 
+      success: true, 
+      user: userData 
+    });
   } catch (error) {
     return res.json({ success: false, message: error.message });
   }
@@ -317,5 +335,7 @@ export const resetPassword = async (req, res) => {
       success: true,
       message: "Password has been reset successfully",
     });
-  } catch (error) {}
+  } catch (error) {
+    return res.json({ success: false, message: error.message });
+  }
 };

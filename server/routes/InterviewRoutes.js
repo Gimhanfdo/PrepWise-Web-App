@@ -1,4 +1,3 @@
-// routes/interviewRoutes.js
 import express from 'express';
 import multer from 'multer';
 import userAuth from '../middleware/userAuth.js';
@@ -24,7 +23,11 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     // Accept audio files
-    if (file.mimetype.startsWith('audio/') || file.mimetype.includes('webm') || file.mimetype.includes('wav')) {
+    if (file.mimetype.startsWith('audio/') || 
+        file.mimetype.includes('webm') || 
+        file.mimetype.includes('wav') ||
+        file.mimetype.includes('mpeg') ||
+        file.mimetype.includes('mp4')) {
       cb(null, true);
     } else {
       cb(new Error('Only audio files are allowed!'), false);

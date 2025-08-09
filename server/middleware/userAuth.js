@@ -1,62 +1,66 @@
-import jwt from "jsonwebtoken";
-import userModel from "../models/userModel.js";
+// Add this debugging to your existing userAuth middleware
+// This will help us see what's in the req.user object
 
-// Middleware to protect routes by verifying JWT token
+// If your userAuth middleware doesn't exist, here's a complete one:
+import jwt from 'jsonwebtoken';
+import userModel from '../models/userModel.js';
+
 const userAuth = async (req, res, next) => {
   try {
-    let token;
-
-    // Check for token in cookies first, then in Authorization header
-    if (req.cookies.token) {
-      token = req.cookies.token;
-    } else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-      token = req.headers.authorization.split(' ')[1];
-    }
-
+    console.log('=== AUTH MIDDLEWARE DEBUG ===');
+    console.log('Cookies:', req.cookies);
+    console.log('Headers:', req.headers.authorization);
+    
+    // Try to get token from different places
+    const tokenFromCookie = req.cookies.token;
+    const tokenFromHeader = req.headers.authorization?.replace('Bearer ', '');
+    const token = tokenFromCookie || tokenFromHeader;
+    
+    console.log('Token found:', !!token);
+    
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: "Not authorized. Login again.",
+        message: 'No token provided. Please login.'
       });
     }
 
-    // Verify the token using the secret key
-    const tokenDecode = jwt.verify(token, process.env.JWT_SECRET);
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('Decoded token:', decoded);
     
-    // Fetch the complete user data from database
-    const user = await userModel.findById(tokenDecode.id).select('-password -resetOtp -verifyOtp -resetOtpExpireAt -verifyOtpExpireAt');
+    // Find user
+    const user = await userModel.findById(decoded.id || decoded.userId).select('-password');
+    console.log('User found:', !!user);
+    console.log('User ID:', user?._id);
     
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: "User not found. Please login again.",
+        message: 'User not found. Please login again.'
       });
     }
 
-    // Attach the complete user object to the request with both id and _id for compatibility
+    // Set user info in request - try different formats to be safe
     req.user = {
-      ...user.toObject(),
-      id: user._id,
-      _id: user._id
+      userId: user._id,        // Standard format
+      id: user._id,           // Alternative format
+      _id: user._id,          // Mongoose format
+      name: user.name,
+      email: user.email,
+      accountPlan: user.accountPlan
     };
+    
+    console.log('req.user set to:', req.user);
+    console.log('=== END AUTH DEBUG ===');
     
     next();
   } catch (error) {
     console.error('Auth middleware error:', error);
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({ 
-        success: false, 
-        message: "Invalid token. Please login again." 
-      });
-    } else if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ 
-        success: false, 
-        message: "Token expired. Please login again." 
-      });
-    }
-    return res.status(500).json({ 
-      success: false, 
-      message: "Authentication error." 
+    res.status(401).json({
+      success: false,
+      message: 'Invalid token. Please login again.',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

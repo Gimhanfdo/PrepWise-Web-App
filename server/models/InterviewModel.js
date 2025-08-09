@@ -1,4 +1,3 @@
-// models/interviewModel.js
 import mongoose from 'mongoose';
 
 const questionSchema = new mongoose.Schema({
@@ -6,7 +5,7 @@ const questionSchema = new mongoose.Schema({
   type: { 
     type: String, 
     required: true, 
-    enum: ['behavioral', 'technical', 'system_design', 'coding']
+    enum: ['behavioral', 'technical', 'system_design', 'coding', 'problem-solving'] // Added 'problem-solving'
   },
   question: { type: String, required: true },
   category: { type: String, required: true },
