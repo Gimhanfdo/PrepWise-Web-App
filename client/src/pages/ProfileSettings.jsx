@@ -1,4 +1,4 @@
-// UserProfile.jsx - Fixed version with proper authentication and data handling
+// UserProfile.jsx - Enhanced version with PDF download functionality
 import React, { useState, useEffect, useContext } from 'react';
 import { User, Mail, Lock, FileText, Brain, Crown, Settings, Save, Eye, EyeOff, Download, Trash2, ChevronDown, ChevronUp, Star, TrendingUp, Target, Award } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
@@ -23,6 +23,7 @@ const UserProfile = () => {
   const [pageLoading, setPageLoading] = useState(true);
   const [expandedAnalysis, setExpandedAnalysis] = useState(null);
   const [expandedAssessment, setExpandedAssessment] = useState(null);
+  const [downloadingAnalysis, setDownloadingAnalysis] = useState(null);
 
   // Local user state for editing
   const [localUser, setLocalUser] = useState(null);
@@ -174,7 +175,9 @@ const UserProfile = () => {
             strengths: bestMatch.strengths || [],
             recommendations: allRecommendations,
             hasMultipleJobs: results.length > 1,
-            isSaved: analysis.isSaved !== false
+            isSaved: analysis.isSaved !== false,
+            // Store full analysis data for PDF generation
+            fullAnalysis: analysis
           };
           
           console.log(`📊 Formatted analysis:`, formatted);
@@ -298,6 +301,428 @@ const UserProfile = () => {
         toast.error('Failed to fetch skills assessments');
         setSkillsAssessments([]);
       }
+    }
+  };
+
+  // PDF Generation Functions
+  const generateBasicPDF = (analysis) => {
+    const { jsPDF } = window.jspdf || {};
+    if (!jsPDF) {
+      console.error('jsPDF library not loaded');
+      toast.error('PDF library not available. Please refresh the page and try again.');
+      return;
+    }
+
+    const doc = new jsPDF();
+    let yPos = 20;
+
+    // Header
+    doc.setFontSize(20);
+    doc.setTextColor(40, 116, 166);
+    doc.text('CV Analysis Report - Basic', 20, yPos);
+    yPos += 15;
+
+    // Watermark for basic users
+    doc.setFontSize(10);
+    doc.setTextColor(150);
+    doc.text('Generated with CVAnalyzer Basic Plan', 20, yPos);
+    yPos += 20;
+
+    // Analysis Overview
+    doc.setFontSize(16);
+    doc.setTextColor(0);
+    doc.text('Analysis Overview', 20, yPos);
+    yPos += 10;
+
+    doc.setFontSize(12);
+    doc.text(`Job Title: ${analysis.jobTitle}`, 20, yPos);
+    yPos += 8;
+    doc.text(`Company: ${analysis.company}`, 20, yPos);
+    yPos += 8;
+    doc.text(`Match Score: ${analysis.matchPercentage}%`, 20, yPos);
+    yPos += 8;
+    doc.text(`Analysis Date: ${new Date(analysis.createdAt).toLocaleDateString()}`, 20, yPos);
+    yPos += 15;
+
+    // Match Score Visualization (Simple)
+    doc.setFontSize(14);
+    doc.text('Match Score:', 20, yPos);
+    yPos += 8;
+
+    // Simple progress bar
+    const barWidth = 100;
+    const barHeight = 10;
+    const fillWidth = (analysis.matchPercentage / 100) * barWidth;
+
+    doc.setFillColor(240, 240, 240);
+    doc.rect(20, yPos, barWidth, barHeight, 'F');
+    
+    doc.setFillColor(40, 116, 166);
+    doc.rect(20, yPos, fillWidth, barHeight, 'F');
+    
+    doc.setTextColor(0);
+    doc.text(`${analysis.matchPercentage}%`, 130, yPos + 7);
+    yPos += 25;
+
+    // Key Strengths (Limited for Basic)
+    if (analysis.strengths && analysis.strengths.length > 0) {
+      doc.setFontSize(14);
+      doc.text('Key Strengths (Top 3):', 20, yPos);
+      yPos += 10;
+
+      doc.setFontSize(10);
+      const limitedStrengths = analysis.strengths.slice(0, 3);
+      limitedStrengths.forEach((strength, index) => {
+        const lines = doc.splitTextToSize(`• ${strength}`, 170);
+        lines.forEach(line => {
+          if (yPos > 270) {
+            doc.addPage();
+            yPos = 20;
+          }
+          doc.text(line, 20, yPos);
+          yPos += 6;
+        });
+      });
+      yPos += 10;
+    }
+
+    // Top Recommendations (Limited for Basic)
+    if (analysis.recommendations && analysis.recommendations.length > 0) {
+      doc.setFontSize(14);
+      doc.text('Improvement Suggestions (Top 3):', 20, yPos);
+      yPos += 10;
+
+      doc.setFontSize(10);
+      const limitedRecs = analysis.recommendations.slice(0, 3);
+      limitedRecs.forEach((rec, index) => {
+        const lines = doc.splitTextToSize(`• ${rec}`, 170);
+        lines.forEach(line => {
+          if (yPos > 270) {
+            doc.addPage();
+            yPos = 20;
+          }
+          doc.text(line, 20, yPos);
+          yPos += 6;
+        });
+      });
+      yPos += 15;
+    }
+
+    // Upgrade Promotion for Basic Users
+    if (yPos > 250) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    doc.setFontSize(12);
+    doc.setTextColor(255, 140, 0);
+    doc.text('Upgrade to Premium for Enhanced Features:', 20, yPos);
+    yPos += 10;
+
+    doc.setFontSize(10);
+    doc.setTextColor(0);
+    const premiumFeatures = [
+      '• Detailed analysis of all job matches',
+      '• Complete strengths and recommendations list',
+      '• Professional formatting and branding',
+      '• Multiple job comparison analysis',
+      '• Advanced charts and visualizations',
+      '• Interview preparation insights'
+    ];
+
+    premiumFeatures.forEach(feature => {
+      doc.text(feature, 20, yPos);
+      yPos += 6;
+    });
+
+    // Footer
+    doc.setFontSize(8);
+    doc.setTextColor(100);
+    doc.text('Generated by CVAnalyzer - www.cvanalyzer.com', 20, 285);
+    doc.text(`Report ID: ${analysis.id.slice(-8)} | Basic Plan`, 140, 285);
+
+    return doc;
+  };
+
+  const generatePremiumPDF = (analysis) => {
+    const { jsPDF } = window.jspdf || {};
+    if (!jsPDF) {
+      console.error('jsPDF library not loaded');
+      toast.error('PDF library not available. Please refresh the page and try again.');
+      return;
+    }
+
+    const doc = new jsPDF();
+    let yPos = 20;
+
+    // Premium Header with Logo Space
+    doc.setFillColor(40, 116, 166);
+    doc.rect(0, 0, 210, 30, 'F');
+    
+    doc.setTextColor(255);
+    doc.setFontSize(24);
+    doc.text('CV Analysis Report', 20, 20);
+    
+    doc.setFontSize(12);
+    doc.text('Premium Detailed Analysis', 20, 25);
+    yPos = 45;
+
+    // Professional Analysis Summary Box
+    doc.setFillColor(245, 248, 251);
+    doc.rect(15, yPos - 5, 180, 35, 'F');
+    doc.setLineWidth(0.5);
+    doc.setDrawColor(40, 116, 166);
+    doc.rect(15, yPos - 5, 180, 35);
+
+    doc.setTextColor(0);
+    doc.setFontSize(16);
+    doc.text('Analysis Summary', 20, yPos + 5);
+
+    doc.setFontSize(12);
+    doc.text(`Position: ${analysis.jobTitle}`, 20, yPos + 15);
+    doc.text(`Company: ${analysis.company}`, 20, yPos + 22);
+    doc.text(`Overall Match: ${analysis.matchPercentage}%`, 120, yPos + 15);
+    doc.text(`Analysis Date: ${new Date(analysis.createdAt).toLocaleDateString()}`, 120, yPos + 22);
+    yPos += 50;
+
+    // Enhanced Match Score with Color Coding
+    doc.setFontSize(14);
+    doc.text('Match Score Analysis:', 20, yPos);
+    yPos += 10;
+
+    // Professional progress bar with gradient effect
+    const barWidth = 150;
+    const barHeight = 15;
+    const fillWidth = (analysis.matchPercentage / 100) * barWidth;
+
+    // Background
+    doc.setFillColor(230, 230, 230);
+    doc.rect(20, yPos, barWidth, barHeight, 'F');
+
+    // Fill color based on score
+    if (analysis.matchPercentage >= 80) {
+      doc.setFillColor(34, 197, 94); // Green
+    } else if (analysis.matchPercentage >= 60) {
+      doc.setFillColor(59, 130, 246); // Blue
+    } else if (analysis.matchPercentage >= 40) {
+      doc.setFillColor(251, 191, 36); // Yellow
+    } else {
+      doc.setFillColor(239, 68, 68); // Red
+    }
+    
+    doc.rect(20, yPos, fillWidth, barHeight, 'F');
+    
+    // Score text
+    doc.setFontSize(12);
+    doc.setTextColor(0);
+    doc.text(`${analysis.matchPercentage}%`, 175, yPos + 10);
+    yPos += 25;
+
+    // Multiple Jobs Analysis (Premium Feature)
+    if (analysis.hasMultipleJobs) {
+      doc.setFontSize(14);
+      doc.text(`Multi-Job Analysis Results (${analysis.totalJobs} positions analyzed):`, 20, yPos);
+      yPos += 10;
+
+      doc.setFontSize(10);
+      doc.text(`• Software Engineering Roles: ${analysis.softwareJobs}`, 25, yPos);
+      yPos += 6;
+      doc.text(`• Average Match Score: ${analysis.matchPercentage}%`, 25, yPos);
+      yPos += 6;
+      doc.text(`• Best Match: ${analysis.jobTitle} at ${analysis.company}`, 25, yPos);
+      yPos += 15;
+    }
+
+    // Complete Strengths Section
+    if (analysis.strengths && analysis.strengths.length > 0) {
+      doc.setFontSize(14);
+      doc.setTextColor(34, 197, 94);
+      doc.text('✓ Key Strengths & Qualifications:', 20, yPos);
+      yPos += 10;
+
+      doc.setFontSize(10);
+      doc.setTextColor(0);
+      analysis.strengths.forEach((strength, index) => {
+        if (yPos > 270) {
+          doc.addPage();
+          yPos = 20;
+        }
+        
+        const lines = doc.splitTextToSize(`${index + 1}. ${strength}`, 170);
+        lines.forEach(line => {
+          doc.text(line, 25, yPos);
+          yPos += 6;
+        });
+        yPos += 2;
+      });
+      yPos += 10;
+    }
+
+    // Complete Recommendations Section
+    if (analysis.recommendations && analysis.recommendations.length > 0) {
+      if (yPos > 250) {
+        doc.addPage();
+        yPos = 20;
+      }
+
+      doc.setFontSize(14);
+      doc.setTextColor(239, 68, 68);
+      doc.text('⚠ Areas for Improvement:', 20, yPos);
+      yPos += 10;
+
+      doc.setFontSize(10);
+      doc.setTextColor(0);
+      analysis.recommendations.forEach((rec, index) => {
+        if (yPos > 270) {
+          doc.addPage();
+          yPos = 20;
+        }
+        
+        const lines = doc.splitTextToSize(`${index + 1}. ${rec}`, 170);
+        lines.forEach(line => {
+          doc.text(line, 25, yPos);
+          yPos += 6;
+        });
+        yPos += 2;
+      });
+      yPos += 15;
+    }
+
+    // Premium Insights Section
+    if (yPos > 240) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    doc.setFontSize(14);
+    doc.setTextColor(40, 116, 166);
+    doc.text('🎯 Premium Insights & Recommendations:', 20, yPos);
+    yPos += 10;
+
+    doc.setFontSize(10);
+    doc.setTextColor(0);
+
+    const premiumInsights = [
+      `Your CV shows a ${analysis.matchPercentage}% compatibility with this role.`,
+      'Focus on highlighting the strengths mentioned above in your application.',
+      'Address the improvement areas to increase your match score.',
+      analysis.hasMultipleJobs ? 
+        `Out of ${analysis.totalJobs} positions analyzed, ${analysis.softwareJobs} are software roles.` :
+        'Consider analyzing your CV against multiple similar positions for better insights.',
+      'Tailor your CV keywords to better match the job requirements.',
+      'Consider preparing specific examples that demonstrate your key strengths.'
+    ];
+
+    premiumInsights.forEach((insight, index) => {
+      if (yPos > 270) {
+        doc.addPage();
+        yPos = 20;
+      }
+      
+      const lines = doc.splitTextToSize(`• ${insight}`, 170);
+      lines.forEach(line => {
+        doc.text(line, 25, yPos);
+        yPos += 6;
+      });
+    });
+
+    // Professional Footer
+    doc.addPage();
+    yPos = 20;
+
+    doc.setFontSize(14);
+    doc.setTextColor(40, 116, 166);
+    doc.text('About This Analysis', 20, yPos);
+    yPos += 15;
+
+    doc.setFontSize(10);
+    doc.setTextColor(0);
+    const aboutText = [
+      'This comprehensive CV analysis was generated using advanced AI algorithms that compare your',
+      'resume content against specific job requirements. The analysis includes:',
+      '',
+      '• Keyword matching and relevance scoring',
+      '• Skills gap identification',
+      '• Content optimization recommendations',
+      '• Structure and formatting suggestions',
+      '',
+      'For best results, ensure your CV is updated with your latest experience and achievements.',
+      'Consider conducting regular analyses as you apply to different positions.',
+      '',
+      'This report is confidential and intended solely for the recipient\'s use in job applications.'
+    ];
+
+    aboutText.forEach(line => {
+      if (yPos > 270) {
+        doc.addPage();
+        yPos = 20;
+      }
+      doc.text(line, 20, yPos);
+      yPos += 6;
+    });
+
+    // Premium Footer
+    doc.setFontSize(8);
+    doc.setTextColor(100);
+    doc.text('Generated by CVAnalyzer Premium - Professional CV Analysis Platform', 20, 285);
+    doc.text(`Report ID: ${analysis.id.slice(-8)} | Premium Plan | ${new Date().toLocaleDateString()}`, 140, 285);
+
+    return doc;
+  };
+
+  const downloadAnalysis = async (analysisId) => {
+    try {
+      setDownloadingAnalysis(analysisId);
+      
+      // Find the analysis data
+      const analysis = savedAnalyses.find(a => a.id === analysisId);
+      if (!analysis) {
+        toast.error('Analysis data not found');
+        return;
+      }
+
+      // Check if jsPDF is available (load it if not)
+      if (!window.jspdf) {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+        script.onload = () => {
+          generateAndDownloadPDF(analysis);
+        };
+        script.onerror = () => {
+          toast.error('Failed to load PDF library');
+          setDownloadingAnalysis(null);
+        };
+        document.head.appendChild(script);
+      } else {
+        generateAndDownloadPDF(analysis);
+      }
+    } catch (error) {
+      console.error('Download error:', error);
+      toast.error('Failed to generate PDF report');
+      setDownloadingAnalysis(null);
+    }
+  };
+
+  const generateAndDownloadPDF = (analysis) => {
+    try {
+      const isPremium = localUser?.accountPlan === 'premium';
+      const doc = isPremium ? generatePremiumPDF(analysis) : generateBasicPDF(analysis);
+      
+      if (doc) {
+        const fileName = `CV_Analysis_${analysis.jobTitle.replace(/[^a-zA-Z0-9]/g, '_')}_${analysis.id.slice(-6)}.pdf`;
+        doc.save(fileName);
+        
+        toast.success(
+          isPremium 
+            ? 'Premium PDF report downloaded successfully!' 
+            : 'Basic PDF report downloaded. Upgrade to Premium for enhanced features!'
+        );
+      }
+    } catch (error) {
+      console.error('PDF generation error:', error);
+      toast.error('Failed to generate PDF. Please try again.');
+    } finally {
+      setDownloadingAnalysis(null);
     }
   };
 
@@ -436,15 +861,6 @@ const UserProfile = () => {
     } catch (error) {
       const msg = error.response?.data?.message || error.message || 'Failed to delete assessment';
       toast.error(msg);
-    }
-  };
-
-  const downloadAnalysis = async (id) => {
-    try {
-      // This would typically generate a PDF report
-      toast.info('Download functionality coming soon!');
-    } catch (error) {
-      toast.error('Failed to download analysis');
     }
   };
 
@@ -639,10 +1055,26 @@ const UserProfile = () => {
                       </button>
                       <button 
                         onClick={() => downloadAnalysis(analysis.id)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-md"
-                        title="Download Report"
+                        disabled={downloadingAnalysis === analysis.id}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-md relative"
+                        title={
+                          localUser?.accountPlan === 'premium' 
+                            ? 'Download Premium PDF Report' 
+                            : 'Download Basic PDF Report (Upgrade for enhanced features)'
+                        }
                       >
-                        <Download size={16} />
+                        {downloadingAnalysis === analysis.id ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                        ) : (
+                          <>
+                            <Download size={16} />
+                            {localUser?.accountPlan !== 'premium' && (
+                              <span className="absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full text-xs text-white flex items-center justify-center">
+                                !
+                              </span>
+                            )}
+                          </>
+                        )}
                       </button>
                       <button 
                         onClick={() => deleteAnalysis(analysis.id)}
@@ -696,11 +1128,20 @@ const UserProfile = () => {
                       )}
                     </div>
 
-                    {/* Analysis Stats */}
+                    {/* PDF Download Info */}
                     <div className="mt-4 pt-4 border-t border-gray-300">
-                      <div className="flex items-center justify-between text-sm text-gray-600">
-                        <span>Analysis ID: {analysis.id.slice(-8)}</span>
-                        <span>Software Roles: {analysis.softwareJobs}/{analysis.totalJobs}</span>
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm text-gray-600">
+                          <span>Analysis ID: {analysis.id.slice(-8)}</span>
+                          <span className="ml-4">Software Roles: {analysis.softwareJobs}/{analysis.totalJobs}</span>
+                        </div>
+                        <div className="text-sm">
+                          {localUser?.accountPlan === 'premium' ? (
+                            <span className="text-green-600 font-medium">✓ Premium PDF Available</span>
+                          ) : (
+                            <span className="text-orange-600">Basic PDF (Upgrade for full features)</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1035,84 +1476,117 @@ const UserProfile = () => {
   );
 
   const renderSubscriptionTab = () => (
-    <div className="bg-white p-6 rounded-lg shadow">
-      <h3 className="text-lg font-semibold mb-4 flex items-center">
-        <Crown className="mr-2" size={20} />
-        Subscription Plan
-      </h3>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className={`border-2 rounded-lg p-6 ${localUser.accountPlan === 'basic' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
-          <div className="text-center">
-            <h4 className="text-xl font-semibold">Basic Plan</h4>
-            <p className="text-3xl font-bold text-gray-900 mt-2">Free</p>
-            <ul className="mt-4 space-y-2 text-sm text-left">
-              <li key="basic-feature-1">✓ 5 CV analyses per month</li>
-              <li key="basic-feature-2">✓ 1 job description per analysis</li>
-              <li key="basic-feature-3">✓ Basic skills assessment</li>
-              <li key="basic-feature-4">✓ Standard support</li>
-              <li key="basic-feature-5">✗ Multiple job comparison</li>
-              <li key="basic-feature-6">✗ Advanced analytics</li>
-              <li key="basic-feature-7">✗ Priority support</li>
-            </ul>
-            {localUser.accountPlan === 'basic' ? (
-              <div className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md">
-                Current Plan
-              </div>
-            ) : (
-              <button 
-                onClick={downgradeToBasic}
-                disabled={loading}
-                className="mt-4 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 disabled:opacity-50"
-              >
-                {loading ? 'Processing...' : 'Downgrade'}
-              </button>
-            )}
+    <div className="space-y-6">
+      <div className="bg-white p-6 rounded-lg shadow">
+        <h3 className="text-lg font-semibold mb-4 flex items-center">
+          <Crown className="mr-2" size={20} />
+          Subscription Plan
+        </h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className={`border-2 rounded-lg p-6 ${localUser.accountPlan === 'basic' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
+            <div className="text-center">
+              <h4 className="text-xl font-semibold">Basic Plan</h4>
+              <p className="text-3xl font-bold text-gray-900 mt-2">Free</p>
+              <ul className="mt-4 space-y-2 text-sm text-left">
+                <li key="basic-feature-1">✓ 5 CV analyses per month</li>
+                <li key="basic-feature-2">✓ 1 job description per analysis</li>
+                <li key="basic-feature-3">✓ Basic skills assessment</li>
+                <li key="basic-feature-4">✓ Standard support</li>
+                <li key="basic-feature-5">✓ Basic PDF reports</li>
+                <li key="basic-feature-6">✗ Multiple job comparison</li>
+                <li key="basic-feature-7">✗ Advanced analytics</li>
+                <li key="basic-feature-8">✗ Premium PDF reports</li>
+                <li key="basic-feature-9">✗ Priority support</li>
+              </ul>
+              {localUser.accountPlan === 'basic' ? (
+                <div className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md">
+                  Current Plan
+                </div>
+              ) : (
+                <button 
+                  onClick={downgradeToBasic}
+                  disabled={loading}
+                  className="mt-4 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {loading ? 'Processing...' : 'Downgrade'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className={`border-2 rounded-lg p-6 ${localUser.accountPlan === 'premium' ? 'border-yellow-500 bg-yellow-50' : 'border-gray-200'}`}>
+            <div className="text-center">
+              <h4 className="text-xl font-semibold">Premium Plan</h4>
+              <p className="text-3xl font-bold text-gray-900 mt-2">LKR 2,500<span className="text-sm font-normal">/month</span></p>
+              <ul className="mt-4 space-y-2 text-sm text-left">
+                <li key="premium-feature-1">✓ Unlimited CV analyses</li>
+                <li key="premium-feature-2">✓ Compare against 5 job descriptions</li>
+                <li key="premium-feature-3">✓ Advanced skills assessment</li>
+                <li key="premium-feature-4">✓ Detailed analytics & insights</li>
+                <li key="premium-feature-5">✓ Priority support</li>
+                <li key="premium-feature-6">✓ Professional PDF reports</li>
+                <li key="premium-feature-7">✓ Complete analysis details</li>
+                <li key="premium-feature-8">✓ Job matching recommendations</li>
+                <li key="premium-feature-9">✓ Interview preparation tips</li>
+              </ul>
+              {localUser.accountPlan === 'premium' ? (
+                <div className="mt-4 px-4 py-2 bg-yellow-600 text-white rounded-md">
+                  Current Plan
+                </div>
+              ) : (
+                <button 
+                  onClick={upgradeToPremium}
+                  disabled={loading}
+                  className="mt-4 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 disabled:opacity-50"
+                >
+                  {loading ? 'Processing...' : 'Upgrade Now'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className={`border-2 rounded-lg p-6 ${localUser.accountPlan === 'premium' ? 'border-yellow-500 bg-yellow-50' : 'border-gray-200'}`}>
-          <div className="text-center">
-            <h4 className="text-xl font-semibold">Premium Plan</h4>
-            <p className="text-3xl font-bold text-gray-900 mt-2">LKR 2,500<span className="text-sm font-normal">/month</span></p>
-            <ul className="mt-4 space-y-2 text-sm text-left">
-              <li key="premium-feature-1">✓ Unlimited CV analyses</li>
-              <li key="premium-feature-2">✓ Compare against 5 job descriptions</li>
-              <li key="premium-feature-3">✓ Advanced skills assessment</li>
-              <li key="premium-feature-4">✓ Detailed analytics & insights</li>
-              <li key="premium-feature-5">✓ Priority support</li>
-              <li key="premium-feature-6">✓ Export reports to PDF</li>
-              <li key="premium-feature-7">✓ Job matching recommendations</li>
-              <li key="premium-feature-8">✓ Interview preparation tips</li>
-            </ul>
-            {localUser.accountPlan === 'premium' ? (
-              <div className="mt-4 px-4 py-2 bg-yellow-600 text-white rounded-md">
-                Current Plan
-              </div>
-            ) : (
-              <button 
-                onClick={upgradeToPremium}
-                disabled={loading}
-                className="mt-4 px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700 disabled:opacity-50"
-              >
-                {loading ? 'Processing...' : 'Upgrade Now'}
-              </button>
-            )}
+        {/* PDF Report Comparison */}
+        <div className="mt-6 bg-gradient-to-r from-blue-50 to-yellow-50 border border-blue-200 rounded-lg p-6">
+          <h4 className="text-lg font-semibold text-blue-800 mb-3">PDF Report Features Comparison</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div className="bg-white rounded-lg p-4 shadow-sm border-l-4 border-blue-500">
+              <h5 className="font-medium text-gray-900 mb-2">Basic PDF Reports</h5>
+              <ul className="space-y-1 text-gray-600">
+                <li>• Summary of top 3 strengths</li>
+                <li>• Top 3 improvement suggestions</li>
+                <li>• Basic match score visualization</li>
+                <li>• Simple formatting</li>
+                <li>• Upgrade promotion included</li>
+              </ul>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm border-l-4 border-yellow-500">
+              <h5 className="font-medium text-gray-900 mb-2">Premium PDF Reports</h5>
+              <ul className="space-y-1 text-gray-600">
+                <li>• Complete strengths analysis</li>
+                <li>• All improvement recommendations</li>
+                <li>• Professional formatting & branding</li>
+                <li>• Multi-job analysis details</li>
+                <li>• Advanced insights & tips</li>
+                <li>• Interview preparation guidance</li>
+              </ul>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Premium Features Highlight */}
-      <div className="mt-6 bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-lg p-6">
-        <h4 className="text-lg font-semibold text-yellow-800 mb-3">Premium Feature Highlight</h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <h5 className="font-medium text-gray-900 mb-2">Multi-Job Analysis</h5>
-            <p className="text-gray-600">Upload your CV once and compare it against up to 5 different job descriptions simultaneously. Get match percentages and tailored recommendations for each position.</p>
-          </div>
-          <div className="bg-white rounded-lg p-4 shadow-sm">
-            <h5 className="font-medium text-gray-900 mb-2">Smart Recommendations</h5>
-            <p className="text-gray-600">Receive personalized suggestions on which job positions best match your skills and experience, plus actionable advice to improve your candidacy.</p>
+        {/* Premium Features Highlight */}
+        <div className="mt-6 bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-lg p-6">
+          <h4 className="text-lg font-semibold text-yellow-800 mb-3">Premium Feature Highlight</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <h5 className="font-medium text-gray-900 mb-2">Multi-Job Analysis</h5>
+              <p className="text-gray-600">Upload your CV once and compare it against up to 5 different job descriptions simultaneously. Get match percentages and tailored recommendations for each position.</p>
+            </div>
+            <div className="bg-white rounded-lg p-4 shadow-sm">
+              <h5 className="font-medium text-gray-900 mb-2">Professional PDF Reports</h5>
+              <p className="text-gray-600">Get comprehensive, professionally formatted PDF reports with complete analysis, advanced insights, and actionable recommendations to improve your candidacy.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -1138,6 +1612,35 @@ const UserProfile = () => {
           </button>
         </div>
 
+        {/* PDF Download Information */}
+        <div className="border border-gray-200 rounded-lg p-4">
+          <h4 className="font-medium text-gray-900 mb-2">PDF Download Information</h4>
+          <div className="text-sm text-gray-600 space-y-2">
+            <p><strong>Current Plan:</strong> {localUser?.accountPlan === 'premium' ? 'Premium' : 'Basic'}</p>
+            <p><strong>PDF Features Available:</strong></p>
+            <ul className="ml-4 space-y-1">
+              {localUser?.accountPlan === 'premium' ? (
+                <>
+                  <li>✓ Professional formatting and branding</li>
+                  <li>✓ Complete analysis with all strengths</li>
+                  <li>✓ All improvement recommendations</li>
+                  <li>✓ Multi-job analysis details</li>
+                  <li>✓ Advanced insights and tips</li>
+                  <li>✓ Interview preparation guidance</li>
+                </>
+              ) : (
+                <>
+                  <li>✓ Basic PDF report generation</li>
+                  <li>✓ Top 3 strengths and recommendations</li>
+                  <li>✓ Match score visualization</li>
+                  <li>⚠ Limited to essential information</li>
+                  <li>💡 Upgrade to Premium for enhanced features</li>
+                </>
+              )}
+            </ul>
+          </div>
+        </div>
+
         {/* Debug Information */}
         <div className="border border-gray-200 rounded-lg p-4">
           <h4 className="font-medium text-gray-900 mb-2">Debug Information</h4>
@@ -1147,6 +1650,7 @@ const UserProfile = () => {
             <p>Skills Assessments: {skillsAssessments.length}</p>
             <p>Backend URL: {backendUrl}</p>
             <p>Auth Token: {localStorage.getItem('token') ? 'Present' : 'Missing'}</p>
+            <p>PDF Library: {typeof window.jspdf !== 'undefined' ? 'Loaded' : 'Not loaded'}</p>
           </div>
         </div>
       </div>
@@ -1185,6 +1689,11 @@ const UserProfile = () => {
                   }`}>
                     {localUser.accountType}
                   </span>
+                  {localUser.accountPlan === 'premium' && (
+                    <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">
+                      Premium PDF ✓
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

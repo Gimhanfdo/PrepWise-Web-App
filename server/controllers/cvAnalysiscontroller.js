@@ -430,117 +430,96 @@ export const analyzeResume = async (req, res) => {
   }
 };
 
-// Get saved CV analyses with better formatting
+// Get all saved analyses for user - INTEGRATED VERSION
 export const getSavedAnalysis = async (req, res) => {
   try {
-    console.log('🔍 Getting saved analyses for user:', req.user.id);
-    
-    const savedAnalyses = await CVAnalysis.find({
-      userId: req.user.id,
-      isSaved: true
-    })
-    .sort({ updatedAt: -1 })
-    .limit(20)
-    .select('-userId -resumeText'); // Exclude sensitive data
+    const userId = req.user.id;
 
-    console.log(`✅ Found ${savedAnalyses.length} saved analyses`);
+    console.log('🔍 Fetching saved analyses for user:', userId);
 
-    // Transform data to match expected format
-    const formattedAnalyses = savedAnalyses.map(analysis => {
+    // Query saved analyses using the static method from your model
+    const analyses = await CVAnalysis.findSavedByUser(userId, 50)
+      .populate('userId', 'name email') // Optionally populate user data
+      .lean(); // Use lean() for better performance
+
+    console.log(`📊 Found ${analyses.length} saved analyses`);
+
+    if (analyses.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'No saved analyses found',
+        data: []
+      });
+    }
+
+    // Transform the data to ensure compatibility with frontend
+    const transformedAnalyses = analyses.map(analysis => {
+      console.log(`📊 Processing analysis ID: ${analysis._id}, Results: ${analysis.results?.length || 0}`);
+
+      // Ensure results array exists
       const results = analysis.results || [];
       const softwareRoles = results.filter(r => !r.isNonTechRole);
-      
-      // Calculate average match percentage
+
+      // Calculate stats
       const avgMatch = softwareRoles.length > 0 
         ? Math.round(softwareRoles.reduce((sum, r) => sum + (r.matchPercentage || 0), 0) / softwareRoles.length)
         : 0;
 
-      // Get the best matching job (highest percentage)
-      const bestMatch = results.length > 0 
-        ? results.reduce((best, current) => 
-            (current.matchPercentage || 0) > (best.matchPercentage || 0) ? current : best, 
-            { matchPercentage: 0, strengths: [], contentRecommendations: [], structureRecommendations: [] }
-          )
-        : { matchPercentage: 0, strengths: [], contentRecommendations: [], structureRecommendations: [] };
-
-      // Extract job title and company from results or job descriptions
-      let jobTitle = 'Software Engineering Position';
-      let company = 'Company';
-      
-      // Try to get from first result
-      if (results.length > 0 && results[0].jobTitle) {
-        jobTitle = results[0].jobTitle;
-      }
-      if (results.length > 0 && results[0].company) {
-        company = results[0].company;
-      }
-      
-      // Fallback: try to extract from job descriptions
-      if (analysis.jobDescriptions && analysis.jobDescriptions.length > 0) {
-        const firstJobDesc = analysis.jobDescriptions[0];
-        const titleMatch = firstJobDesc.match(/(?:position|role|title):\s*([^\n<]+)/i);
-        const companyMatch = firstJobDesc.match(/(?:company|organization):\s*([^\n<]+)/i) || 
-                           firstJobDesc.match(/<strong>([^<]+)<\/strong>/);
-        
-        if (titleMatch && !results[0]?.jobTitle) jobTitle = titleMatch[1].trim();
-        if (companyMatch && !results[0]?.company) company = companyMatch[1].trim();
-      }
+      // Get best match for summary
+      const bestMatch = softwareRoles.length > 0 
+        ? softwareRoles.reduce((best, current) => 
+            (current.matchPercentage || 0) > (best.matchPercentage || 0) ? current : best
+          ) 
+        : { matchPercentage: 0, jobTitle: 'Position', company: 'Company' };
 
       return {
-        id: analysis._id,
-        jobTitle,
-        company,
+        _id: analysis._id, // Keep MongoDB _id
+        userId: analysis.userId,
+        resumeHash: analysis.resumeHash,
+        jobDescriptions: analysis.jobDescriptions || [],
+        results: results, // Include full results array
+        isSaved: analysis.isSaved,
+        createdAt: analysis.createdAt,
+        updatedAt: analysis.updatedAt,
+        
+        // Add computed fields for frontend compatibility
+        jobTitle: bestMatch.jobTitle || 'Software Engineering Position',
+        company: bestMatch.company || 'Company',
         matchPercentage: avgMatch,
         totalJobs: results.length,
         softwareJobs: softwareRoles.length,
-        createdAt: analysis.createdAt,
-        updatedAt: analysis.updatedAt,
+        
+        // Include strengths and recommendations from best match
         strengths: bestMatch.strengths || [],
+        contentRecommendations: bestMatch.contentRecommendations || [],
+        structureRecommendations: bestMatch.structureRecommendations || [],
         recommendations: [
           ...(bestMatch.contentRecommendations || []),
           ...(bestMatch.structureRecommendations || [])
-        ].slice(0, 5), // Limit to 5 recommendations
-        hasMultipleJobs: results.length > 1,
-        // Additional fields
-        summary: {
-          totalRoles: results.length,
-          softwareRoles: softwareRoles.length,
-          nonTechRoles: results.filter(r => r.isNonTechRole).length,
-          avgMatchScore: avgMatch,
-          hasHighMatches: softwareRoles.some(r => (r.matchPercentage || 0) >= 70),
-          recommendationCount: results.reduce((sum, r) => sum + (r.contentRecommendations?.length || 0) + (r.structureRecommendations?.length || 0), 0),
-          isSaved: analysis.isSaved,
-          extractedTechnologies: analysis.extractedTechnologies || [],
-          technologiesCount: (analysis.extractedTechnologies || []).length,
-          analysisVersion: analysis.analysisMetadata?.geminiModel || "legacy"
-        }
+        ],
+        
+        // Virtual fields
+        isRecent: analysis.isRecent,
+        averageMatch: avgMatch,
+        bestMatch: bestMatch
       };
     });
 
-    console.log('✅ Sending formatted analyses:', formattedAnalyses.length);
+    console.log(`📊 Transformed ${transformedAnalyses.length} analyses successfully`);
 
-    res.json({
+    res.status(200).json({
       success: true,
-      data: formattedAnalyses,
-      count: formattedAnalyses.length,
-      metadata: {
-        totalSoftwareAnalyses: formattedAnalyses.reduce((sum, a) => sum + a.summary.softwareRoles, 0),
-        totalNonTechAnalyses: formattedAnalyses.reduce((sum, a) => sum + a.summary.nonTechRoles, 0),
-        avgOverallMatch: formattedAnalyses.length > 0 
-          ? Math.round(formattedAnalyses.reduce((sum, a) => sum + a.summary.avgMatchScore, 0) / formattedAnalyses.length)
-          : 0,
-        savedCount: formattedAnalyses.filter(a => a.summary.isSaved).length,
-        unsavedCount: formattedAnalyses.filter(a => !a.summary.isSaved).length,
-        totalTechnologies: formattedAnalyses.reduce((sum, a) => sum + a.summary.technologiesCount, 0),
-        geminiAnalyses: formattedAnalyses.filter(a => a.summary.analysisVersion.includes("gemini")).length
-      }
+      message: `Found ${analyses.length} saved analyses`,
+      data: transformedAnalyses,
+      count: transformedAnalyses.length
     });
 
   } catch (error) {
     console.error('❌ Error fetching saved analyses:', error);
+    
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch saved CV analyses',
+      message: 'Failed to fetch saved analyses',
       error: error.message
     });
   }
@@ -680,12 +659,13 @@ export const saveAnalysis = async (req, res) => {
   }
 };
 
-// Delete specific CV analysis
+// Delete specific CV analysis - INTEGRATED VERSION
 export const deleteAnalysis = async (req, res) => {
   try {
-    console.log('🔍 Deleting analysis:', req.params.id);
-    
     const { id } = req.params;
+    const userId = req.user.id;
+
+    console.log(`🗑️ Deleting analysis: ${id} for user: ${userId}`);
 
     // Validate ObjectId format
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
@@ -696,39 +676,41 @@ export const deleteAnalysis = async (req, res) => {
       });
     }
 
-    const deleted = await CVAnalysis.findOneAndDelete({
+    const analysis = await CVAnalysis.findOneAndDelete({
       _id: id,
-      userId: req.user.id
+      userId: userId // Ensure user owns this analysis
     });
 
-    if (!deleted) {
+    if (!analysis) {
       return res.status(404).json({
         success: false,
-        message: 'CV analysis not found'
+        message: 'Analysis not found or you do not have permission to delete it'
       });
     }
 
-    console.log('✅ Analysis deleted successfully');
+    console.log(`✅ Successfully deleted analysis: ${id}`);
 
-    res.json({
+    res.status(200).json({
       success: true,
-      message: 'CV analysis deleted successfully',
-              deletedAnalysis: {
-        id: deleted._id,
-        resumeText: deleted.resumeText,
-        analysisCount: deleted.results?.length || 0,
-        wasSaved: deleted.isSaved,
-        technologiesCount: (deleted.extractedTechnologies || []).length,
+      message: 'Analysis deleted successfully',
+      deletedId: id,
+      deletedAnalysis: {
+        id: analysis._id,
+        resumeText: analysis.resumeText,
+        analysisCount: analysis.results?.length || 0,
+        wasSaved: analysis.isSaved,
+        technologiesCount: (analysis.extractedTechnologies || []).length,
         deletedAt: new Date().toISOString(),
-        analysisVersion: deleted.analysisMetadata?.geminiModel || "legacy"
+        analysisVersion: analysis.analysisMetadata?.geminiModel || "legacy"
       }
     });
 
   } catch (error) {
-    console.error('❌ Error deleting CV analysis:', error);
+    console.error('❌ Error deleting analysis:', error);
+    
     res.status(500).json({
       success: false,
-      message: 'Failed to delete CV analysis',
+      message: 'Failed to delete analysis',
       error: error.message
     });
   }

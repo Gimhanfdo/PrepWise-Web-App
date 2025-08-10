@@ -1,4 +1,3 @@
-
 import SkillsAssessment from '../models/SkillAssessorModel.js';
 import crypto from 'crypto';
 
@@ -45,187 +44,133 @@ const calculateSummary = (skills) => {
   };
 };
 
-// GET /api/swot/ratings - Get all ratings (enhanced version supporting both models)
+// GET /api/swot/ratings - Get all ratings for the authenticated user - INTEGRATED VERSION
 export const getRatings = async (req, res) => {
   try {
-    console.log('🔍 Getting skills assessments for user:', req.user.id);
-    
-    const { resumeHash, includeUnsaved = 'false', limit = '20', sort = 'updatedAt' } = req.query;
     const userId = req.user.id;
-    
-    console.log(`=== Getting Skills Assessments ===`);
-    console.log(`User: ${userId}`);
-    console.log(`Resume Hash: ${resumeHash || 'all'}`);
-    console.log(`Include Unsaved: ${includeUnsaved}`);
+    const { resumeHash } = req.params; // Optional - if getting ratings for specific resume
 
-    // Try to use the enhanced model first, fall back to TechnologyRating
-    let skillsAssessments = [];
-    let usingEnhancedModel = false;
-
-    try {
-      // Build query filter for enhanced model
-      const enhancedFilter = { userId, assessmentType: 'Technical Skills' };
-      
-      if (resumeHash && resumeHash !== 'all') {
-        enhancedFilter.resumeHash = resumeHash;
-      }
-      
-      if (includeUnsaved !== 'true') {
-        enhancedFilter.isSaved = true;
-      }
-
-      // Build sort criteria
-      const sortCriteria = {};
-      if (sort === 'createdAt') {
-        sortCriteria.createdAt = -1;
-      } else if (sort === 'confidence') {
-        sortCriteria.overallScore = -1;
-      } else {
-        sortCriteria.updatedAt = -1;
-      }
-
-      skillsAssessments = await SkillsAssessment.find(enhancedFilter)
-        .sort(sortCriteria)
-        .limit(parseInt(limit))
-        .select('-userId');
-
-      usingEnhancedModel = true;
-      console.log(`✅ Found ${skillsAssessments.length} skills assessments (enhanced model)`);
-
-    } catch (enhancedError) {
-      console.log('Enhanced model not available, falling back to TechnologyRating model');
-      
-      // Fallback to original TechnologyRating model
-      let fallbackQuery = { userId };
-      
-      if (resumeHash && resumeHash !== 'all') {
-        fallbackQuery.resumeHash = resumeHash;
-      }
-      
-      if (includeUnsaved !== 'true') {
-        fallbackQuery.saved = true;
-      }
-
-      skillsAssessments = await TechnologyRating.find(fallbackQuery)
-        .sort({ updatedAt: -1 })
-        .limit(parseInt(limit))
-        .select('-userId');
-
-      console.log(`✅ Found ${skillsAssessments.length} skills assessments (fallback model)`);
+    console.log('🧠 Fetching skills assessments for user:', userId);
+    if (resumeHash) {
+      console.log('🧠 Filtering by resumeHash:', resumeHash);
     }
 
-    // Transform data to match what UserProfile.js expects
-    const formattedAssessments = skillsAssessments.map(assessment => {
-      let technologies, summary, avgConfidence, score;
+    // Build query
+    let query = { userId };
+    if (resumeHash) {
+      query.resumeHash = resumeHash;
+    }
 
-      if (usingEnhancedModel) {
-        // Enhanced model format
-        technologies = assessment.skills || [];
-        summary = calculateSummary(technologies);
-        avgConfidence = assessment.averageProficiency || summary.averageConfidence;
-        score = assessment.overallScore || Math.round(avgConfidence * 10);
-      } else {
-        // Original model format
-        technologies = assessment.technologies || [];
-        summary = assessment.summary || {};
-        avgConfidence = summary.averageConfidence || 0;
-        score = Math.round((avgConfidence / 10) * 100);
-      }
+    // Query assessments using the static method from your model
+    const assessments = await SkillsAssessment.find(query)
+      .sort({ updatedAt: -1 })
+      .limit(50)
+      .populate('userId', 'name email') // Optionally populate user data
+      .lean(); // Use lean() for better performance
 
-      // Determine assessment type based on technologies
-      let assessmentType = 'Technical Skills Assessment';
-      const techCategories = [...new Set(technologies.map(t => t.category).filter(Boolean))];
-      if (techCategories.length > 0) {
-        assessmentType = techCategories.join(', ') + ' Assessment';
-      }
+    console.log(`🧠 Found ${assessments.length} skills assessments`);
 
-      // Determine level based on average confidence
+    if (assessments.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'No skills assessments found',
+        data: []
+      });
+    }
+
+    // Transform the data to ensure compatibility with frontend
+    const transformedAssessments = assessments.map(assessment => {
+      console.log(`🧠 Processing assessment ID: ${assessment._id}, Skills: ${assessment.skills?.length || 0}`);
+
+      // Ensure skills array exists
+      const skills = assessment.skills || [];
+
+      // Calculate proficiency distribution
+      const expertCount = skills.filter(s => s.proficiencyLevel >= 8).length;
+      const proficientCount = skills.filter(s => s.proficiencyLevel >= 6 && s.proficiencyLevel < 8).length;
+      const learningCount = skills.filter(s => s.proficiencyLevel < 6).length;
+
+      // Calculate average proficiency
+      const avgProficiency = skills.length > 0 
+        ? skills.reduce((sum, skill) => sum + skill.proficiencyLevel, 0) / skills.length
+        : 0;
+
+      // Calculate overall score
+      const overallScore = assessment.overallScore || Math.round(avgProficiency * 10);
+
+      // Determine skill level
       let level = 'Beginner';
-      if (avgConfidence >= 8) level = 'Expert';
-      else if (avgConfidence >= 6) level = 'Advanced';
-      else if (avgConfidence >= 4) level = 'Intermediate';
+      if (avgProficiency >= 8) level = 'Expert';
+      else if (avgProficiency >= 6) level = 'Advanced';
+      else if (avgProficiency >= 4) level = 'Intermediate';
 
-      // Check if assessment is recent (within last 30 days)
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const isRecent = assessment.updatedAt > thirtyDaysAgo;
+      // Get top skills sorted by proficiency
+      const topSkills = skills
+        .sort((a, b) => b.proficiencyLevel - a.proficiencyLevel)
+        .slice(0, 10)
+        .map(skill => ({
+          name: skill.name,
+          category: skill.category || 'General',
+          proficiencyLevel: skill.proficiencyLevel,
+          confidence: skill.proficiencyLevel, // Alias for frontend
+          yearsOfExperience: skill.yearsOfExperience || 0,
+          isCoreTechnology: skill.isCoreTechnology || false
+        }));
 
-      const baseResult = {
-        id: assessment._id,
-        assessmentType,
-        level,
-        score,
-        totalTechnologies: summary.totalTechnologies || technologies.length,
-        averageConfidence: avgConfidence,
-        expertCount: summary.expertCount || technologies.filter(t => {
-          const level = t.proficiencyLevel || t.confidenceLevel || 0;
-          return level >= 8;
-        }).length,
-        proficientCount: summary.proficientCount || technologies.filter(t => {
-          const level = t.proficiencyLevel || t.confidenceLevel || 0;
-          return level >= 6 && level < 8;
-        }).length,
-        learningCount: summary.learningCount || technologies.filter(t => {
-          const level = t.proficiencyLevel || t.confidenceLevel || 0;
-          return level < 6;
-        }).length,
-        completedAt: assessment.updatedAt,
-        createdAt: assessment.createdAt,
-        topTechnologies: technologies
-          .sort((a, b) => {
-            const aLevel = b.proficiencyLevel || b.confidenceLevel || 0;
-            const bLevel = a.proficiencyLevel || a.confidenceLevel || 0;
-            return aLevel - bLevel;
-          })
-          .slice(0, 5)
-          .map(t => ({ 
-            name: t.name, 
-            confidence: t.proficiencyLevel || t.confidenceLevel || 0,
-            category: t.category 
-          })),
-        isRecent
-      };
-
-      // Add enhanced fields if using enhanced model
-      if (usingEnhancedModel) {
-        baseResult.resumeHash = assessment.resumeHash;
-        baseResult.isSaved = assessment.isSaved;
-        baseResult.overallScore = assessment.overallScore;
+      return {
+        _id: assessment._id, // Keep MongoDB _id
+        userId: assessment.userId,
+        assessmentType: assessment.assessmentType || 'SWOT Analysis',
+        resumeHash: assessment.resumeHash,
         
-        // Add summary from original format for backward compatibility
-        baseResult.summary = {
-          totalRoles: baseResult.totalTechnologies,
-          softwareRoles: baseResult.totalTechnologies, // All are technical
-          nonTechRoles: 0,
-          avgMatchScore: baseResult.score,
-          hasHighMatches: baseResult.expertCount > 0,
-          recommendationCount: 0, // Could be enhanced later
-          isSaved: assessment.isSaved
-        };
-      }
-
-      return baseResult;
+        // SWOT data
+        strengths: assessment.strengths || [],
+        weaknesses: assessment.weaknesses || [],
+        opportunities: assessment.opportunities || [],
+        threats: assessment.threats || [],
+        
+        // Skills data
+        skills: skills, // Full skills array
+        topTechnologies: topSkills, // Alias for frontend
+        
+        // Calculated metrics
+        overallScore: overallScore,
+        averageProficiency: Math.round(avgProficiency * 10) / 10,
+        totalTechnologies: skills.length,
+        expertCount: expertCount,
+        proficientCount: proficientCount,
+        learningCount: learningCount,
+        level: level,
+        
+        // Recommendations
+        recommendations: assessment.recommendations || [],
+        careerSuggestions: assessment.careerSuggestions || [],
+        improvementAreas: assessment.improvementAreas || [],
+        
+        // Timestamps
+        isSaved: assessment.isSaved,
+        completedAt: assessment.completedAt,
+        createdAt: assessment.createdAt,
+        updatedAt: assessment.updatedAt,
+        
+        // Virtual fields for frontend
+        isRecent: assessment.isRecent,
+        skillCategories: [...new Set(skills.map(s => s.category || 'General'))]
+      };
     });
 
-    console.log('✅ Sending formatted assessments:', formattedAssessments.length);
+    console.log(`🧠 Transformed ${transformedAssessments.length} assessments successfully`);
 
-    res.json({
+    res.status(200).json({
       success: true,
-      data: formattedAssessments,
-      count: formattedAssessments.length,
-      metadata: {
-        userId: userId,
-        usingEnhancedModel,
-        filter: {
-          resumeHash: resumeHash || null,
-          savedOnly: includeUnsaved !== 'true',
-          sortBy: sort
-        }
-      }
+      message: `Found ${assessments.length} skills assessments`,
+      data: transformedAssessments,
+      count: transformedAssessments.length
     });
 
   } catch (error) {
     console.error('❌ Error fetching skills assessments:', error);
+    
     res.status(500).json({
       success: false,
       message: 'Failed to fetch skills assessments',
@@ -446,13 +391,13 @@ export const saveRatings = async (req, res) => {
   }
 };
 
-// DELETE /api/swot/delete/:id - Enhanced delete supporting both models
+// DELETE /api/swot/delete/:id - Enhanced delete supporting both models - INTEGRATED VERSION
 export const deleteRatings = async (req, res) => {
   try {
-    console.log('🔍 Deleting skills assessment:', req.params.id);
-    
     const { id } = req.params;
     const userId = req.user.id;
+
+    console.log(`🗑️ Deleting assessment: ${id} for user: ${userId}`);
 
     console.log(`=== Deleting Skills Assessment ===`);
     console.log(`User: ${userId}`);
@@ -473,204 +418,82 @@ export const deleteRatings = async (req, res) => {
       });
     }
 
-    let deleted = null;
-    let usingEnhancedModel = false;
+    const assessment = await SkillsAssessment.findOneAndDelete({
+      _id: id,
+      userId: userId // Ensure user owns this assessment
+    });
 
-    try {
-      // Try enhanced model first
-      deleted = await SkillsAssessment.findOneAndDelete({
-        _id: id,
-        userId: userId,
-        assessmentType: 'Technical Skills'
-      });
-      
-      if (deleted) {
-        usingEnhancedModel = true;
-        console.log(`Successfully deleted skills assessment: ${id} (enhanced model)`);
-      }
-    } catch (enhancedError) {
-      console.log('Enhanced model not available, trying fallback model');
-    }
-
-    if (!deleted) {
-      // Fallback to TechnologyRating model
-      deleted = await TechnologyRating.findOneAndDelete({
-        _id: id,
-        userId: userId
-      });
-      
-      if (deleted) {
-        console.log(`Successfully deleted technology rating: ${id} (fallback model)`);
-      }
-    }
-
-    if (!deleted) {
+    if (!assessment) {
       return res.status(404).json({
         success: false,
-        message: 'Skills assessment not found or unauthorized',
-        assessmentId: id
+        message: 'Assessment not found or you do not have permission to delete it'
       });
     }
 
-    console.log('✅ Skills assessment deleted successfully');
+    console.log(`✅ Successfully deleted assessment: ${id}`);
 
-    res.json({
+    res.status(200).json({
       success: true,
-      message: 'Skills assessment deleted successfully',
+      message: 'Assessment deleted successfully',
+      deletedId: id,
       deletedAssessment: {
-        id: deleted._id,
-        resumeHash: deleted.resumeHash,
-        skillsCount: usingEnhancedModel ? (deleted.skills?.length || 0) : (deleted.technologies?.length || 0),
-        wasSaved: usingEnhancedModel ? deleted.isSaved : deleted.saved,
+        id: assessment._id,
+        resumeHash: assessment.resumeHash,
+        skillsCount: (assessment.skills?.length || 0),
+        wasSaved: assessment.isSaved,
         deletedAt: new Date().toISOString(),
-        usingEnhancedModel
+        usingEnhancedModel: true
       }
     });
 
   } catch (error) {
-    console.error('❌ Error deleting skills assessment:', error);
+    console.error('❌ Error deleting assessment:', error);
+    
     res.status(500).json({
       success: false,
-      message: 'Failed to delete skills assessment',
+      message: 'Failed to delete assessment',
       error: error.message
     });
   }
 };
 
-// GET /api/swot/stats - Enhanced user statistics supporting both models
+// GET /api/swot/stats - Get user statistics - INTEGRATED VERSION
 export const getRatingsStats = async (req, res) => {
   try {
-    console.log('🔍 Getting ratings stats for user:', req.user.id);
     const userId = req.user.id;
 
-    console.log(`=== Getting User Skills Stats ===`);
-    console.log(`User: ${userId}`);
-
-    let stats = {
-      totalAssessments: 0,
-      savedAssessments: 0,
-      draftAssessments: 0,
-      totalTechnologies: 0,
-      averageScore: 0,
-      expertTechnologies: 0,
-      recentAssessments: 0,
-      uniqueTechnologies: 0,
-      firstAssessment: null,
-      lastAssessment: null
-    };
-
-    let usingEnhancedModel = false;
-
-    try {
-      // Try enhanced model first
-      const [allAssessments, savedAssessments] = await Promise.all([
-        SkillsAssessment.find({ userId, assessmentType: 'Technical Skills' }),
-        SkillsAssessment.find({ userId, assessmentType: 'Technical Skills', isSaved: true })
-      ]);
-
-      usingEnhancedModel = true;
-      console.log(`Found ${allAssessments.length} total assessments, ${savedAssessments.length} saved (enhanced model)`);
-
-      if (allAssessments.length > 0) {
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-        stats = {
-          totalAssessments: allAssessments.length,
-          savedAssessments: savedAssessments.length,
-          draftAssessments: allAssessments.length - savedAssessments.length,
-          
-          totalTechnologies: allAssessments.reduce((sum, assessment) => 
-            sum + (assessment.skills?.length || 0), 0),
-          uniqueTechnologies: new Set(
-            allAssessments.flatMap(assessment => 
-              assessment.skills?.map(skill => skill.name.toLowerCase()) || []
-            )
-          ).size,
-          
-          averageScore: Math.round((allAssessments.reduce((sum, assessment) => 
-            sum + (assessment.overallScore || 0), 0) / allAssessments.length) * 10) / 10,
-          
-          expertTechnologies: allAssessments.reduce((sum, assessment) => 
-            sum + (assessment.expertSkills?.length || 0), 0),
-          
-          recentAssessments: allAssessments.filter(assessment => assessment.updatedAt > thirtyDaysAgo).length,
-          
-          firstAssessment: allAssessments.reduce((earliest, assessment) => 
-            assessment.createdAt < earliest ? assessment.createdAt : earliest, allAssessments[0].createdAt),
-          lastAssessment: allAssessments.reduce((latest, assessment) => 
-            assessment.updatedAt > latest ? assessment.updatedAt : latest, allAssessments[0].updatedAt)
-        };
-      }
-
-    } catch (enhancedError) {
-      console.log('Enhanced model not available, using fallback TechnologyRating model');
-      
-      // Fallback to TechnologyRating model
-      const ratings = await TechnologyRating.find({ 
-        userId: userId,
-        saved: true 
-      });
-
-      console.log(`Found ${ratings.length} saved ratings (fallback model)`);
-
-      if (ratings.length > 0) {
-        let totalConfidence = 0;
-        let techCount = 0;
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-        ratings.forEach(rating => {
-          if (rating.technologies) {
-            techCount += rating.technologies.length;
-            rating.technologies.forEach(tech => {
-              totalConfidence += tech.confidenceLevel || 0;
-              if (tech.confidenceLevel >= 8) {
-                stats.expertTechnologies++;
-              }
-            });
-          }
-          
-          if (rating.updatedAt > thirtyDaysAgo) {
-            stats.recentAssessments++;
-          }
-        });
-
-        stats.totalAssessments = ratings.length;
-        stats.savedAssessments = ratings.length;
-        stats.totalTechnologies = techCount;
-        stats.averageScore = techCount > 0 ? Math.round((totalConfidence / techCount) * 10) : 0;
-        stats.uniqueTechnologies = new Set(
-          ratings.flatMap(rating => 
-            rating.technologies?.map(tech => tech.name.toLowerCase()) || []
-          )
-        ).size;
-        
-        if (ratings.length > 0) {
-          stats.firstAssessment = ratings.reduce((earliest, rating) => 
-            rating.createdAt < earliest ? rating.createdAt : earliest, ratings[0].createdAt);
-          stats.lastAssessment = ratings.reduce((latest, rating) => 
-            rating.updatedAt > latest ? rating.updatedAt : latest, ratings[0].updatedAt);
+    const stats = await SkillsAssessment.aggregate([
+      { $match: { userId: mongoose.Types.ObjectId(userId) } },
+      {
+        $group: {
+          _id: null,
+          totalAssessments: { $sum: 1 },
+          savedAssessments: {
+            $sum: { $cond: [{ $eq: ['$isSaved', true] }, 1, 0] }
+          },
+          averageScore: { $avg: '$overallScore' },
+          totalSkills: { $sum: { $size: '$skills' } },
+          latestAssessment: { $max: '$updatedAt' }
         }
       }
-    }
+    ]);
 
-    res.json({
+    res.status(200).json({
       success: true,
-      data: stats,
-      stats: stats, // Backward compatibility
-      metadata: {
-        userId: userId,
-        usingEnhancedModel,
-        calculatedAt: new Date().toISOString()
+      data: stats[0] || {
+        totalAssessments: 0,
+        savedAssessments: 0,
+        averageScore: 0,
+        totalSkills: 0,
+        latestAssessment: null
       }
     });
 
   } catch (error) {
-    console.error('❌ Error getting ratings stats:', error);
+    console.error('❌ Error fetching stats:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get ratings statistics',
+      message: 'Failed to fetch statistics',
       error: error.message
     });
   }
