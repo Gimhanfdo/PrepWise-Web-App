@@ -1,4 +1,4 @@
-// Enhanced CV Analysis API with Senior HR-Level Accuracy
+// Enhanced CV Analysis API using Gemini 2.5 Flash directly
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import crypto from "crypto";
 
@@ -20,56 +20,46 @@ const validateInputs = (text1, text2) => {
   }
 };
 
-// More comprehensive and weighted keyword categories
-const KEYWORD_CATEGORIES = {
-  // Core Programming (High Weight - 30%)
-  CORE_LANGUAGES: {
-    keywords: ['python', 'java', 'javascript', 'typescript', 'c++', 'c#', 'go', 'rust', 'swift', 'kotlin', 'scala', 'ruby', 'php', 'c'],
-    weight: 0.30
+// Enhanced CS/Software Engineering specific keywords with weights
+const CS_TECHNICAL_SKILLS = {
+  // Core Programming Languages (High weight)
+  programming_languages: {
+    weight: 0.3,
+    keywords: ['python', 'java', 'javascript', 'typescript', 'c++', 'c#', 'go', 'rust', 'swift', 'kotlin', 'scala', 'ruby', 'php', 'c', 'r', 'matlab']
   },
-  
-  // Web Technologies (High Weight - 25%)
-  WEB_TECH: {
-    keywords: ['react', 'angular', 'vue', 'nodejs', 'express', 'django', 'flask', 'spring', 'html', 'css', 'bootstrap', 'tailwind', 'next.js', 'nuxt', 'svelte'],
-    weight: 0.25
+  // Web Development (High weight for most internships)
+  web_technologies: {
+    weight: 0.25,
+    keywords: ['react', 'angular', 'vue', 'nodejs', 'express', 'django', 'flask', 'spring', 'html', 'css', 'bootstrap', 'tailwind', 'next.js', 'nuxt.js']
   },
-  
-  // Databases & Data (Medium Weight - 15%)
-  DATA_SYSTEMS: {
-    keywords: ['mysql', 'postgresql', 'mongodb', 'redis', 'sqlite', 'firebase', 'dynamodb', 'cassandra', 'elasticsearch', 'sql', 'nosql'],
-    weight: 0.15
+  // Data Structures & Algorithms (Critical for CS)
+  cs_fundamentals: {
+    weight: 0.2,
+    keywords: ['data structures', 'algorithms', 'algorithm', 'binary tree', 'graph', 'hash table', 'linked list', 'array', 'sorting', 'searching', 'recursion', 'dynamic programming', 'big o', 'complexity analysis']
   },
-  
-  // Cloud & DevOps (Medium Weight - 12%)
-  CLOUD_DEVOPS: {
-    keywords: ['aws', 'azure', 'gcp', 'docker', 'kubernetes', 'jenkins', 'github actions', 'terraform', 'ansible', 'ci/cd', 'microservices'],
-    weight: 0.12
+  // Development Tools & Practices
+  dev_tools: {
+    weight: 0.15,
+    keywords: ['git', 'github', 'gitlab', 'docker', 'kubernetes', 'ci/cd', 'jenkins', 'testing', 'unit testing', 'integration testing', 'agile', 'scrum', 'api', 'rest', 'graphql']
   },
-  
-  // Tools & Version Control (Medium Weight - 10%)
-  TOOLS: {
-    keywords: ['git', 'github', 'gitlab', 'jira', 'confluence', 'postman', 'swagger', 'figma', 'linux', 'bash', 'npm', 'yarn'],
-    weight: 0.10
-  },
-  
-  // Specialized Skills (Lower Weight - 8%)
-  SPECIALIZED: {
-    keywords: ['machine learning', 'data science', 'tensorflow', 'pytorch', 'pandas', 'numpy', 'scikit-learn', 'api', 'rest', 'graphql', 'testing', 'unit testing'],
-    weight: 0.08
+  // Databases
+  databases: {
+    weight: 0.1,
+    keywords: ['mysql', 'postgresql', 'mongodb', 'redis', 'sqlite', 'firebase', 'sql', 'nosql', 'database design', 'orm']
   }
 };
 
-const NON_TECH_INDICATORS = [
-  'medical', 'doctor', 'physician', 'nurse', 'healthcare', 'hospital', 'clinic', 'patient',
-  'law', 'lawyer', 'attorney', 'legal', 'court', 'litigation', 'paralegal',
-  'teacher', 'educator', 'instructor', 'professor', 'school', 'classroom', 'curriculum',
-  'retail', 'sales associate', 'cashier', 'store manager', 'customer service representative',
-  'chef', 'cook', 'kitchen', 'restaurant', 'food service', 'culinary',
-  'accountant', 'bookkeeper', 'financial analyst', 'audit', 'tax preparation',
-  'marketing coordinator', 'social media manager', 'content creator', 'copywriter',
-  'hr manager', 'human resources', 'recruiter', 'talent acquisition',
-  'administrative assistant', 'secretary', 'office manager', 'receptionist',
-  'warehouse', 'logistics', 'driver', 'delivery', 'shipping'
+const NON_CS_INDICATORS = [
+  'medical', 'doctor', 'physician', 'nurse', 'healthcare', 'hospital', 'clinic', 'patient', 'surgery', 'diagnosis',
+  'law', 'lawyer', 'attorney', 'legal', 'court', 'litigation', 'paralegal', 'contract law', 'criminal law',
+  'teacher', 'educator', 'instructor', 'professor', 'school', 'classroom', 'curriculum', 'pedagogy',
+  'retail', 'sales associate', 'cashier', 'store manager', 'customer service representative', 'merchandising',
+  'chef', 'cook', 'kitchen', 'restaurant', 'food service', 'culinary', 'catering', 'menu planning',
+  'accountant', 'bookkeeper', 'financial analyst', 'audit', 'tax preparation', 'payroll', 'accounting principles',
+  'marketing coordinator', 'social media manager', 'content creator', 'copywriter', 'brand management',
+  'hr manager', 'human resources', 'recruiter', 'talent acquisition', 'employee relations',
+  'administrative assistant', 'secretary', 'office manager', 'receptionist', 'data entry',
+  'warehouse', 'logistics', 'driver', 'delivery', 'shipping', 'inventory management'
 ];
 
 // Function to create a hash of the resume text for comparison
@@ -77,78 +67,64 @@ function createResumeHash(resumeText) {
   return crypto.createHash('sha256').update(resumeText.trim()).digest('hex');
 }
 
-// Advanced weighted keyword matching for more accurate scoring
-const calculateWeightedKeywordMatch = (resumeText, jobDesc) => {
+// Advanced technical skill matching for precise percentage calculation
+const calculateTechnicalMatch = (resumeText, jobDesc) => {
   const resumeLower = resumeText.toLowerCase();
   const jobDescLower = jobDesc.toLowerCase();
   
   let totalScore = 0;
-  let categoryBreakdown = {};
+  let maxPossibleScore = 0;
   
-  Object.entries(KEYWORD_CATEGORIES).forEach(([categoryName, categoryData]) => {
-    const { keywords, weight } = categoryData;
-    
-    // Find keywords required by job
-    const requiredKeywords = keywords.filter(keyword => 
-      jobDescLower.includes(keyword.toLowerCase())
+  // Analyze each category
+  for (const [category, config] of Object.entries(CS_TECHNICAL_SKILLS)) {
+    const requiredSkills = config.keywords.filter(skill => 
+      jobDescLower.includes(skill.toLowerCase())
     );
     
-    // Find keywords candidate has
-    const candidateKeywords = keywords.filter(keyword => 
-      resumeLower.includes(keyword.toLowerCase())
+    if (requiredSkills.length === 0) continue;
+    
+    const candidateSkills = config.keywords.filter(skill => 
+      resumeLower.includes(skill.toLowerCase())
     );
     
-    // Find matching keywords
-    const matchedKeywords = requiredKeywords.filter(keyword => 
-      candidateKeywords.includes(keyword)
+    const matchingSkills = requiredSkills.filter(skill => 
+      candidateSkills.includes(skill)
     );
     
-    if (requiredKeywords.length > 0) {
-      const categoryScore = matchedKeywords.length / requiredKeywords.length;
-      const weightedScore = categoryScore * weight;
-      totalScore += weightedScore;
-      
-      categoryBreakdown[categoryName] = {
-        score: categoryScore,
-        matched: matchedKeywords,
-        required: requiredKeywords,
-        missing: requiredKeywords.filter(k => !matchedKeywords.includes(k))
-      };
-    }
-  });
+    const categoryScore = (matchingSkills.length / requiredSkills.length) * config.weight;
+    totalScore += categoryScore;
+    maxPossibleScore += config.weight;
+  }
   
-  return {
-    overallScore: Math.min(1.0, totalScore),
-    categoryBreakdown
-  };
+  return maxPossibleScore > 0 ? (totalScore / maxPossibleScore) : 0;
 };
 
-// Enhanced similarity scoring with multi-factor analysis
+// Enhanced similarity scoring with improved consistency
 const getSimilarityScore = async (resumeText, jobDesc) => {
   try {
     validateInputs(resumeText, jobDesc);
 
-    // Pre-screening for non-tech roles
+    // Pre-screening for non-CS roles
     const jobDescLower = jobDesc.toLowerCase();
-    const hasNonTechIndicators = NON_TECH_INDICATORS.some(indicator => 
+    const resumeLower = resumeText.toLowerCase();
+    
+    const hasNonCSIndicators = NON_CS_INDICATORS.some(indicator => 
       jobDescLower.includes(indicator.toLowerCase())
     );
 
-    if (hasNonTechIndicators) {
-      const techKeywords = Object.values(KEYWORD_CATEGORIES)
-        .flatMap(cat => cat.keywords)
-        .filter(keyword => jobDescLower.includes(keyword.toLowerCase()));
-      
-      if (techKeywords.length < 3) {
-        console.log("Non-tech role detected, returning 0 similarity");
-        return { score: 0, breakdown: null };
-      }
+    const hasCSIndicators = Object.values(CS_TECHNICAL_SKILLS)
+      .flatMap(category => category.keywords)
+      .some(keyword => jobDescLower.includes(keyword.toLowerCase()));
+
+    if (hasNonCSIndicators && !hasCSIndicators) {
+      console.log("Non-CS role detected, returning 0 similarity");
+      return 0;
     }
 
-    // Get weighted keyword analysis
-    const keywordAnalysis = calculateWeightedKeywordMatch(resumeText, jobDesc);
+    // Get technical match score as baseline
+    const technicalMatchScore = calculateTechnicalMatch(resumeText, jobDesc);
     
-    const maxLength = 4500;
+    const maxLength = 4000;
     const truncatedResume = resumeText.length > maxLength
       ? resumeText.substring(0, maxLength) + "..."
       : resumeText;
@@ -156,409 +132,113 @@ const getSimilarityScore = async (resumeText, jobDesc) => {
       ? jobDesc.substring(0, maxLength) + "..."
       : jobDesc;
 
-    const prompt = `You are a SENIOR SOFTWARE ENGINEERING HIRING MANAGER with 15+ years at Google, Meta, Amazon, Microsoft, and Apple. You have personally reviewed 10,000+ engineering resumes and know exactly what makes a strong intern candidate.
+    const prompt = `You are an expert technical recruiter specializing in Computer Science and Software Engineering internships at top tech companies.
 
-CRITICAL ASSESSMENT FRAMEWORK:
+CRITICAL: First verify this is a CS/Software Engineering internship role.
 
-FIRST: Verify this is a SOFTWARE ENGINEERING INTERNSHIP requiring programming skills.
+CS/SOFTWARE ENGINEERING ROLES include:
+- Software Engineer/Developer Intern (any level: Frontend, Backend, Full-Stack)
+- Computer Science Intern, Programming Intern
+- Web Developer Intern, Mobile Developer Intern
+- Data Engineer/Scientist Intern, ML/AI Engineer Intern
+- DevOps Engineer Intern, QA/Test Engineer Intern
+- Any role requiring programming, algorithms, or software development
 
-EVALUATION WEIGHTS (be precise with these percentages):
-1. TECHNICAL SKILLS MATCH (40%): Programming languages, frameworks, tools specifically mentioned in JD
-2. PROJECT QUALITY & RELEVANCE (25%): Complexity, technologies used, measurable impact, GitHub presence
-3. EXPERIENCE LEVEL APPROPRIATENESS (15%): Years of experience, internship history, academic projects
-4. EDUCATIONAL FOUNDATION (10%): CS degree progress, relevant coursework, GPA if stellar (3.7+)
-5. CODING PROFICIENCY INDICATORS (10%): LeetCode, GitHub contributions, hackathons, certifications
+NON-CS ROLES (return 0 immediately):
+- Any role not requiring programming or computer science knowledge
+- Medical, Legal, Education, Retail, Food Service, Marketing, Sales, HR, Administrative
 
-SCORING CALIBRATION (be extremely precise):
-- 0.0-0.2: Minimal technical background, would need 6+ months training
-- 0.2-0.4: Some coding exposure, needs significant mentorship, risky hire
-- 0.4-0.6: Decent foundation, typical intern candidate, needs guidance
-- 0.6-0.7: Strong technical skills, above-average intern, can contribute
-- 0.7-0.8: Excellent candidate, top 15% of interns, minimal supervision needed
-- 0.8-0.9: Outstanding intern, top 5%, ready for complex projects
-- 0.9-1.0: Exceptional candidate, could be junior engineer, extremely rare for intern level
+If NOT a CS/Software Engineering role, return: 0.0
 
-RESUME:
+For CS/SOFTWARE ENGINEERING roles, evaluate the candidate using this precise framework:
+
+EVALUATION CRITERIA (weights shown):
+1. Programming Languages Match (30%): Does candidate know required languages?
+2. CS Fundamentals (25%): Data structures, algorithms, problem-solving ability
+3. Relevant Projects (20%): Technical projects demonstrating coding skills
+4. Development Tools/Practices (15%): Git, testing, development methodologies
+5. Educational Foundation (10%): CS degree, relevant coursework, certifications
+
+SCORING GUIDE:
+- 0.0-0.2: Minimal CS background, major gaps in required skills
+- 0.2-0.4: Some CS knowledge but missing key requirements
+- 0.4-0.6: Decent foundation, moderate skill gaps to address
+- 0.6-0.8: Strong candidate with minor areas for improvement
+- 0.8-1.0: Excellent match, highly qualified for the internship
+
+Resume:
 ${truncatedResume}
 
-JOB DESCRIPTION:
+Job Description:
 ${truncatedJobDesc}
 
-Provide detailed analysis in this format:
-SCORE: [0.XX]
-REASONING: [2-3 sentences explaining the exact score with specific examples]
-TECHNICAL_MATCH: [Specific technologies they have vs need, with percentages]
-PROJECT_ASSESSMENT: [Quality and relevance of their projects, 1-2 sentences]
-EXPERIENCE_LEVEL: [Whether experience matches intern expectations]
+Consider the technical match baseline score: ${technicalMatchScore.toFixed(2)}
 
-Return ONLY the decimal score (0.0-1.0):`;
+Return ONLY a decimal between 0.0-1.0 representing the overall match quality:`;
 
     const result = await model.generateContent(prompt);
     const response = result.response;
-    const fullResponse = response.text().trim();
-    
-    // Extract score from response
-    const scoreMatch = fullResponse.match(/SCORE:\s*(0?\.\d{1,2}|\d\.?\d*)/i) || 
-                       fullResponse.match(/(\d?\.\d{1,2})/);
-    
-    let aiScore = 0.5; // Default fallback
-    if (scoreMatch) {
-      aiScore = Math.max(0, Math.min(1, parseFloat(scoreMatch[1])));
+    const scoreText = response.text().trim();
+    const aiScore = parseFloat(scoreText);
+
+    if (isNaN(aiScore) || aiScore < 0 || aiScore > 1) {
+      console.warn("Invalid AI score, using technical match score");
+      return Math.max(0, Math.min(1, technicalMatchScore));
     }
 
-    // Combine AI analysis with weighted keyword matching (70% AI, 30% keyword)
-    const combinedScore = (aiScore * 0.7) + (keywordAnalysis.overallScore * 0.3);
-    
-    return {
-      score: Math.max(0, Math.min(1, combinedScore)),
-      breakdown: keywordAnalysis.categoryBreakdown,
-      aiAnalysis: fullResponse,
-      keywordScore: keywordAnalysis.overallScore,
-      aiScore: aiScore
-    };
+    // Blend AI score with technical match for consistency
+    const finalScore = (aiScore * 0.7) + (technicalMatchScore * 0.3);
+    return Math.max(0, Math.min(1, finalScore));
 
   } catch (err) {
     console.error("Error in getSimilarityScore:", err.message);
-    return await getFallbackSimilarity(resumeText, jobDesc);
+    return calculateTechnicalMatch(resumeText, jobDesc);
   }
 };
 
-// Enhanced fallback with weighted analysis
+// Enhanced fallback with CS focus
 const getFallbackSimilarity = async (resumeText, jobDesc) => {
-  try {
-    const keywordAnalysis = calculateWeightedKeywordMatch(resumeText, jobDesc);
-    return {
-      score: keywordAnalysis.overallScore,
-      breakdown: keywordAnalysis.categoryBreakdown,
-      aiAnalysis: "Fallback analysis used",
-      keywordScore: keywordAnalysis.overallScore,
-      aiScore: keywordAnalysis.overallScore
-    };
-  } catch (err) {
-    console.error("Fallback similarity failed:", err.message);
-    return {
-      score: 0.1,
-      breakdown: null,
-      aiAnalysis: "Error in analysis",
-      keywordScore: 0.1,
-      aiScore: 0.1
-    };
-  }
+  return calculateTechnicalMatch(resumeText, jobDesc);
 };
 
-// More accurate match percentage calculation
-const calculateMatchPercentage = (similarityData) => {
-  const score = similarityData.score;
-  
-  // More realistic percentage mapping based on hiring standards
-  let percentage;
-  
-  if (score === 0) {
-    percentage = 0;
-  } else if (score < 0.2) {
-    // Very low match: 5-20%
-    percentage = Math.round(5 + (score / 0.2) * 15);
-  } else if (score < 0.4) {
-    // Low match: 20-40%
-    percentage = Math.round(20 + ((score - 0.2) / 0.2) * 20);
-  } else if (score < 0.6) {
-    // Moderate match: 40-65%
-    percentage = Math.round(40 + ((score - 0.4) / 0.2) * 25);
-  } else if (score < 0.75) {
-    // Good match: 65-80%
-    percentage = Math.round(65 + ((score - 0.6) / 0.15) * 15);
-  } else if (score < 0.85) {
-    // Strong match: 80-90%
-    percentage = Math.round(80 + ((score - 0.75) / 0.1) * 10);
-  } else {
-    // Excellent match: 90-98%
-    percentage = Math.round(90 + ((score - 0.85) / 0.15) * 8);
-  }
-  
-  return Math.max(0, Math.min(98, percentage)); // Cap at 98% to be realistic
-};
-
-// Job-specific strengths analysis
-const extractJobSpecificStrengths = async (resumeText, jobDesc) => {
+// Extract technologies from resume using Gemini 2.5 Flash
+const extractTechnologiesFromResume = async (resumeText) => {
   try {
-    const prompt = `As a SENIOR HIRING MANAGER, analyze this resume against the specific job requirements and identify ONLY strengths that are directly relevant to this position.
+    const prompt = `Analyze this resume and extract ONLY technical skills relevant to Computer Science/Software Engineering.
 
-INSTRUCTIONS:
-- Focus on specific technical skills, projects, or experiences that DIRECTLY match job requirements
-- Include 2-3 job-specific strengths and 1-2 general professional strengths maximum
-- Be specific about technologies, frameworks, or skills mentioned in BOTH resume and job description
-- Quantify achievements when possible
-- Avoid generic statements
+Focus on:
+- Programming languages (Python, Java, JavaScript, C++, etc.)
+- Web frameworks (React, Angular, Vue, Django, Spring, etc.)
+- Development tools (Git, Docker, Jenkins, etc.)
+- Databases (MySQL, MongoDB, PostgreSQL, etc.)
+- CS concepts (Data Structures, Algorithms, OOP, etc.)
 
-RESUME:
-${resumeText.substring(0, 4000)}
+Resume text:
+${resumeText}
 
-JOB DESCRIPTION:
-${jobDesc.substring(0, 4000)}
+Return JSON array with format:
+[
+  {"name": "Python", "category": "Programming Languages", "confidenceLevel": 8},
+  {"name": "React", "category": "Web Frameworks", "confidenceLevel": 6}
+]
 
-Return 4-6 specific strengths in this format:
-1. [Specific technical skill/project matching JD requirements]
-2. [Another specific match with quantifiable detail if possible]
-3. [Relevant experience or educational background]
-4. [Professional quality that supports technical work]
+Categories: "Programming Languages", "Web Frameworks", "Development Tools", "Databases", "CS Concepts", "Other Technical"
 
-STRENGTHS:`;
-
-    const result = await model.generateContent(prompt);
-    const response = result.response.text().trim();
-    
-    // Parse the response into an array
-    const strengthsLines = response
-      .split('\n')
-      .filter(line => line.trim())
-      .map(line => line.replace(/^\d+\.\s*/, '').replace(/^[-•]\s*/, '').trim())
-      .filter(line => line.length > 10);
-    
-    return strengthsLines.slice(0, 6); // Ensure max 6 strengths
-  } catch (error) {
-    console.error("Job-specific strengths extraction error:", error);
-    return [
-      "Demonstrates technical foundation relevant to software engineering roles",
-      "Shows learning aptitude and commitment to skill development",
-      "Educational background provides necessary computer science fundamentals"
-    ];
-  }
-};
-
-// Enhanced structured recommendations with job-specific analysis
-const getStructuredRecommendations = async (resumeText, jobDesc) => {
-  try {
-    validateInputs(resumeText, jobDesc);
-
-    // Check if non-tech role
-    const jobDescLower = jobDesc.toLowerCase();
-    const hasNonTechIndicators = NON_TECH_INDICATORS.some(indicator => 
-      jobDescLower.includes(indicator.toLowerCase())
-    );
-
-    if (hasNonTechIndicators) {
-      const techKeywords = Object.values(KEYWORD_CATEGORIES)
-        .flatMap(cat => cat.keywords)
-        .filter(keyword => jobDescLower.includes(keyword.toLowerCase()));
-      
-      if (techKeywords.length < 3) {
-        return {
-          isNonTechRole: true,
-          message: "This job description is not for a software engineering internship or technical role requiring programming skills. Please provide a software engineering internship job description for accurate analysis."
-        };
-      }
-    }
-
-    // Get job-specific strengths
-    const jobSpecificStrengths = await extractJobSpecificStrengths(resumeText, jobDesc);
-
-    const maxLength = 4500;
-    const truncatedResume = resumeText.length > maxLength
-      ? resumeText.substring(0, maxLength) + "..."
-      : resumeText;
-    const truncatedJobDesc = jobDesc.length > maxLength
-      ? jobDesc.substring(0, maxLength) + "..."
-      : jobDesc;
-
-    const prompt = `You are a FAANG SENIOR TECHNICAL RECRUITER with 20+ years of experience. You've hired 500+ software engineering interns and know exactly what separates strong candidates from weak ones.
-
-CRITICAL ANALYSIS FRAMEWORK:
-
-Analyze this resume against the job requirements and provide brutally honest, actionable feedback. Focus on what's MISSING or WEAK compared to successful intern candidates you've hired.
-
-KEY FOCUS AREAS:
-1. Technical skills gaps (be specific about missing languages/frameworks from JD)
-2. Project quality issues (lack of complexity, missing GitHub, no quantified impact)
-3. Resume structure problems (ATS incompatibility, poor formatting, missing links)
-4. Experience gaps (insufficient coding experience, no collaborative projects)
-
-RESUME:
-${truncatedResume}
-
-JOB DESCRIPTION:
-${truncatedJobDesc}
-
-Provide analysis in this exact JSON format:
-{
-  "contentWeaknesses": [
-    "Missing [specific technology from JD]: This role requires [X] but resume shows no experience",
-    "Projects lack technical depth: No evidence of [specific skill area] mentioned in JD requirements",
-    "No quantified project impact: Missing metrics like 'built app with X users' or 'improved performance by X%'",
-    "Insufficient [specific area] experience for this role's requirements"
-  ],
-  "structureWeaknesses": [
-    "Technical skills section poorly organized for ATS parsing and recruiter review",
-    "Missing critical professional links: GitHub portfolio, LinkedIn profile, or project demos",
-    "Resume format not optimized for software engineering roles (specific formatting issues)",
-    "Project descriptions lack technical details and implementation specifics"
-  ],
-  "contentRecommendations": [
-    "Learn [specific technologies from JD]: Focus on [X, Y, Z] which are core requirements for this role",
-    "Build [specific type of project] using [technologies from JD] to demonstrate relevant skills",
-    "Add quantified achievements: Include metrics like user engagement, performance improvements, or scale",
-    "Gain experience with [specific tool/framework] through online courses or personal projects"
-  ],
-  "structureRecommendations": [
-    "Reorganize technical skills section: Group as 'Languages: [list]', 'Frameworks: [list]', 'Tools: [list]'",
-    "Add essential links: GitHub profile with 3+ projects, LinkedIn, and personal portfolio website",
-    "Optimize resume format: Use ATS-friendly template with clear sections and consistent formatting",
-    "Enhance project descriptions: Include tech stack, GitHub links, live demos, and specific outcomes"
-  ]
-}
-
-Be specific about technologies, tools, and frameworks mentioned in the job description. Reference successful intern profiles you've seen.`;
+Only include technical skills relevant to software development. Return only the JSON array.`;
 
     const result = await model.generateContent(prompt);
     const response = result.response;
-    const responseText = response.text().trim();
+    const content = response.text().trim();
     
-    try {
-      const structuredData = JSON.parse(responseText.replace(/```json\s*|```\s*/g, ''));
-      
-      return {
-        isNonTechRole: false,
-        strengths: jobSpecificStrengths,
-        contentWeaknesses: structuredData.contentWeaknesses || [],
-        structureWeaknesses: structuredData.structureWeaknesses || [],
-        contentRecommendations: structuredData.contentRecommendations || [],
-        structureRecommendations: structuredData.structureRecommendations || []
-      };
-    } catch (parseError) {
-      console.error("JSON parsing failed, using fallback");
-      return {
-        isNonTechRole: false,
-        strengths: jobSpecificStrengths,
-        ...getDefaultInternshipRecommendations()
-      };
-    }
-
-  } catch (err) {
-    console.error("Structured recommendations error:", err.message);
-    return {
-      isNonTechRole: false,
-      strengths: ["Shows technical interest and educational foundation"],
-      ...getDefaultInternshipRecommendations()
-    };
-  }
-};
-
-// Default recommendations (fallback)
-const getDefaultInternshipRecommendations = () => {
-  return {
-    contentWeaknesses: [
-      "Missing key programming languages commonly required for software engineering internships",
-      "Lacks substantial coding projects demonstrating practical software development skills",
-      "No visible GitHub portfolio showcasing code quality and project diversity",
-      "Missing experience with popular frameworks and technologies used in modern development"
-    ],
-    structureWeaknesses: [
-      "Technical skills section not optimally structured for software engineering roles",
-      "Missing professional links essential for technical recruiting (GitHub, LinkedIn, portfolio)",
-      "Resume format not tailored for ATS systems used by tech companies",
-      "Project descriptions lack technical depth and specific implementation details"
-    ],
-    contentRecommendations: [
-      "Build 2-3 substantial coding projects using technologies mentioned in job postings",
-      "Learn industry-standard programming languages and frameworks relevant to target roles",
-      "Create quantifiable project outcomes with user metrics and performance improvements",
-      "Contribute to open source projects or participate in coding challenges to demonstrate skills"
-    ],
-    structureRecommendations: [
-      "Reorganize technical skills section with clear categories for languages, frameworks, and tools",
-      "Add professional links: GitHub profile, LinkedIn, and personal portfolio website",
-      "Use ATS-friendly resume format with consistent styling and clear section headers",
-      "Include technical project details with technology stack, GitHub links, and live demo URLs"
-    ]
-  };
-};
-
-// Main analysis function with enhanced accuracy
-const analyzeResumeMatch = async (resumeText, jobDesc) => {
-  try {
-    console.log("Starting enhanced CV analysis with senior HR-level accuracy...");
-
-    const [similarityData, structuredAnalysis] = await Promise.all([
-      getSimilarityScore(resumeText, jobDesc).catch((err) => {
-        console.error("Similarity calculation failed:", err.message);
-        return { score: 0, breakdown: null };
-      }),
-      getStructuredRecommendations(resumeText, jobDesc).catch((err) => {
-        console.error("Structured analysis failed:", err.message);
-        return { 
-          isNonTechRole: false, 
-          strengths: ["Technical foundation present"],
-          ...getDefaultInternshipRecommendations() 
-        };
-      }),
-    ]);
-
-    if (structuredAnalysis.isNonTechRole) {
-      return {
-        similarityScore: 0,
-        matchPercentage: 0,
-        isNonTechRole: true,
-        message: structuredAnalysis.message,
-        timestamp: new Date().toISOString(),
-        warning: "Non-software engineering role detected"
-      };
-    }
-
-    // Calculate more accurate match percentage
-    const matchPercentage = calculateMatchPercentage(similarityData);
-
-    return {
-      similarityScore: similarityData.score,
-      matchPercentage,
-      isNonTechRole: false,
-      strengths: structuredAnalysis.strengths || [],
-      contentWeaknesses: structuredAnalysis.contentWeaknesses || [],
-      structureWeaknesses: structuredAnalysis.structureWeaknesses || [],
-      contentRecommendations: structuredAnalysis.contentRecommendations || [],
-      structureRecommendations: structuredAnalysis.structureRecommendations || [],
-      categoryBreakdown: similarityData.breakdown,
-      keywordScore: similarityData.keywordScore,
-      aiScore: similarityData.aiScore,
-      timestamp: new Date().toISOString(),
-    };
-
-  } catch (err) {
-    console.error("Error in analyzeResumeMatch:", err.message);
-
-    return {
-      similarityScore: 0,
-      matchPercentage: 0,
-      isNonTechRole: false,
-      strengths: ["Technical foundation present"],
-      ...getDefaultInternshipRecommendations(),
-      timestamp: new Date().toISOString(),
-      error: err.message,
-    };
-  }
-};
-
-// Extract technologies from resume
-const extractTechnologiesFromResume = async (resumeText) => {
-  try {
-    const prompt = `Extract ALL technical skills from this resume. Be comprehensive and categorize properly.
-
-Resume:
-${resumeText}
-
-Return JSON array with exact format:
-[
-  {"name": "JavaScript", "category": "Programming Languages", "confidenceLevel": 7},
-  {"name": "React", "category": "Frameworks", "confidenceLevel": 6}
-]
-
-Categories: "Programming Languages", "Frameworks", "Tools", "Databases", "Cloud Services", "Other"
-Confidence: 1-10 based on context depth.`;
-
-    const result = await model.generateContent(prompt);
-    const response = result.response.text().trim();
-    
-    const jsonMatch = response.match(/\[[\s\S]*\]/);
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]).filter(tech => tech.name && tech.category);
+      const technologies = JSON.parse(jsonMatch[0]);
+      return technologies.filter(tech => 
+        tech.name && 
+        tech.category && 
+        tech.confidenceLevel >= 1 && 
+        tech.confidenceLevel <= 10
+      );
     }
     
     return [];
@@ -567,6 +247,196 @@ Confidence: 1-10 based on context depth.`;
     return [];
   }
 };
+
+// Helper function to clean and parse JSON response
+const parseJSONResponse = (responseText) => {
+  try {
+    let cleanText = responseText.replace(/```json\s*|```\s*/g, '').trim();
+    const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      cleanText = jsonMatch[0];
+    }
+    return JSON.parse(cleanText);
+  } catch (error) {
+    throw new Error(`Failed to parse JSON: ${error.message}`);
+  }
+};
+
+// CS-specific structured recommendations
+const getStructuredRecommendations = async (resumeText, jobDesc) => {
+  try {
+    validateInputs(resumeText, jobDesc);
+
+    const maxLength = 4500;
+    const truncatedResume = resumeText.length > maxLength
+      ? resumeText.substring(0, maxLength) + "..."
+      : resumeText;
+    const truncatedJobDesc = jobDesc.length > maxLength
+      ? jobDesc.substring(0, maxLength) + "..."
+      : jobDesc;
+
+    const prompt = `You are a senior technical recruiter at top tech companies (Google, Meta, Amazon, Microsoft, Apple) specializing in Computer Science internships.
+
+VERIFICATION STEP: Confirm this is a CS/Software Engineering internship.
+
+CS/SOFTWARE ENGINEERING INTERNSHIPS:
+- Software Engineer Intern, Developer Intern, Programming Intern
+- Web/Mobile/Full-Stack Developer Intern
+- Data Engineer/Scientist Intern, ML Engineer Intern
+- Any internship requiring programming, algorithms, or software development skills
+
+NON-CS ROLES: Medical, Legal, Education, Business, Marketing, Sales, HR, etc.
+
+If this is NOT a CS/Software Engineering internship, respond: NON_CS_ROLE
+
+For CS/SOFTWARE ENGINEERING internships, provide analysis in this exact JSON format:
+
+{
+  "strengths": [
+    "Specific CS/programming strengths from their background",
+    "Technical projects or coursework that demonstrate coding ability", 
+    "Programming languages they know that match job requirements",
+    "Relevant CS education, certifications, or technical experience"
+  ],
+  "contentWeaknesses": [
+    "Missing specific programming languages from job posting (name exact languages)",
+    "Lack of demonstrated CS fundamentals (data structures, algorithms)",
+    "Missing technical projects with quantified impact and GitHub links",
+    "Insufficient software development methodology knowledge (Agile, testing, etc.)",
+    "No evidence of collaborative coding or version control experience",
+    "Missing relevant CS coursework or technical certifications"
+  ],
+  "structureWeaknesses": [
+    "Technical skills section not optimized (should categorize Languages, Frameworks, Tools)",
+    "Missing GitHub portfolio and technical project links",
+    "Resume not formatted for technical recruiting and ATS systems",
+    "Project descriptions lack technical depth and implementation details",
+    "Missing CS-relevant keywords from job posting throughout resume"
+  ],
+  "contentRecommendations": [
+    "Learn specific technologies from job posting: [list exact requirements]",
+    "Build 2-3 substantial coding projects: web apps, algorithms, or systems with GitHub repos",
+    "Add CS coursework: Data Structures, Algorithms, Software Engineering, Database Systems",
+    "Include quantified technical achievements with metrics and impact",
+    "Gain practical experience: open source contributions, coding competitions, hackathons",
+    "Add technical certifications relevant to role requirements",
+    "Demonstrate CS fundamentals: solve coding problems, implement algorithms, build systems"
+  ],
+  "structureRecommendations": [
+    "Create technical resume sections: Contact, Summary, Education, Technical Skills, Projects, Experience",
+    "Categorize technical skills: Languages, Frameworks, Databases, Tools with proficiency levels",
+    "Add essential links: GitHub profile, LinkedIn, personal portfolio/website",
+    "Format for technical recruiting: ATS-friendly, consistent formatting, CS-focused keywords",
+    "Structure project descriptions: Name | Tech Stack | Description | GitHub | Live Demo",
+    "Use technical action verbs: Developed, Implemented, Architected, Optimized with specific outcomes"
+  ]
+}
+
+Resume:
+${truncatedResume}
+
+Job Description:
+${truncatedJobDesc}
+
+Focus specifically on CS/Software Engineering internship requirements. Be precise about technical gaps and provide actionable recommendations for improving technical qualifications.`;
+
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const responseText = response.text().trim();
+
+    if (responseText === "NON_CS_ROLE" || responseText.includes("NON_CS_ROLE")) {
+      return {
+        isNonTechRole: true,
+        message: "This position is not a Computer Science or Software Engineering internship. Our analysis tool is specifically designed for technical CS roles requiring programming and software development skills. Please provide a CS/Software Engineering internship job description for accurate technical resume optimization."
+      };
+    }
+
+    try {
+      const structuredData = parseJSONResponse(responseText);
+      
+      const result = {
+        isNonTechRole: false,
+        strengths: Array.isArray(structuredData.strengths) && structuredData.strengths.length > 0 
+          ? structuredData.strengths 
+          : getDefaultCSStrengths(),
+        contentWeaknesses: Array.isArray(structuredData.contentWeaknesses) && structuredData.contentWeaknesses.length > 0
+          ? structuredData.contentWeaknesses 
+          : getDefaultCSContentWeaknesses(),
+        structureWeaknesses: Array.isArray(structuredData.structureWeaknesses) && structuredData.structureWeaknesses.length > 0
+          ? structuredData.structureWeaknesses 
+          : getDefaultCSStructureWeaknesses(),
+        contentRecommendations: Array.isArray(structuredData.contentRecommendations) && structuredData.contentRecommendations.length > 0
+          ? structuredData.contentRecommendations 
+          : getDefaultCSContentRecommendations(),
+        structureRecommendations: Array.isArray(structuredData.structureRecommendations) && structuredData.structureRecommendations.length > 0
+          ? structuredData.structureRecommendations 
+          : getDefaultCSStructureRecommendations()
+      };
+
+      return result;
+    } catch (parseError) {
+      console.error("JSON parsing failed:", parseError.message);
+      return getDefaultCSRecommendations();
+    }
+
+  } catch (err) {
+    console.error("Structured recommendations error:", err.message);
+    return getDefaultCSRecommendations();
+  }
+};
+
+// Default CS-specific recommendations
+const getDefaultCSStrengths = () => [
+  "Demonstrates foundational computer science education and technical coursework",
+  "Shows programming aptitude and problem-solving mindset suitable for software development",
+  "Has academic exposure to CS concepts and software engineering principles",
+  "Displays learning initiative in technical skills and programming languages"
+];
+
+const getDefaultCSContentWeaknesses = () => [
+  "Missing core programming languages commonly required (Python, Java, JavaScript, C++)",
+  "Lacks demonstrated CS fundamentals: data structures, algorithms, complexity analysis",
+  "No visible coding projects with technical implementation details and GitHub repositories",
+  "Missing practical software development experience with frameworks and development tools",
+  "Insufficient evidence of version control usage (Git) and collaborative programming",
+  "No quantified technical achievements or measurable project impact"
+];
+
+const getDefaultCSStructureWeaknesses = () => [
+  "Technical skills section not organized for CS recruiting (should separate Languages, Frameworks, Tools)",
+  "Missing essential technical links: GitHub profile, coding portfolio, technical blog",
+  "Resume format not optimized for software engineering roles and technical ATS systems",
+  "Project descriptions lack CS-specific technical depth and implementation details",
+  "Missing CS-relevant keywords and technical terminology from job requirements"
+];
+
+const getDefaultCSContentRecommendations = () => [
+  "Master fundamental programming languages: Python or Java for backend, JavaScript for web development",
+  "Build substantial coding projects: full-stack applications, algorithms implementation, data structures projects",
+  "Study CS fundamentals: implement common data structures (trees, graphs, hash tables) and sorting algorithms",
+  "Complete relevant coursework: Data Structures & Algorithms, Software Engineering, Database Systems, Computer Networks",
+  "Create technical portfolio: solve 100+ coding problems on LeetCode, contribute to open source projects",
+  "Gain practical experience: build web applications, participate in hackathons, complete coding bootcamp modules",
+  "Add measurable achievements: 'Built REST API handling 1000+ requests/sec', 'Optimized algorithm reducing runtime by 50%'"
+];
+
+const getDefaultCSStructureRecommendations = () => [
+  "Use CS-focused resume template: Contact, Technical Summary, Education, Technical Skills, Projects, Experience",
+  "Organize technical skills by category: 'Languages: Python, Java, C++', 'Web: React, Node.js', 'Databases: MySQL, MongoDB', 'Tools: Git, Docker'",
+  "Add technical links prominently: GitHub (github.com/username), LinkedIn, personal website or portfolio",
+  "Format for technical ATS: clean layout, standard fonts, CS keywords, consistent structure, PDF and .docx versions",
+  "Structure project entries: 'Project Name | Tech Stack Used | Technical Description | GitHub Link | Live Demo'",
+  "Use CS-specific action verbs: 'Implemented', 'Architected', 'Optimized', 'Debugged' with quantified technical outcomes"
+];
+
+const getDefaultCSRecommendations = () => ({
+  isNonTechRole: false,
+  strengths: getDefaultCSStrengths(),
+  contentWeaknesses: getDefaultCSContentWeaknesses(),
+  structureWeaknesses: getDefaultCSStructureWeaknesses(),
+  contentRecommendations: getDefaultCSContentRecommendations(),
+  structureRecommendations: getDefaultCSStructureRecommendations()
+});
 
 // Legacy function for backward compatibility
 const getImprovementSuggestions = async (resumeText, jobDesc) => {
@@ -577,22 +447,127 @@ const getImprovementSuggestions = async (resumeText, jobDesc) => {
       return structured.message;
     }
 
-    let suggestions = "**Key Strengths:**\n";
+    let suggestions = "**Technical Strengths:**\n";
     suggestions += structured.strengths.map(s => `• ${s}`).join('\n') + '\n\n';
     
-    suggestions += "**Critical Areas for Improvement:**\n";
+    suggestions += "**Critical Technical Gaps:**\n";
     suggestions += structured.contentWeaknesses.concat(structured.structureWeaknesses)
       .map(w => `• ${w}`).join('\n') + '\n\n';
     
-    suggestions += "**Actionable Recommendations:**\n";
+    suggestions += "**CS Internship Optimization Recommendations:**\n";
     suggestions += structured.contentRecommendations.concat(structured.structureRecommendations)
       .map(r => `• ${r}`).join('\n');
 
     return suggestions;
   } catch (err) {
     console.error("Legacy suggestions error:", err.message);
-    return "Unable to generate recommendations. Please ensure both resume and job description are provided.";
+    return "Unable to generate CS-specific recommendations. Please ensure both resume and job description are for Computer Science or Software Engineering internships.";
   }
+};
+
+// Improved match percentage calculation with better consistency
+const calculateMatchPercentage = (similarityScore) => {
+  if (similarityScore === 0) return 0;
+  
+  // More linear and predictable mapping
+  // 0.0-0.2 -> 0-20%
+  // 0.2-0.4 -> 20-40% 
+  // 0.4-0.6 -> 40-60%
+  // 0.6-0.8 -> 60-80%
+  // 0.8-1.0 -> 80-100%
+  
+  const percentage = Math.round(similarityScore * 100);
+  return Math.max(0, Math.min(100, percentage));
+};
+
+// Enhanced main analysis function
+const analyzeResumeMatch = async (resumeText, jobDesc) => {
+  try {
+    console.log("Starting CS internship-specific resume analysis...");
+
+    const [similarity, structuredAnalysis] = await Promise.all([
+      getSimilarityScore(resumeText, jobDesc).catch((err) => {
+        console.error("Similarity calculation failed:", err.message);
+        return calculateTechnicalMatch(resumeText, jobDesc);
+      }),
+      getStructuredRecommendations(resumeText, jobDesc).catch((err) => {
+        console.error("Structured analysis failed:", err.message);
+        return getDefaultCSRecommendations();
+      }),
+    ]);
+
+    console.log("Similarity score:", similarity.toFixed(3));
+    console.log("Analysis completed for CS role:", !structuredAnalysis.isNonTechRole);
+
+    if (structuredAnalysis.isNonTechRole) {
+      return {
+        similarityScore: 0,
+        matchPercentage: 0,
+        isNonTechRole: true,
+        message: structuredAnalysis.message,
+        timestamp: new Date().toISOString(),
+        warning: "Non-CS role detected - analysis requires CS/Software Engineering internship"
+      };
+    }
+
+    const matchPercentage = calculateMatchPercentage(similarity);
+
+    return {
+      similarityScore: Number(similarity.toFixed(3)),
+      matchPercentage,
+      isNonTechRole: false,
+      strengths: structuredAnalysis.strengths || [],
+      contentWeaknesses: structuredAnalysis.contentWeaknesses || [],
+      structureWeaknesses: structuredAnalysis.structureWeaknesses || [],
+      contentRecommendations: structuredAnalysis.contentRecommendations || [],
+      structureRecommendations: structuredAnalysis.structureRecommendations || [],
+      timestamp: new Date().toISOString(),
+      technicalMatchDetails: {
+        programmingLanguages: calculateCategoryMatch(resumeText, jobDesc, CS_TECHNICAL_SKILLS.programming_languages),
+        webTechnologies: calculateCategoryMatch(resumeText, jobDesc, CS_TECHNICAL_SKILLS.web_technologies),
+        csFundamentals: calculateCategoryMatch(resumeText, jobDesc, CS_TECHNICAL_SKILLS.cs_fundamentals),
+        devTools: calculateCategoryMatch(resumeText, jobDesc, CS_TECHNICAL_SKILLS.dev_tools),
+        databases: calculateCategoryMatch(resumeText, jobDesc, CS_TECHNICAL_SKILLS.databases)
+      }
+    };
+  } catch (err) {
+    console.error("Error in analyzeResumeMatch:", err.message);
+
+    return {
+      similarityScore: 0,
+      matchPercentage: 0,
+      isNonTechRole: false,
+      ...getDefaultCSRecommendations(),
+      timestamp: new Date().toISOString(),
+      error: err.message,
+    };
+  }
+};
+
+// Helper function to calculate category-specific matches
+const calculateCategoryMatch = (resumeText, jobDesc, category) => {
+  const resumeLower = resumeText.toLowerCase();
+  const jobDescLower = jobDesc.toLowerCase();
+  
+  const requiredSkills = category.keywords.filter(skill => 
+    jobDescLower.includes(skill.toLowerCase())
+  );
+  
+  const candidateSkills = category.keywords.filter(skill => 
+    resumeLower.includes(skill.toLowerCase())
+  );
+  
+  const matchingSkills = requiredSkills.filter(skill => 
+    candidateSkills.includes(skill)
+  );
+  
+  return {
+    required: requiredSkills.length,
+    matched: matchingSkills.length,
+    percentage: requiredSkills.length > 0 ? Math.round((matchingSkills.length / requiredSkills.length) * 100) : 0,
+    matchedSkills: matchingSkills,
+    missingSkills: requiredSkills.filter(skill => !matchingSkills.includes(skill))
+  };
 };
 
 // Export functions
@@ -602,5 +577,7 @@ export {
   getStructuredRecommendations,
   analyzeResumeMatch,
   extractTechnologiesFromResume,
-  createResumeHash
+  createResumeHash,
+  calculateTechnicalMatch,
+  calculateMatchPercentage
 };
