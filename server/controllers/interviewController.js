@@ -1180,6 +1180,265 @@ function generateDetailedAnalysisSummary(feedback, questionType, wordCount, sent
   return analysis;
 }
 
+function getEnhancedDefaultQuestions() {
+  return [
+    // 3 Behavioral Questions
+    {
+      questionId: "q1",
+      question: "Tell me about yourself and why you're passionate about software engineering. What draws you to this field?",
+      type: "behavioral",
+      category: "introduction",
+      difficulty: "easy",
+      expectedDuration: 120,
+      starterCode: null
+    },
+    {
+      questionId: "q2",
+      question: "Describe a challenging programming project you worked on. What obstacles did you face and how did you overcome them?",
+      type: "behavioral",
+      category: "problem-solving",
+      difficulty: "medium",
+      expectedDuration: 180,
+      starterCode: null
+    },
+    {
+      questionId: "q3",
+      question: "Tell me about a time you had to work in a team on a software project. How did you handle collaboration and any conflicts?",
+      type: "behavioral",
+      category: "teamwork",
+      difficulty: "medium",
+      expectedDuration: 180,
+      starterCode: null
+    },
+
+    // 3 Coding Questions
+    {
+      questionId: "q4",
+      question: "Write a function that finds the two numbers in an array that add up to a target sum. Return their indices.",
+      type: "coding",
+      category: "algorithms",
+      difficulty: "medium",
+      expectedDuration: 300,
+      starterCode: {
+        javascript: `function twoSum(nums, target) {
+    // Your implementation here
+    
+}
+
+// Test cases
+console.log(twoSum([2, 7, 11, 15], 9)); // Expected: [0, 1]
+console.log(twoSum([3, 2, 4], 6)); // Expected: [1, 2]
+console.log(twoSum([3, 3], 6)); // Expected: [0, 1]`,
+        python: `def two_sum(nums, target):
+    # Your implementation here
+    pass
+
+# Test cases
+print(two_sum([2, 7, 11, 15], 9))  # Expected: [0, 1]
+print(two_sum([3, 2, 4], 6))  # Expected: [1, 2]
+print(two_sum([3, 3], 6))  # Expected: [0, 1]`,
+        java: `public class Solution {
+    public int[] twoSum(int[] nums, int target) {
+        // Your implementation here
+        return new int[0];
+    }
+    
+    public static void main(String[] args) {
+        Solution sol = new Solution();
+        // Test cases
+        int[] result1 = sol.twoSum(new int[]{2, 7, 11, 15}, 9);
+        int[] result2 = sol.twoSum(new int[]{3, 2, 4}, 6);
+        int[] result3 = sol.twoSum(new int[]{3, 3}, 6);
+        
+        // Print results
+        System.out.println(java.util.Arrays.toString(result1));
+        System.out.println(java.util.Arrays.toString(result2));
+        System.out.println(java.util.Arrays.toString(result3));
+    }
+}`
+      }
+    },
+    {
+      questionId: "q5",
+      question: "Write a function to reverse a string without using built-in reverse functions. Consider both iterative and recursive approaches.",
+      type: "coding",
+      category: "strings",
+      difficulty: "easy",
+      expectedDuration: 240,
+      starterCode: {
+        javascript: `function reverseString(str) {
+    // Your implementation here
+    
+}
+
+// Test cases
+console.log(reverseString("hello")); // Expected: "olleh"
+console.log(reverseString("world")); // Expected: "dlrow"
+console.log(reverseString("a")); // Expected: "a"
+console.log(reverseString("")); // Expected: ""`,
+        python: `def reverse_string(s):
+    # Your implementation here
+    pass
+
+# Test cases
+print(reverse_string("hello"))  # Expected: "olleh"
+print(reverse_string("world"))  # Expected: "dlrow"
+print(reverse_string("a"))  # Expected: "a"
+print(reverse_string(""))  # Expected: ""`,
+        java: `public class Solution {
+    public String reverseString(String s) {
+        // Your implementation here
+        return "";
+    }
+    
+    public static void main(String[] args) {
+        Solution sol = new Solution();
+        // Test cases
+        System.out.println(sol.reverseString("hello")); // Expected: "olleh"
+        System.out.println(sol.reverseString("world")); // Expected: "dlrow"
+        System.out.println(sol.reverseString("a")); // Expected: "a"
+        System.out.println(sol.reverseString("")); // Expected: ""
+    }
+}`
+      }
+    },
+    {
+      questionId: "q6",
+      question: "Given a binary tree, write a function to find its maximum depth (height). The maximum depth is the number of nodes along the longest path from root to leaf.",
+      type: "coding",
+      category: "data-structures",
+      difficulty: "medium",
+      expectedDuration: 360,
+      starterCode: {
+        javascript: `// Definition for a binary tree node
+function TreeNode(val, left, right) {
+    this.val = (val === undefined ? 0 : val);
+    this.left = (left === undefined ? null : left);
+    this.right = (right === undefined ? null : right);
+}
+
+function maxDepth(root) {
+    // Your implementation here
+    
+}
+
+// Test case
+// Create tree:    3
+//               /   \\
+//              9     20
+//                   /  \\
+//                  15   7
+const root = new TreeNode(3);
+root.left = new TreeNode(9);
+root.right = new TreeNode(20);
+root.right.left = new TreeNode(15);
+root.right.right = new TreeNode(7);
+
+console.log(maxDepth(root)); // Expected: 3`,
+        python: `# Definition for a binary tree node
+class TreeNode:
+    def __init__(self, val=0, left=None, right=None):
+        self.val = val
+        self.left = left
+        self.right = right
+
+def max_depth(root):
+    # Your implementation here
+    pass
+
+# Test case
+# Create tree:    3
+#               /   \\
+#              9     20
+#                   /  \\
+#                  15   7
+root = TreeNode(3)
+root.left = TreeNode(9)
+root.right = TreeNode(20)
+root.right.left = TreeNode(15)
+root.right.right = TreeNode(7)
+
+print(max_depth(root))  # Expected: 3`,
+        java: `// Definition for a binary tree node
+class TreeNode {
+    int val;
+    TreeNode left;
+    TreeNode right;
+    TreeNode() {}
+    TreeNode(int val) { this.val = val; }
+    TreeNode(int val, TreeNode left, TreeNode right) {
+        this.val = val;
+        this.left = left;
+        this.right = right;
+    }
+}
+
+public class Solution {
+    public int maxDepth(TreeNode root) {
+        // Your implementation here
+        return 0;
+    }
+    
+    public static void main(String[] args) {
+        Solution sol = new Solution();
+        
+        // Create tree:    3
+        //               /   \\
+        //              9     20
+        //                   /  \\
+        //                  15   7
+        TreeNode root = new TreeNode(3);
+        root.left = new TreeNode(9);
+        root.right = new TreeNode(20);
+        root.right.left = new TreeNode(15);
+        root.right.right = new TreeNode(7);
+        
+        System.out.println(sol.maxDepth(root)); // Expected: 3
+    }
+}`
+      }
+    },
+
+    // 4 Technical Theory Questions
+    {
+      questionId: "q7",
+      question: "Explain the difference between synchronous and asynchronous programming. Give examples of when you would use each approach and discuss the benefits and drawbacks.",
+      type: "technical",
+      category: "programming-concepts",
+      difficulty: "medium",
+      expectedDuration: 180,
+      starterCode: null
+    },
+    {
+      questionId: "q8",
+      question: "What is the difference between HTTP and HTTPS? Explain how HTTPS works and why it's important for web security.",
+      type: "technical",
+      category: "web-security",
+      difficulty: "medium",
+      expectedDuration: 150,
+      starterCode: null
+    },
+    {
+      questionId: "q9",
+      question: "Explain the concept of Object-Oriented Programming. What are the four main principles (encapsulation, inheritance, polymorphism, abstraction) and how do they benefit software development?",
+      type: "technical",
+      category: "oop",
+      difficulty: "medium",
+      expectedDuration: 200,
+      starterCode: null
+    },
+    {
+      questionId: "q10",
+      question: "What is the difference between SQL and NoSQL databases? When would you choose one over the other? Give examples of each type and their use cases.",
+      type: "technical",
+      category: "databases",
+      difficulty: "medium",
+      expectedDuration: 180,
+      starterCode: null
+    }
+  ];
+}
+
 // Validate and enhance AI-generated feedback
 function validateAndEnhanceFeedback(aiAnalysis, questionType, responseText, code) {
   // Ensure all required fields exist with defaults
@@ -1240,44 +1499,110 @@ function clampScores(feedback) {
   feedback.structuredResponse = Math.max(1, Math.min(10, feedback.structuredResponse));
 }
 
-// ========== EXISTING FUNCTIONS (Updated) ==========
+function getDefaultStarterCode() {
+  return {
+    javascript: `function solution() {
+    // Your implementation here
+    
+}
+
+// Test your solution
+console.log(solution());`,
+    python: `def solution():
+    # Your implementation here
+    pass
+
+# Test your solution
+print(solution())`,
+    java: `public class Solution {
+    public void solution() {
+        // Your implementation here
+        
+    }
+    
+    public static void main(String[] args) {
+        Solution sol = new Solution();
+        sol.solution();
+    }
+}`
+  };
+}
 
 async function generateInterviewQuestions(resumeText, jobDescription) {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     
-    const prompt = `You are a senior software engineering interviewer at a top tech company. Generate 5 interview questions for a software engineering internship candidate.
+    const prompt = `You are a senior software engineering interviewer at a top tech company. Generate exactly 10 interview questions for a software engineering internship candidate.
 
     Resume Summary: ${resumeText.substring(0, 2000)}
     Job Description: ${jobDescription.substring(0, 2000)}
 
-    Generate questions in the following categories:
-    - 2 behavioral/soft skill questions (use type: "behavioral")
-    - 2 technical questions based on technologies mentioned in resume/job (use type: "technical")  
-    - 1 coding/algorithm question (use type: "coding")
+    Generate questions in the following categories with EXACT distribution:
+    - 3 behavioral/soft skill questions (use type: "behavioral")
+    - 3 coding/algorithm questions (use type: "coding")  
+    - 4 technical theory questions (use type: "technical")
 
-    IMPORTANT: Only use these exact types: "behavioral", "technical", "coding", "system_design"
+    IMPORTANT: 
+    1. Only use these exact types: "behavioral", "technical", "coding"
+    2. Must be exactly 10 questions total
+    3. Must follow the exact distribution: 3 behavioral + 3 coding + 4 technical = 10
+
+    BEHAVIORAL QUESTIONS should focus on:
+    - Past experiences and projects
+    - Team collaboration and leadership
+    - Problem-solving in real situations
+    - Learning from challenges and failures
+    - Communication and interpersonal skills
+
+    CODING QUESTIONS should include:
+    - Algorithm problems (arrays, strings, sorting)
+    - Data structure problems (trees, graphs, hash maps)
+    - Problem-solving with code implementation
+    - Time/space complexity considerations
+
+    TECHNICAL THEORY QUESTIONS should cover:
+    - Programming concepts (OOP, functional programming)
+    - System design basics
+    - Database concepts
+    - Web development fundamentals
+    - Software engineering principles
 
     Format your response as a JSON array with this structure:
     [
       {
         "questionId": "q1",
-        "question": "Tell me about a challenging project you worked on",
+        "question": "Tell me about a challenging project you worked on and how you overcame obstacles",
         "type": "behavioral",
         "category": "experience",
         "difficulty": "medium",
-        "expectedDuration": 120
+        "expectedDuration": 180,
+        "starterCode": null
+      },
+      {
+        "questionId": "q2",
+        "question": "Write a function that finds the two numbers in an array that add up to a target sum",
+        "type": "coding",
+        "category": "algorithms",
+        "difficulty": "medium",
+        "expectedDuration": 300,
+        "starterCode": {
+          "javascript": "function twoSum(nums, target) {\n    // Your implementation here\n    \n}\n\n// Test cases\nconsole.log(twoSum([2, 7, 11, 15], 9)); // Expected: [0, 1]",
+          "python": "def two_sum(nums, target):\n    # Your implementation here\n    pass\n\n# Test cases\nprint(two_sum([2, 7, 11, 15], 9))  # Expected: [0, 1]",
+          "java": "public int[] twoSum(int[] nums, int target) {\n    // Your implementation here\n    return new int[0];\n}"
+        }
       }
     ]
 
     Make questions specific to the candidate's background and internship level. Focus on:
-    - Learning experiences and growth
-    - Technical fundamentals
-    - Problem-solving approach
-    - Team collaboration
-    - Specific technologies from resume
+    - Learning experiences and growth potential
+    - Technical fundamentals appropriate for interns
+    - Problem-solving approach and thinking process
+    - Real-world application of concepts
+    - Specific technologies mentioned in resume/job description
 
-    Return only valid JSON, no explanations.`;
+    Ensure coding questions have appropriate starter code templates for JavaScript, Python, and Java.
+
+    Return only valid JSON, no explanations or additional text.`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -1288,19 +1613,36 @@ async function generateInterviewQuestions(resumeText, jobDescription) {
     const cleanedText = questionsText.replace(/```json\s*|```\s*/g, '').trim();
     const questions = JSON.parse(cleanedText);
 
+    // Validate the distribution
+    const distribution = {
+      behavioral: questions.filter(q => normalizeQuestionType(q.type) === 'behavioral').length,
+      coding: questions.filter(q => normalizeQuestionType(q.type) === 'coding').length,
+      technical: questions.filter(q => normalizeQuestionType(q.type) === 'technical').length
+    };
+
+    console.log('Question distribution:', distribution);
+
+    // If distribution is incorrect, use fallback questions
+    if (questions.length !== 10 || distribution.behavioral !== 3 || distribution.coding !== 3 || distribution.technical !== 4) {
+      console.log('AI generated incorrect distribution, using fallback questions');
+      return getEnhancedDefaultQuestions();
+    }
+
     // Normalize and validate question types
     return questions.map((q, index) => ({
       ...q,
       questionId: q.questionId || `q${index + 1}`,
       type: normalizeQuestionType(q.type),
-      expectedDuration: q.expectedDuration || 120,
-      category: q.category || 'general'
+      expectedDuration: q.expectedDuration || getDefaultDuration(normalizeQuestionType(q.type)),
+      category: q.category || 'general',
+      difficulty: q.difficulty || 'medium',
+      starterCode: q.starterCode || (normalizeQuestionType(q.type) === 'coding' ? getDefaultStarterCode() : null)
     }));
 
   } catch (error) {
     console.error('Generate questions error:', error);
-    console.log('Falling back to default questions...');
-    return getDefaultQuestions();
+    console.log('Falling back to enhanced default questions...');
+    return getEnhancedDefaultQuestions();
   }
 }
 
@@ -1325,6 +1667,15 @@ async function analyzeResponseLegacy(question, transcript, questionType, resumeT
     return {
       feedback: getDefaultAnalysis()
     };
+  }
+}
+
+function getDefaultDuration(type) {
+  switch (type) {
+    case 'behavioral': return 180;
+    case 'coding': return 300;
+    case 'technical': return 150;
+    default: return 120;
   }
 }
 

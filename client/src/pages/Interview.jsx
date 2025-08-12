@@ -55,21 +55,35 @@ const MockInterviewSystem = () => {
   const analyserRef = useRef(null);
   const audioChunksRef = useRef([]);
 
-  // Memoize mock questions to prevent re-creation
   const mockQuestions = useMemo(() => [
-    {
-      questionId: 'q1',
-      type: 'behavioral',
-      question: 'Tell me about yourself and why you\'re interested in this software engineering internship position.',
-      expectedDuration: 120
-    },
-    {
-      questionId: 'q2',
-      type: 'technical_coding',
-      question: 'Write a function that finds the two numbers in an array that add up to a target sum. Return their indices.',
-      expectedDuration: 300,
-      starterCode: {
-        javascript: `function twoSum(nums, target) {
+  // 3 Behavioral Questions
+  {
+    questionId: 'q1',
+    type: 'behavioral',
+    question: 'Tell me about yourself and why you\'re passionate about software engineering. What draws you to this field?',
+    expectedDuration: 120
+  },
+  {
+    questionId: 'q2',
+    type: 'behavioral',
+    question: 'Describe a challenging programming project you worked on. What obstacles did you face and how did you overcome them?',
+    expectedDuration: 180
+  },
+  {
+    questionId: 'q3',
+    type: 'behavioral',
+    question: 'Tell me about a time you had to work in a team on a software project. How did you handle collaboration and any conflicts?',
+    expectedDuration: 180
+  },
+
+  // 3 Coding Questions
+  {
+    questionId: 'q4',
+    type: 'technical_coding',
+    question: 'Write a function that finds the two numbers in an array that add up to a target sum. Return their indices.',
+    expectedDuration: 300,
+    starterCode: {
+      javascript: `function twoSum(nums, target) {
     // Your implementation here
     
 }
@@ -77,14 +91,14 @@ const MockInterviewSystem = () => {
 // Test cases
 console.log(twoSum([2, 7, 11, 15], 9)); // Expected: [0, 1]
 console.log(twoSum([3, 2, 4], 6)); // Expected: [1, 2]`,
-        python: `def two_sum(nums, target):
+      python: `def two_sum(nums, target):
     # Your implementation here
     pass
 
 # Test cases
 print(two_sum([2, 7, 11, 15], 9))  # Expected: [0, 1]
 print(two_sum([3, 2, 4], 6))  # Expected: [1, 2]`,
-        java: `public class Solution {
+      java: `public class Solution {
     public int[] twoSum(int[] nums, int target) {
         // Your implementation here
         return new int[0];
@@ -97,21 +111,99 @@ print(two_sum([3, 2, 4], 6))  # Expected: [1, 2]`,
         int[] result2 = sol.twoSum(new int[]{3, 2, 4}, 6);
     }
 }`
-      }
-    },
-    {
-      questionId: 'q3',
-      type: 'behavioral',
-      question: 'Describe a challenging project you worked on. What obstacles did you face and how did you overcome them?',
-      expectedDuration: 180
-    },
-    {
-      questionId: 'q4',
-      type: 'technical_conceptual',
-      question: 'Explain the difference between synchronous and asynchronous programming. Give examples of when you would use each approach.',
-      expectedDuration: 120
     }
-  ], []);
+  },
+  {
+    questionId: 'q5',
+    type: 'technical_coding',
+    question: 'Write a function to reverse a string without using built-in reverse functions.',
+    expectedDuration: 240,
+    starterCode: {
+      javascript: `function reverseString(str) {
+    // Your implementation here
+    
+}
+
+// Test cases
+console.log(reverseString("hello")); // Expected: "olleh"`,
+      python: `def reverse_string(s):
+    # Your implementation here
+    pass
+
+# Test cases
+print(reverse_string("hello"))  # Expected: "olleh"`,
+      java: `public class Solution {
+    public String reverseString(String s) {
+        // Your implementation here
+        return "";
+    }
+}`
+    }
+  },
+  {
+    questionId: 'q6',
+    type: 'technical_coding',
+    question: 'Given a binary tree, write a function to find its maximum depth.',
+    expectedDuration: 360,
+    starterCode: {
+      javascript: `function TreeNode(val, left, right) {
+    this.val = val;
+    this.left = left || null;
+    this.right = right || null;
+}
+
+function maxDepth(root) {
+    // Your implementation here
+    
+}`,
+      python: `class TreeNode:
+    def __init__(self, val=0, left=None, right=None):
+        self.val = val
+        self.left = left
+        self.right = right
+
+def max_depth(root):
+    # Your implementation here
+    pass`,
+      java: `class TreeNode {
+    int val;
+    TreeNode left;
+    TreeNode right;
+}
+
+public int maxDepth(TreeNode root) {
+    // Your implementation here
+    return 0;
+}`
+    }
+  },
+
+  // 4 Technical Theory Questions
+  {
+    questionId: 'q7',
+    type: 'technical_conceptual',
+    question: 'Explain the difference between synchronous and asynchronous programming. Give examples of when you would use each approach.',
+    expectedDuration: 180
+  },
+  {
+    questionId: 'q8',
+    type: 'technical_conceptual',
+    question: 'What is the difference between HTTP and HTTPS? Explain how HTTPS works and why it\'s important for web security.',
+    expectedDuration: 150
+  },
+  {
+    questionId: 'q9',
+    type: 'technical_conceptual',
+    question: 'Explain Object-Oriented Programming principles: encapsulation, inheritance, polymorphism, and abstraction.',
+    expectedDuration: 200
+  },
+  {
+    questionId: 'q10',
+    type: 'technical_conceptual',
+    question: 'What is the difference between SQL and NoSQL databases? When would you choose one over the other?',
+    expectedDuration: 180
+  }
+], []);
 
   // Debug logger - memoized to prevent re-creation
   const addDebugLog = useCallback((message, type = 'info') => {
