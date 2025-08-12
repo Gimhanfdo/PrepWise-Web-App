@@ -1,4 +1,4 @@
-// models/CVAnalysisModel.js - Enhanced CV Analysis Model
+// models/CVAnalysisModel.js - Updated with minimal changes for user CV reference
 import mongoose from 'mongoose';
 
 const cvAnalysisSchema = new mongoose.Schema({
@@ -8,16 +8,23 @@ const cvAnalysisSchema = new mongoose.Schema({
     required: [true, 'User ID is required'],
     index: true
   },
+  // MODIFIED: Make resumeText optional since it can come from user profile now
   resumeText: {
     type: String,
-    required: [true, 'Resume text is required'],
-    trim: true
+    required: false, // Changed from true to false
+    trim: true,
+    default: '' // Added default
   },
   resumeHash: {
     type: String,
     required: [true, 'Resume hash is required'],
     index: true,
     trim: true
+  },
+  // NEW: Flag to indicate if CV was loaded from user profile
+  usedProfileCV: {
+    type: Boolean,
+    default: false
   },
   jobDescriptions: {
     type: [String],
@@ -109,6 +116,7 @@ const cvAnalysisSchema = new mongoose.Schema({
 cvAnalysisSchema.index({ userId: 1, resumeHash: 1 }, { unique: true, name: 'user_resume_unique' });
 cvAnalysisSchema.index({ userId: 1, isSaved: 1, updatedAt: -1 }, { name: 'user_saved_recent' });
 cvAnalysisSchema.index({ userId: 1, createdAt: -1 }, { name: 'user_chronological' });
+cvAnalysisSchema.index({ userId: 1, usedProfileCV: 1 }, { name: 'user_profile_cv' }); // NEW index
 
 // Virtual for getting analysis age
 cvAnalysisSchema.virtual('age').get(function() {
@@ -138,6 +146,11 @@ cvAnalysisSchema.virtual('averageMatch').get(function() {
   
   const sum = softwareRoles.reduce((total, result) => total + (result.matchPercentage || 0), 0);
   return Math.round(sum / softwareRoles.length);
+});
+
+// NEW: Virtual to check if CV text is available (either stored or from profile)
+cvAnalysisSchema.virtual('hasCVText').get(function() {
+  return !!(this.resumeText && this.resumeText.trim().length > 0);
 });
 
 // Ensure virtuals are included when converting to JSON
@@ -202,6 +215,11 @@ cvAnalysisSchema.statics.findUserAnalysis = function(userId, resumeHash) {
   return this.findOne({ userId, resumeHash });
 };
 
+// NEW: Find analyses that used profile CV
+cvAnalysisSchema.statics.findByProfileCV = function(userId) {
+  return this.find({ userId, usedProfileCV: true }).sort({ updatedAt: -1 });
+};
+
 cvAnalysisSchema.statics.getRecentAnalyses = function(userId, days = 30) {
   const dateThreshold = new Date();
   dateThreshold.setDate(dateThreshold.getDate() - days);
@@ -238,6 +256,32 @@ cvAnalysisSchema.methods.updateResult = function(index, resultData) {
     return this.save();
   }
   throw new Error('Result index not found');
+};
+
+// NEW: Method to set resume text from user profile
+cvAnalysisSchema.methods.setResumeFromProfile = function(resumeText, resumeHash) {
+  this.resumeText = resumeText;
+  this.resumeHash = resumeHash;
+  this.usedProfileCV = true;
+  return this;
+};
+
+// NEW: Method to get resume text (with fallback logic)
+cvAnalysisSchema.methods.getResumeText = async function() {
+  if (this.resumeText && this.resumeText.trim().length > 0) {
+    return this.resumeText;
+  }
+  
+  // If no resume text stored, try to get from user profile
+  if (this.usedProfileCV) {
+    const User = mongoose.model('User');
+    const user = await User.findById(this.userId);
+    if (user && user.currentCV && user.currentCV.text) {
+      return user.currentCV.text;
+    }
+  }
+  
+  return '';
 };
 
 cvAnalysisSchema.methods.getSoftwareRoles = function() {

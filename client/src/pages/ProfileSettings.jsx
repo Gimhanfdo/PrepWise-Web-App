@@ -1,6 +1,6 @@
-// UserProfile.jsx - Enhanced version with PDF download functionality
+// UserProfile.jsx - Enhanced version with CV management and reorganized tabs
 import React, { useState, useEffect, useContext } from 'react';
-import { User, Mail, Lock, FileText, Brain, Crown, Settings, Save, Eye, EyeOff, Download, Trash2, ChevronDown, ChevronUp, Star, TrendingUp, Target, Award } from 'lucide-react';
+import { User, Mail, Lock, FileText, Brain, Crown, Settings, Save, Eye, EyeOff, Download, Trash2, ChevronDown, ChevronUp, Star, TrendingUp, Target, Award, Upload, File, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
 import { AppContext } from '../context/AppContext';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
@@ -24,6 +24,12 @@ const UserProfile = () => {
   const [expandedAnalysis, setExpandedAnalysis] = useState(null);
   const [expandedAssessment, setExpandedAssessment] = useState(null);
   const [downloadingAnalysis, setDownloadingAnalysis] = useState(null);
+
+  // NEW: CV Management State
+  const [cvData, setCvData] = useState(null);
+  const [cvLoading, setCvLoading] = useState(false);
+  const [uploadingCV, setUploadingCV] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
 
   // Local user state for editing
   const [localUser, setLocalUser] = useState(null);
@@ -96,7 +102,8 @@ const UserProfile = () => {
         // Fetch additional data
         await Promise.all([
           fetchSavedAnalyses(),
-          fetchSkillsAssessments()
+          fetchSkillsAssessments(),
+          fetchCurrentCV() 
         ]);
       } catch (error) {
         console.error('Error initializing profile:', error);
@@ -118,9 +125,9 @@ const UserProfile = () => {
 
   const fetchSavedAnalyses = async () => {
     try {
-      console.log('🔍 Fetching saved analyses from:', `${backendUrl}/api/analyze/saved`);
+      console.log('🔍 Fetching saved analyses from:', `${backendUrl}/api/user/saved-analyses`);
       
-      const { data } = await axios.get(`${backendUrl}/api/analyze/saved`);
+      const { data } = await axios.get(`${backendUrl}/api/user/saved-analyses`);
       
       console.log('📊 Raw response data:', data);
       
@@ -197,7 +204,6 @@ const UserProfile = () => {
         console.log('📊 No saved analyses found (404)');
         setSavedAnalyses([]);
       } else if (error.response?.status !== 401) {
-        // Don't show error for 401 as it's handled by interceptor
         toast.error('Failed to fetch saved analyses');
         setSavedAnalyses([]);
       }
@@ -206,9 +212,9 @@ const UserProfile = () => {
 
   const fetchSkillsAssessments = async () => {
     try {
-      console.log('🧠 Fetching skills assessments from:', `${backendUrl}/api/swot/ratings`);
+      console.log('🧠 Fetching skills assessments from:', `${backendUrl}/api/user/skills-assessments`);
       
-      const { data } = await axios.get(`${backendUrl}/api/swot/ratings`);
+      const { data } = await axios.get(`${backendUrl}/api/user/skills-assessments`);
       
       console.log('🧠 Raw skills response:', data);
       
@@ -304,7 +310,122 @@ const UserProfile = () => {
     }
   };
 
-  // PDF Generation Functions
+  // NEW: CV Management Functions
+  const fetchCurrentCV = async () => {
+    try {
+      setCvLoading(true);
+      console.log('📄 Fetching current CV from:', `${backendUrl}/api/user/cv`);
+      
+      const { data } = await axios.get(`${backendUrl}/api/user/cv`);
+      
+      if (data.success) {
+        setCvData(data.data);
+        console.log('📄 CV data loaded:', data.data);
+      } else {
+        setCvData(null);
+        console.log('📄 No CV found:', data.message);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching CV:', error);
+      if (error.response?.status === 404) {
+        setCvData(null); // No CV uploaded yet
+      } else if (error.response?.status !== 401) {
+        toast.error('Failed to fetch CV information');
+      }
+    } finally {
+      setCvLoading(false);
+    }
+  };
+
+  const handleFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      if (file.type !== 'application/pdf') {
+        toast.error('Only PDF files are allowed');
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) { // 10MB
+        toast.error('File size must be less than 10MB');
+        return;
+      }
+      setSelectedFile(file);
+    }
+  };
+
+  const uploadCV = async () => {
+    if (!selectedFile) {
+      toast.error('Please select a CV file first');
+      return;
+    }
+
+    try {
+      setUploadingCV(true);
+      
+      const formData = new FormData();
+      formData.append('cv', selectedFile);
+
+      console.log('📄 Uploading CV:', selectedFile.name);
+      
+      const { data } = await axios.put(`${backendUrl}/api/user/upload-cv`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (data.success) {
+        toast.success('CV uploaded successfully');
+        setCvData(data.data);
+        setSelectedFile(null);
+        // Clear file input
+        const fileInput = document.getElementById('cv-upload');
+        if (fileInput) fileInput.value = '';
+        
+        // Refresh user data to update hasCV status
+        await getUserData();
+      } else {
+        toast.error(data.message || 'Failed to upload CV');
+      }
+    } catch (error) {
+      console.error('❌ CV upload error:', error);
+      const msg = error.response?.data?.message || error.message || 'Failed to upload CV';
+      toast.error(msg);
+    } finally {
+      setUploadingCV(false);
+    }
+  };
+
+  const deleteCV = async () => {
+    if (!window.confirm('Are you sure you want to delete your CV? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      setCvLoading(true);
+      
+      const { data } = await axios.delete(`${backendUrl}/api/user/cv`);
+
+      if (data.success) {
+        toast.success('CV deleted successfully');
+        setCvData(null);
+        // Refresh user data to update hasCV status
+        await getUserData();
+      } else {
+        toast.error(data.message || 'Failed to delete CV');
+      }
+    } catch (error) {
+      console.error('❌ CV delete error:', error);
+      const msg = error.response?.data?.message || error.message || 'Failed to delete CV';
+      toast.error(msg);
+    } finally {
+      setCvLoading(false);
+    }
+  };
+
+  const refreshCV = async () => {
+    await fetchCurrentCV();
+  };
+
+  // PDF Generation Functions (keeping existing code)
   const generateBasicPDF = (analysis) => {
     const { jsPDF } = window.jspdf || {};
     if (!jsPDF) {
@@ -830,7 +951,7 @@ const UserProfile = () => {
     }
 
     try {
-      const { data } = await axios.delete(`${backendUrl}/api/analyze/delete/${id}`);
+      const { data } = await axios.delete(`${backendUrl}/api/user/analysis/${id}`);
 
       if (data.success) {
         setSavedAnalyses(prev => prev.filter(analysis => analysis.id !== id));
@@ -850,7 +971,7 @@ const UserProfile = () => {
     }
 
     try {
-      const { data } = await axios.delete(`${backendUrl}/api/swot/delete/${id}`);
+      const { data } = await axios.delete(`${backendUrl}/api/user/assessment/${id}`);
 
       if (data.success) {
         setSkillsAssessments(prev => prev.filter(assessment => assessment.id !== id));
@@ -894,6 +1015,14 @@ const UserProfile = () => {
     if (score >= 70) return 'text-blue-800 bg-blue-100';
     if (score >= 50) return 'text-yellow-800 bg-yellow-100';
     return 'text-red-800 bg-red-100';
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   // Show loading spinner while page is loading
@@ -969,188 +1098,6 @@ const UserProfile = () => {
           {loading ? 'Updating...' : 'Update Profile'}
         </button>
       </div>
-
-      {/* Enhanced Saved CV Analysis Section */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4 flex items-center">
-          <FileText className="mr-2" size={20} />
-          Saved CV Analysis Results ({savedAnalyses.length})
-        </h3>
-        {savedAnalyses.length === 0 ? (
-          <div className="text-center py-8">
-            <FileText className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-            <p className="text-gray-600 mb-2">No saved CV analyses found.</p>
-            <p className="text-sm text-gray-500">Analyze your CV against job descriptions to see results here.</p>
-            <button 
-              onClick={() => navigate('/cv-analyzer')}
-              className="mt-3 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-            >
-              Start CV Analysis
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {savedAnalyses.map((analysis) => (
-              <div key={analysis.id} className="border border-gray-200 rounded-lg">
-                <div className="p-4">
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <h4 className="font-medium text-lg text-gray-900">{analysis.jobTitle}</h4>
-                        {analysis.hasMultipleJobs && (
-                          <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
-                            {analysis.totalJobs} jobs
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-gray-600 mb-2">{analysis.company}</p>
-                      <p className="text-sm text-gray-500 mb-3">
-                        Analyzed on {new Date(analysis.createdAt).toLocaleDateString()}
-                        {analysis.updatedAt !== analysis.createdAt && (
-                          <span> • Updated {new Date(analysis.updatedAt).toLocaleDateString()}</span>
-                        )}
-                      </p>
-                      
-                      <div className="flex items-center space-x-4 mb-3">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm font-medium">Match Score: </span>
-                          <span className={`px-3 py-1 rounded-full text-sm font-medium ${getMatchScoreColor(analysis.matchPercentage)}`}>
-                            {analysis.matchPercentage}%
-                          </span>
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {analysis.softwareJobs} software roles analyzed
-                        </div>
-                      </div>
-
-                      {/* Quick preview of top recommendations */}
-                      {analysis.recommendations && analysis.recommendations.length > 0 && (
-                        <div className="mb-3">
-                          <p className="text-sm font-medium text-gray-700 mb-1">Top Recommendations:</p>
-                          <ul className="text-sm text-gray-600 space-y-1">
-                            {analysis.recommendations.slice(0, 2).map((rec, idx) => (
-                              <li key={`rec-preview-${analysis.id}-${idx}`} className="flex items-start">
-                                <Target className="mr-2 mt-1 flex-shrink-0" size={12} />
-                                <span className="line-clamp-1">{rec}</span>
-                              </li>
-                            ))}
-                            {analysis.recommendations.length > 2 && (
-                              <li key={`more-recs-${analysis.id}`} className="text-blue-600 cursor-pointer" 
-                                  onClick={() => setExpandedAnalysis(expandedAnalysis === analysis.id ? null : analysis.id)}>
-                                +{analysis.recommendations.length - 2} more recommendations
-                              </li>
-                            )}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="flex space-x-2 ml-4">
-                      <button 
-                        onClick={() => setExpandedAnalysis(expandedAnalysis === analysis.id ? null : analysis.id)}
-                        className="p-2 text-gray-600 hover:bg-gray-50 rounded-md"
-                        title="View Details"
-                      >
-                        {expandedAnalysis === analysis.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                      </button>
-                      <button 
-                        onClick={() => downloadAnalysis(analysis.id)}
-                        disabled={downloadingAnalysis === analysis.id}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-md relative"
-                        title={
-                          localUser?.accountPlan === 'premium' 
-                            ? 'Download Premium PDF Report' 
-                            : 'Download Basic PDF Report (Upgrade for enhanced features)'
-                        }
-                      >
-                        {downloadingAnalysis === analysis.id ? (
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                        ) : (
-                          <>
-                            <Download size={16} />
-                            {localUser?.accountPlan !== 'premium' && (
-                              <span className="absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full text-xs text-white flex items-center justify-center">
-                                !
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </button>
-                      <button 
-                        onClick={() => deleteAnalysis(analysis.id)}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-md"
-                        title="Delete Analysis"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Expanded Details */}
-                {expandedAnalysis === analysis.id && (
-                  <div className="border-t border-gray-200 p-4 bg-gray-50">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Strengths */}
-                      {analysis.strengths && analysis.strengths.length > 0 && (
-                        <div>
-                          <h5 className="font-medium text-green-800 mb-2 flex items-center">
-                            <Star className="mr-2" size={16} />
-                            Key Strengths
-                          </h5>
-                          <ul className="space-y-1">
-                            {analysis.strengths.slice(0, 5).map((strength, idx) => (
-                              <li key={`strength-${analysis.id}-${idx}`} className="text-sm text-gray-700 flex items-start">
-                                <div className="w-2 h-2 bg-green-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
-                                {strength}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {/* All Recommendations */}
-                      {analysis.recommendations && analysis.recommendations.length > 0 && (
-                        <div>
-                          <h5 className="font-medium text-blue-800 mb-2 flex items-center">
-                            <TrendingUp className="mr-2" size={16} />
-                            Improvement Areas
-                          </h5>
-                          <ul className="space-y-1">
-                            {analysis.recommendations.map((rec, idx) => (
-                              <li key={`all-rec-${analysis.id}-${idx}`} className="text-sm text-gray-700 flex items-start">
-                                <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 mr-2 flex-shrink-0"></div>
-                                {rec}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* PDF Download Info */}
-                    <div className="mt-4 pt-4 border-t border-gray-300">
-                      <div className="flex items-center justify-between">
-                        <div className="text-sm text-gray-600">
-                          <span>Analysis ID: {analysis.id.slice(-8)}</span>
-                          <span className="ml-4">Software Roles: {analysis.softwareJobs}/{analysis.totalJobs}</span>
-                        </div>
-                        <div className="text-sm">
-                          {localUser?.accountPlan === 'premium' ? (
-                            <span className="text-green-600 font-medium">✓ Premium PDF Available</span>
-                          ) : (
-                            <span className="text-orange-600">Basic PDF (Upgrade for full features)</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 
@@ -1210,6 +1157,211 @@ const UserProfile = () => {
       </div>
     </div>
   );
+
+  // NEW: CV Management Tab
+  // Simplified CV Management Tab - Replace the renderCVTab() function in your UserProfile.jsx
+const renderCVTab = () => (
+  <div className="space-y-6">
+    {/* CV Upload/Management Section */}
+    <div className="bg-white p-6 rounded-lg shadow">
+      <h3 className="text-lg font-semibold mb-4 flex items-center">
+        <FileText className="mr-2" size={20} />
+        CV Management
+      </h3>
+      
+      {cvLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <span className="ml-2 text-gray-600">Loading CV information...</span>
+        </div>
+      ) : cvData ? (
+        // CV exists - show details and management options
+        <div className="space-y-4">
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <CheckCircle className="text-green-600" size={24} />
+                <div>
+                  <h4 className="text-lg font-medium text-green-800">CV Uploaded Successfully</h4>
+                  <p className="text-sm text-green-600">Your CV is ready for analysis</p>
+                </div>
+              </div>
+              <div className="flex space-x-2">
+                <button
+                  onClick={refreshCV}
+                  className="p-2 text-gray-600 hover:bg-gray-100 rounded-md"
+                  title="Refresh CV Info"
+                >
+                  <RefreshCw size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h5 className="font-medium text-gray-800 mb-3">CV Details</h5>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">File Name:</span>
+                  <span className="font-medium">{cvData.fileName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">File Size:</span>
+                  <span className="font-medium">{formatFileSize(cvData.fileSize)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Uploaded:</span>
+                  <span className="font-medium">
+                    {new Date(cvData.uploadedAt).toLocaleDateString()}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Status:</span>
+                  <span className="font-medium text-green-600">
+                    {cvData.hasText ? 'Ready for Analysis' : 'Processing...'}
+                  </span>
+                </div>
+                {cvData.textLength && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Text Length:</span>
+                    <span className="font-medium">{cvData.textLength} characters</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-blue-50 rounded-lg p-4">
+              <h5 className="font-medium text-blue-800 mb-3">Quick Actions</h5>
+              <div className="space-y-2">
+                <button
+                  onClick={() => navigate('/cv-analyzer')}
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center justify-center"
+                >
+                  <Target className="mr-2" size={16} />
+                  Analyze CV Against Jobs
+                </button>
+                <button
+                  onClick={() => navigate('/swot')}
+                  className="w-full px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 flex items-center justify-center"
+                >
+                  <Brain className="mr-2" size={16} />
+                  Skills Assessment
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Update/Replace CV Section */}
+          <div className="border-t pt-4">
+            <h5 className="font-medium text-gray-800 mb-3">Update CV</h5>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex-1">
+                <input
+                  type="file"
+                  id="cv-update"
+                  accept=".pdf"
+                  onChange={handleFileSelect}
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                {selectedFile && (
+                  <p className="text-sm text-gray-600 mt-1">
+                    Selected: {selectedFile.name} ({formatFileSize(selectedFile.size)})
+                  </p>
+                )}
+              </div>
+              <div className="flex space-x-2">
+                <button
+                  onClick={uploadCV}
+                  disabled={!selectedFile || uploadingCV}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center"
+                >
+                  {uploadingCV ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  ) : (
+                    <Upload className="mr-2" size={16} />
+                  )}
+                  {uploadingCV ? 'Uploading...' : 'Update CV'}
+                </button>
+                <button
+                  onClick={deleteCV}
+                  disabled={cvLoading}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 flex items-center"
+                >
+                  <Trash2 className="mr-2" size={16} />
+                  Delete CV
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Updating will replace your current CV. Only PDF files are supported. Maximum file size: 10MB
+            </p>
+          </div>
+        </div>
+      ) : (
+        // No CV uploaded - show upload form
+        <div className="text-center py-8">
+          <div className="bg-blue-50 border-2 border-dashed border-blue-200 rounded-lg p-8">
+            <File className="mx-auto h-16 w-16 text-blue-400 mb-4" />
+            <h4 className="text-lg font-medium text-gray-900 mb-2">No CV Uploaded</h4>
+            <p className="text-gray-600 mb-6">Upload your CV to start analyzing it against job descriptions</p>
+            
+            <div className="max-w-md mx-auto">
+              <input
+                type="file"
+                id="cv-upload"
+                accept=".pdf"
+                onChange={handleFileSelect}
+                className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-4"
+              />
+              {selectedFile && (
+                <p className="text-sm text-gray-600 mb-4">
+                  Selected: {selectedFile.name} ({formatFileSize(selectedFile.size)})
+                </p>
+              )}
+              <button
+                onClick={uploadCV}
+                disabled={!selectedFile || uploadingCV}
+                className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center"
+              >
+                {uploadingCV ? (
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                ) : (
+                  <Upload className="mr-2" size={20} />
+                )}
+                {uploadingCV ? 'Uploading CV...' : 'Upload CV'}
+              </button>
+              <p className="text-xs text-gray-500 mt-2">
+                Only PDF files are supported. Maximum file size: 10MB
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+
+    {/* CV Usage Information */}
+    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6">
+      <h4 className="text-lg font-semibold text-blue-800 mb-3">How Your CV is Used</h4>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+        <div className="bg-white rounded-lg p-4 shadow-sm">
+          <h5 className="font-medium text-gray-900 mb-2">CV Analyzer</h5>
+          <p className="text-gray-600">Your CV text is compared against job descriptions to identify matches, gaps, and improvement opportunities.</p>
+        </div>
+        <div className="bg-white rounded-lg p-4 shadow-sm">
+          <h5 className="font-medium text-gray-900 mb-2">Skills Assessment</h5>
+          <p className="text-gray-600">The system extracts your skills and experience to provide personalized technology proficiency assessments.</p>
+        </div>
+      </div>
+      <div className="mt-4 p-3 bg-blue-100 rounded-lg">
+        <p className="text-xs text-blue-800">
+          <strong>Privacy:</strong> Your CV data is stored securely and only used for analysis purposes. 
+          You can delete your CV at any time, and it will be permanently removed from our servers.
+        </p>
+      </div>
+    </div>
+  </div>
+);
 
   const renderSkillsTab = () => (
     <div className="bg-white p-6 rounded-lg shadow">
@@ -1646,6 +1798,7 @@ const UserProfile = () => {
           <h4 className="font-medium text-gray-900 mb-2">Debug Information</h4>
           <div className="text-sm text-gray-600 space-y-1">
             <p>User ID: {userData?._id || 'Not available'}</p>
+            <p>CV Status: {cvData ? 'Uploaded' : 'Not uploaded'}</p>
             <p>Saved Analyses: {savedAnalyses.length}</p>
             <p>Skills Assessments: {skillsAssessments.length}</p>
             <p>Backend URL: {backendUrl}</p>
@@ -1659,6 +1812,7 @@ const UserProfile = () => {
 
   const tabs = [
     { id: 'profile', label: 'Profile', icon: User },
+    { id: 'cv', label: 'CV Management', icon: FileText }, // NEW: CV Management tab
     { id: 'security', label: 'Security', icon: Lock },
     { id: 'skills', label: 'Skills Assessment', icon: Brain },
     { id: 'subscription', label: 'Subscription', icon: Crown },
@@ -1689,6 +1843,12 @@ const UserProfile = () => {
                   }`}>
                     {localUser.accountType}
                   </span>
+                  {/* NEW: CV Status indicator */}
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    cvData ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
+                  }`}>
+                    {cvData ? 'CV Uploaded ✓' : 'No CV'}
+                  </span>
                   {localUser.accountPlan === 'premium' && (
                     <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">
                       Premium PDF ✓
@@ -1700,18 +1860,30 @@ const UserProfile = () => {
             
             {/* Quick Actions */}
             <div className="flex space-x-2">
-              <button 
-                onClick={() => navigate('/cv-analyzer')}
-                className="px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                CV Analyzer
-              </button>
-              <button 
-                onClick={() => navigate('/swot')}
-                className="px-3 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700"
-              >
-                Skills Assessment
-              </button>
+              {cvData ? (
+                <>
+                  <button 
+                    onClick={() => navigate('/cv-analyzer')}
+                    className="px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    CV Analyzer
+                  </button>
+                  <button 
+                    onClick={() => navigate('/swot')}
+                    className="px-3 py-2 text-sm bg-green-600 text-white rounded-md hover:bg-green-700"
+                  >
+                    Skills Assessment
+                  </button>
+                </>
+              ) : (
+                <button 
+                  onClick={() => setActiveTab('cv')}
+                  className="px-3 py-2 text-sm bg-orange-600 text-white rounded-md hover:bg-orange-700 flex items-center"
+                >
+                  <Upload className="mr-1" size={16} />
+                  Upload CV
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1735,6 +1907,20 @@ const UserProfile = () => {
                       >
                         <Icon size={18} />
                         <span>{tab.label}</span>
+                        {/* NEW: Add indicator badges */}
+                        {tab.id === 'cv' && !cvData && (
+                          <AlertCircle className="text-orange-500" size={14} />
+                        )}
+                        {tab.id === 'cv' && savedAnalyses.length > 0 && (
+                          <span className="bg-blue-100 text-blue-800 text-xs rounded-full px-2 py-1 min-w-[20px] text-center">
+                            {savedAnalyses.length}
+                          </span>
+                        )}
+                        {tab.id === 'skills' && skillsAssessments.length > 0 && (
+                          <span className="bg-green-100 text-green-800 text-xs rounded-full px-2 py-1 min-w-[20px] text-center">
+                            {skillsAssessments.length}
+                          </span>
+                        )}
                       </button>
                     </li>
                   );
@@ -1746,6 +1932,7 @@ const UserProfile = () => {
           {/* Main Content */}
           <div className="lg:col-span-3">
             {activeTab === 'profile' && renderProfileTab()}
+            {activeTab === 'cv' && renderCVTab()} {/* NEW: CV Management tab */}
             {activeTab === 'security' && renderSecurityTab()}
             {activeTab === 'skills' && renderSkillsTab()}
             {activeTab === 'subscription' && renderSubscriptionTab()}

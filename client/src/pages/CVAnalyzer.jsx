@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from "react";
-import { CheckCircle, XCircle, AlertTriangle, Lightbulb, FileText, Layout, Target, BarChart3, ArrowLeft, Star, TrendingUp, Settings, Upload, Plus, Trash2, Save } from "lucide-react";
+import React, { useState, useCallback, useEffect } from "react";
+import { CheckCircle, XCircle, AlertTriangle, Lightbulb, FileText, Layout, Target, BarChart3, ArrowLeft, Star, TrendingUp, Settings, Upload, Plus, Trash2, Save, RefreshCw, User } from "lucide-react";
 
 // Enhanced Skills Assessment Component
 const SkillsAssessment = ({ 
@@ -534,6 +534,10 @@ const API_ENDPOINTS = {
   analyzeResume: `${API_BASE_URL}/api/analyze/analyze-resume`,
   saveAnalysis: `${API_BASE_URL}/api/analyze/save`,
   saveSWOTRatings: `${API_BASE_URL}/api/swot/save-ratings`,
+  getUserProfile: `${API_BASE_URL}/api/user/profile`,
+  getCurrentCV: `${API_BASE_URL}/api/user/cv`,
+  uploadCV: `${API_BASE_URL}/api/user/upload-cv`,
+  deleteCV: `${API_BASE_URL}/api/user/cv`,
 };
 
 // Enhanced Circular Progress Component
@@ -732,6 +736,62 @@ const CVAnalyzer = () => {
   const [resumeData, setResumeData] = useState(null);
   const [currentView, setCurrentView] = useState('analysis');
   const [savedIndices, setSavedIndices] = useState([]);
+  
+  // NEW: Profile CV state
+  const [profileCV, setProfileCV] = useState(null);
+  const [loadingProfileCV, setLoadingProfileCV] = useState(false);
+  const [useProfileCV, setUseProfileCV] = useState(false);
+  const [cvUploadMode, setCvUploadMode] = useState('check'); // 'check', 'upload', 'profile'
+
+  // Check for profile CV on component mount
+  useEffect(() => {
+    checkForProfileCV();
+  }, []);
+
+  // Check if user has a CV in their profile
+  const checkForProfileCV = async () => {
+    setLoadingProfileCV(true);
+    try {
+      const response = await fetch(API_ENDPOINTS.getCurrentCV, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data) {
+          setProfileCV(data.data);
+          setCvUploadMode('profile');
+        } else {
+          setCvUploadMode('upload');
+        }
+      } else if (response.status === 404) {
+        // No CV found in profile
+        setCvUploadMode('upload');
+      } else {
+        throw new Error('Failed to check profile CV');
+      }
+    } catch (err) {
+      console.error('Error checking profile CV:', err);
+      setCvUploadMode('upload');
+    } finally {
+      setLoadingProfileCV(false);
+    }
+  };
+
+  // Handle using profile CV
+  const handleUseProfileCV = () => {
+    setUseProfileCV(true);
+    setResumeFile(null);
+    setError(null);
+  };
+
+  // Handle uploading new CV
+  const handleUploadNewCV = () => {
+    setUseProfileCV(false);
+    setResumeFile(null);
+    setError(null);
+  };
 
   // File validation
   const validateFile = (file) => {
@@ -759,6 +819,7 @@ const CVAnalyzer = () => {
 
     setError(null);
     setResumeFile(file);
+    setUseProfileCV(false);
   };
 
   // Drag handlers
@@ -807,8 +868,13 @@ const CVAnalyzer = () => {
 
   // Form validation
   const validateForm = () => {
-    if (!resumeFile) {
-      setError("Please upload a PDF resume");
+    if (!useProfileCV && !resumeFile) {
+      setError("Please upload a PDF resume or use your profile CV");
+      return false;
+    }
+
+    if (useProfileCV && !profileCV) {
+      setError("No profile CV available. Please upload a resume.");
       return false;
     }
 
@@ -836,8 +902,16 @@ const CVAnalyzer = () => {
 
     try {
       const formData = new FormData();
-      formData.append('resume', resumeFile);
+      
+      // Add job descriptions
       formData.append('jobDescriptions', JSON.stringify(jobDescriptions.filter(jd => jd.trim())));
+      
+      // Add CV source information
+      if (useProfileCV) {
+        formData.append('useProfileCV', 'true');
+      } else {
+        formData.append('resume', resumeFile);
+      }
 
       const response = await fetch(API_ENDPOINTS.analyzeResume, {
         method: 'POST',
@@ -888,15 +962,16 @@ const CVAnalyzer = () => {
         throw new Error('Invalid response format: missing analysis data');
       }
       
-      const resumeHash = `resume_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const resumeHash = data.resumeHash || `resume_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
       setResumeData({
-        resumeText: data.resumeText || `Resume: ${resumeFile.name}`,
-        resumeHash: data.resumeHash || resumeHash,
+        resumeText: data.resumeText || (useProfileCV ? 'Profile CV' : `Resume: ${resumeFile?.name}`),
+        resumeHash: resumeHash,
         jobDescriptions: jobDescriptions.filter(jd => jd.trim()),
         extractedTechnologies: data.extractedTechnologies || [],
+        usedProfileCV: useProfileCV,
         metadata: {
-          fileName: resumeFile.name,
+          fileName: useProfileCV ? profileCV?.fileName : resumeFile?.name,
           analysisDate: new Date().toISOString(),
           totalTechnologies: (data.extractedTechnologies || []).length
         }
@@ -929,14 +1004,15 @@ const CVAnalyzer = () => {
 
   // Save individual analysis
   const handleSaveIndividualAnalysis = async (index) => {
-    if (!resumeFile || !results[index] || savedIndices.includes(index)) return;
+    if ((!resumeFile && !useProfileCV) || !results[index] || savedIndices.includes(index)) return;
 
     try {
       const saveData = {
-        resumeName: resumeFile.name,
+        resumeName: useProfileCV ? profileCV?.fileName : resumeFile?.name,
         jobDescriptions: jobDescriptions.filter(jd => jd.trim()),
         results: [results[index]],
-        resumeHash: resumeData?.resumeHash
+        resumeHash: resumeData?.resumeHash,
+        usedProfileCV: useProfileCV
       };
 
       const response = await fetch(API_ENDPOINTS.saveAnalysis, {
@@ -995,11 +1071,212 @@ const CVAnalyzer = () => {
     setResumeData(null);
     setSavedIndices([]);
     setCurrentView('analysis');
+    setUseProfileCV(false);
   };
 
   // Handle back navigation
   const handleBackFromSkills = () => {
     setCurrentView('analysis');
+  };
+
+  // Render CV source selection
+  const renderCVSourceSelection = () => {
+    if (cvUploadMode === 'check' || loadingProfileCV) {
+      return (
+        <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border border-gray-200 p-4 md:p-6 shadow-lg">
+          <div className="flex items-center justify-center py-8">
+            <div className="text-center">
+              <div className="w-12 h-12 mx-auto text-gray-400 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
+                <RefreshCw className="w-6 h-6 animate-spin" />
+              </div>
+              <p className="text-gray-600">Checking for existing CV...</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (cvUploadMode === 'profile' && profileCV) {
+      return (
+        <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border border-gray-200 p-4 md:p-6 shadow-lg">
+          <label className="block font-bold mb-4 text-gray-800">
+            Choose CV Source
+          </label>
+          
+          {/* Profile CV Option */}
+          <div className={`p-4 rounded-xl border-2 cursor-pointer transition-all mb-4 ${
+            useProfileCV 
+              ? 'border-emerald-400 bg-emerald-50 shadow-lg' 
+              : 'border-gray-300 bg-white hover:border-gray-400 hover:shadow-md'
+          }`} onClick={handleUseProfileCV}>
+            <div className="flex items-center gap-4">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg ${
+                useProfileCV ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'
+              }`}>
+                <User className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-gray-900">Use Profile CV</h3>
+                <p className="text-sm text-gray-600">{profileCV.fileName}</p>
+                <p className="text-xs text-gray-500">
+                  Uploaded: {new Date(profileCV.uploadedAt).toLocaleDateString()}
+                  {profileCV.fileSize && ` • ${(profileCV.fileSize / 1024).toFixed(1)} KB`}
+                </p>
+              </div>
+              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
+                useProfileCV ? 'border-emerald-500 bg-emerald-500' : 'border-gray-300'
+              }`}>
+                {useProfileCV && <div className="w-2 h-2 bg-white rounded-full"></div>}
+              </div>
+            </div>
+          </div>
+
+          {/* Upload New CV Option */}
+          <div className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
+            !useProfileCV && !resumeFile 
+              ? 'border-gray-300 bg-white hover:border-gray-400 hover:shadow-md' 
+              : !useProfileCV && resumeFile
+              ? 'border-emerald-400 bg-emerald-50 shadow-lg'
+              : 'border-gray-300 bg-white hover:border-gray-400 hover:shadow-md'
+          }`} onClick={handleUploadNewCV}>
+            <div className="flex items-center gap-4">
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg ${
+                !useProfileCV && resumeFile 
+                  ? 'bg-emerald-500 text-white' 
+                  : 'bg-gray-100 text-gray-600'
+              }`}>
+                <Upload className="w-6 h-6" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-gray-900">Upload New CV</h3>
+                <p className="text-sm text-gray-600">
+                  {resumeFile ? resumeFile.name : 'Choose a different PDF file'}
+                </p>
+                {resumeFile && (
+                  <p className="text-xs text-gray-500">
+                    {(resumeFile.size / (1024 * 1024)).toFixed(2)} MB
+                  </p>
+                )}
+              </div>
+              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
+                !useProfileCV && resumeFile ? 'border-emerald-500 bg-emerald-500' : 'border-gray-300'
+              }`}>
+                {!useProfileCV && resumeFile && <div className="w-2 h-2 bg-white rounded-full"></div>}
+              </div>
+            </div>
+          </div>
+
+          {/* File Upload Area (only show when upload new is selected) */}
+          {!useProfileCV && (
+            <div className="mt-4">
+              <div
+                className={`relative border-2 border-dashed rounded-2xl p-6 md:p-8 text-center transition-all ${
+                  dragActive
+                    ? "border-indigo-400 bg-indigo-50 scale-105 shadow-lg"
+                    : resumeFile
+                    ? "border-emerald-400 bg-emerald-50 shadow-lg"
+                    : "border-gray-300 hover:border-gray-400 hover:bg-gray-50 hover:shadow-md"
+                }`}
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+              >
+                <input
+                  type="file"
+                  accept=".pdf"
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  onChange={(e) => handleFileChange(e.target.files[0])}
+                />
+
+                {resumeFile ? (
+                  <div className="space-y-3">
+                    <div className="w-12 h-12 mx-auto text-emerald-600 bg-emerald-100 rounded-2xl flex items-center justify-center shadow-lg">
+                      <CheckCircle className="w-6 h-6" />
+                    </div>
+                    <p className="font-semibold text-emerald-700 truncate">{resumeFile.name}</p>
+                    <p className="text-sm text-emerald-600">
+                      {(resumeFile.size / (1024 * 1024)).toFixed(2)} MB
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="w-12 h-12 mx-auto text-gray-400 bg-gray-100 rounded-2xl flex items-center justify-center">
+                      <Upload className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-gray-600">
+                        <span className="font-semibold text-indigo-600">
+                          Click to upload
+                        </span>{" "}
+                        or drag and drop
+                      </p>
+                      <p className="text-sm text-gray-500 mt-1">PDF files up to 10MB</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // Default upload mode when no profile CV exists
+    return (
+      <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border border-gray-200 p-4 md:p-6 shadow-lg">
+        <label className="block font-bold mb-4 text-gray-800">
+          Upload Resume (PDF only)
+        </label>
+        <div
+          className={`relative border-2 border-dashed rounded-2xl p-6 md:p-8 text-center transition-all ${
+            dragActive
+              ? "border-indigo-400 bg-indigo-50 scale-105 shadow-lg"
+              : resumeFile
+              ? "border-emerald-400 bg-emerald-50 shadow-lg"
+              : "border-gray-300 hover:border-gray-400 hover:bg-gray-50 hover:shadow-md"
+          }`}
+          onDragEnter={handleDrag}
+          onDragLeave={handleDrag}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
+        >
+          <input
+            type="file"
+            accept=".pdf"
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            onChange={(e) => handleFileChange(e.target.files[0])}
+          />
+
+          {resumeFile ? (
+            <div className="space-y-3">
+              <div className="w-12 h-12 mx-auto text-emerald-600 bg-emerald-100 rounded-2xl flex items-center justify-center shadow-lg">
+                <CheckCircle className="w-6 h-6" />
+              </div>
+              <p className="font-semibold text-emerald-700 truncate">{resumeFile.name}</p>
+              <p className="text-sm text-emerald-600">
+                {(resumeFile.size / (1024 * 1024)).toFixed(2)} MB
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="w-12 h-12 mx-auto text-gray-400 bg-gray-100 rounded-2xl flex items-center justify-center">
+                <Upload className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-gray-600">
+                  <span className="font-semibold text-indigo-600">
+                    Click to upload
+                  </span>{" "}
+                  or drag and drop
+                </p>
+                <p className="text-sm text-gray-500 mt-1">PDF files up to 10MB</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   // Render Skills Assessment view
@@ -1044,59 +1321,8 @@ const CVAnalyzer = () => {
                 </div>
               )}
 
-              {/* File Upload */}
-              <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border border-gray-200 p-4 md:p-6 shadow-lg">
-                <label className="block font-bold mb-4 text-gray-800">
-                  Upload Resume (PDF only)
-                </label>
-                <div
-                  className={`relative border-2 border-dashed rounded-2xl p-6 md:p-8 text-center transition-all ${
-                    dragActive
-                      ? "border-indigo-400 bg-indigo-50 scale-105 shadow-lg"
-                      : resumeFile
-                      ? "border-emerald-400 bg-emerald-50 shadow-lg"
-                      : "border-gray-300 hover:border-gray-400 hover:bg-gray-50 hover:shadow-md"
-                  }`}
-                  onDragEnter={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDragOver={handleDrag}
-                  onDrop={handleDrop}
-                >
-                  <input
-                    type="file"
-                    accept=".pdf"
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    onChange={(e) => handleFileChange(e.target.files[0])}
-                  />
-
-                  {resumeFile ? (
-                    <div className="space-y-3">
-                      <div className="w-12 h-12 mx-auto text-emerald-600 bg-emerald-100 rounded-2xl flex items-center justify-center shadow-lg">
-                        <CheckCircle className="w-6 h-6" />
-                      </div>
-                      <p className="font-semibold text-emerald-700 truncate">{resumeFile.name}</p>
-                      <p className="text-sm text-emerald-600">
-                        {(resumeFile.size / (1024 * 1024)).toFixed(2)} MB
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="w-12 h-12 mx-auto text-gray-400 bg-gray-100 rounded-2xl flex items-center justify-center">
-                        <Upload className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <p className="text-gray-600">
-                          <span className="font-semibold text-indigo-600">
-                            Click to upload
-                          </span>{" "}
-                          or drag and drop
-                        </p>
-                        <p className="text-sm text-gray-500 mt-1">PDF files up to 10MB</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+              {/* CV Source Selection */}
+              {renderCVSourceSelection()}
 
               {/* Job Descriptions */}
               <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-2xl border border-gray-200 p-4 md:p-6 shadow-lg">
@@ -1168,12 +1394,14 @@ const CVAnalyzer = () => {
                   onClick={handleAnalyze}
                   disabled={
                     loading ||
-                    !resumeFile ||
+                    (!useProfileCV && !resumeFile) ||
+                    (useProfileCV && !profileCV) ||
                     jobDescriptions.some((jd) => jd.trim() === "")
                   }
                   className={`w-full px-6 py-4 rounded-2xl font-bold transition-all text-lg shadow-lg ${
                     loading ||
-                    !resumeFile ||
+                    (!useProfileCV && !resumeFile) ||
+                    (useProfileCV && !profileCV) ||
                     jobDescriptions.some((jd) => jd.trim() === "")
                       ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                       : "bg-white text-indigo-600 border-2 border-indigo-600 hover:bg-indigo-50 active:scale-95 shadow-xl hover:shadow-2xl"
@@ -1192,7 +1420,7 @@ const CVAnalyzer = () => {
                   )}
                 </button>
 
-                {(resumeFile || jobDescriptions.some((jd) => jd.trim())) && (
+                {((resumeFile || useProfileCV) || jobDescriptions.some((jd) => jd.trim())) && (
                   <button
                     onClick={handleClear}
                     disabled={loading}
@@ -1243,6 +1471,29 @@ const CVAnalyzer = () => {
                         />
                       ))}
                     </div>
+                  </div>
+
+                  {/* CV Source Info */}
+                  <div className="bg-gradient-to-br from-gray-50 via-gray-50 to-gray-100 border border-gray-200 p-4 md:p-6 rounded-2xl shadow-lg">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="p-2 bg-gradient-to-r from-gray-500 to-gray-600 rounded-xl shadow-sm">
+                        {useProfileCV ? <User className="w-5 h-5 text-white" /> : <Upload className="w-5 h-5 text-white" />}
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-gray-800">CV Source</h3>
+                        <p className="text-sm text-gray-600">
+                          {useProfileCV 
+                            ? `Using profile CV: ${profileCV?.fileName || 'Unknown'}` 
+                            : `Uploaded file: ${resumeFile?.name || 'Unknown'}`
+                          }
+                        </p>
+                      </div>
+                    </div>
+                    {resumeData?.extractedTechnologies?.length > 0 && (
+                      <p className="text-sm text-gray-500 ml-11">
+                        {resumeData.extractedTechnologies.length} technologies extracted
+                      </p>
+                    )}
                   </div>
 
                   {/* Skills Assessment Navigation */}
@@ -1327,7 +1578,10 @@ const CVAnalyzer = () => {
                     Ready to Analyze Your Resume
                   </h3>
                   <p className="text-gray-500 max-w-md mx-auto leading-relaxed px-4">
-                    Upload your resume and add job descriptions to get started with our comprehensive analysis.
+                    {cvUploadMode === 'profile' && profileCV 
+                      ? "Use your profile CV or upload a new one, then add job descriptions to get started."
+                      : "Upload your resume and add job descriptions to get started with our comprehensive analysis."
+                    }
                     <br /><br />
                     <span className="text-sm text-gray-400">
                       💡 Pro tip: Include only relevant details in job descriptions for better analysis accuracy.

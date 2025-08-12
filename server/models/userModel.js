@@ -1,5 +1,3 @@
-// userModel.js - Fix duplicate index warning
-
 import mongoose from 'mongoose';
 
 const userSchema = new mongoose.Schema({
@@ -12,8 +10,7 @@ const userSchema = new mongoose.Schema({
   email: {
     type: String,
     required: [true, 'Email is required'],
-    unique: true, // Keep unique constraint
-    // REMOVE: index: true, // Remove this line - duplicate index
+    unique: true,
     trim: true,
     lowercase: true,
     match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
@@ -42,6 +39,33 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // NEW: CV Storage fields
+  currentCV: {
+    text: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    hash: {
+      type: String,
+      trim: true,
+      default: '',
+      index: true // Index for efficient lookups
+    },
+    fileName: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    uploadedAt: {
+      type: Date,
+      default: null
+    },
+    fileSize: {
+      type: Number,
+      default: 0
+    }
+  },
   verifyOtp: {
     type: String,
     default: ''
@@ -67,18 +91,39 @@ const userSchema = new mongoose.Schema({
   collection: 'users'
 });
 
-// Define indexes separately (this is where the duplicate might be)
-// ONLY define indexes here, not in field definitions
+// Define indexes separately
 userSchema.index({ email: 1 }, { unique: true, name: 'email_unique' });
 userSchema.index({ isAccountVerified: 1 }, { name: 'account_verified' });
 userSchema.index({ accountPlan: 1 }, { name: 'account_plan' });
 userSchema.index({ lastActive: -1 }, { name: 'last_active' });
+userSchema.index({ 'currentCV.hash': 1 }, { name: 'cv_hash_lookup', sparse: true }); // Sparse index for CV hash
+
+// Virtual for checking if user has uploaded CV
+userSchema.virtual('hasCV').get(function() {
+  return !!(this.currentCV && this.currentCV.text && this.currentCV.text.trim().length > 0);
+});
+
+// Virtual for CV upload age
+userSchema.virtual('cvAge').get(function() {
+  if (!this.currentCV || !this.currentCV.uploadedAt) return null;
+  return new Date() - this.currentCV.uploadedAt;
+});
+
+// Ensure virtuals are included when converting to JSON
+userSchema.set('toJSON', { virtuals: true });
+userSchema.set('toObject', { virtuals: true });
 
 // Pre-save middleware
 userSchema.pre('save', function(next) {
   if (!this.isNew) {
     this.lastActive = new Date();
   }
+  
+  // Clean up CV text if provided
+  if (this.currentCV && this.currentCV.text) {
+    this.currentCV.text = this.currentCV.text.trim();
+  }
+  
   next();
 });
 
@@ -91,6 +136,48 @@ userSchema.methods.toJSON = function() {
   delete userObject.verifyOtpExpireAt;
   delete userObject.resetOtpExpireAt;
   return userObject;
+};
+
+// NEW: CV-related methods
+userSchema.methods.updateCV = function(cvText, fileName, hash) {
+  this.currentCV = {
+    text: cvText.trim(),
+    hash: hash,
+    fileName: fileName,
+    uploadedAt: new Date(),
+    fileSize: cvText.length
+  };
+  return this.save();
+};
+
+userSchema.methods.clearCV = function() {
+  this.currentCV = {
+    text: '',
+    hash: '',
+    fileName: '',
+    uploadedAt: null,
+    fileSize: 0
+  };
+  return this.save();
+};
+
+userSchema.methods.getCVText = function() {
+  return this.currentCV && this.currentCV.text ? this.currentCV.text : '';
+};
+
+userSchema.methods.getCVHash = function() {
+  return this.currentCV && this.currentCV.hash ? this.currentCV.hash : '';
+};
+
+// Static methods for CV-related queries
+userSchema.statics.findByResumeHash = function(hash) {
+  return this.find({ 'currentCV.hash': hash });
+};
+
+userSchema.statics.getUsersWithCV = function() {
+  return this.find({ 
+    'currentCV.text': { $exists: true, $ne: '' } 
+  });
 };
 
 const userModel = mongoose.model('User', userSchema);

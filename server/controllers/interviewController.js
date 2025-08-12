@@ -82,6 +82,7 @@ export const createInterview = async (req, res) => {
     });
   }
 };
+
 function normalizeQuestionType(type) {
   // Map various AI-generated types to valid enum values
   const typeMapping = {
@@ -96,7 +97,9 @@ function normalizeQuestionType(type) {
     'design': 'system_design',
     'behavioral': 'behavioral',
     'technical': 'technical',
-    'coding': 'coding'
+    'coding': 'coding',
+    'technical_coding': 'coding',
+    'technical_conceptual': 'technical'
   };
 
   return typeMapping[type.toLowerCase()] || 'technical'; // default to technical
@@ -220,8 +223,8 @@ export const submitAnswer = async (req, res) => {
     // For now, use a placeholder transcript - implement actual transcription later
     const transcript = `User provided an audio response for the question: "${question.question}". Audio transcription will be implemented in the next phase.`;
 
-    // Analyze confidence and response quality
-    const analysis = await analyzeResponse(
+    // Analyze confidence and response quality using the enhanced analysis
+    const analysis = await analyzeResponseLegacy(
       question.question,
       transcript,
       question.type,
@@ -237,7 +240,7 @@ export const submitAnswer = async (req, res) => {
       transcription: transcript,
       responseTime: parseInt(responseTime) || 0,
       recordingDuration: Math.floor(audioFile.size / 1000), // rough estimate
-      feedback: analysis.feedback,
+      feedback: analysis.feedback.feedback,
       submittedAt: new Date()
     };
 
@@ -248,13 +251,65 @@ export const submitAnswer = async (req, res) => {
       success: true,
       message: 'Answer submitted successfully',
       question: question.question,
-      feedback: analysis.feedback
+      feedback: analysis
     });
   } catch (error) {
     console.error('Submit answer error:', error);
     res.status(500).json({ 
       success: false,
       error: 'Failed to process answer' 
+    });
+  }
+};
+
+// Enhanced AI-powered response analysis endpoint
+export const analyzeResponse = async (req, res) => {
+  try {
+    const { question, questionType, responseText, responseTime, code, expectedDuration } = req.body;
+    const userId = req.user?.userId || req.user?.id || req.user?._id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User not authenticated'
+      });
+    }
+
+    if (!question || !responseText) {
+      return res.status(400).json({
+        success: false,
+        error: 'Question and response text are required'
+      });
+    }
+
+    console.log('Analyzing response:', {
+      questionType,
+      responseLength: responseText.length,
+      hasCode: !!code,
+      responseTime
+    });
+
+    // Generate comprehensive feedback using AI
+    const feedback = await generateComprehensiveFeedback(
+      question,
+      questionType,
+      responseText,
+      code,
+      responseTime,
+      expectedDuration
+    );
+
+    res.json({
+      success: true,
+      feedback
+    });
+
+  } catch (error) {
+    console.error('Analyze response error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to analyze response',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
@@ -403,6 +458,790 @@ export const getInterview = async (req, res) => {
   }
 };
 
+// ========== ENHANCED AI ANALYSIS FUNCTIONS ==========
+
+// Comprehensive AI-powered feedback generation
+async function generateComprehensiveFeedback(question, questionType, responseText, code, responseTime, expectedDuration) {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    
+    // Build comprehensive prompt based on question type
+    let prompt = buildAnalysisPrompt(question, questionType, responseText, code, responseTime, expectedDuration);
+    
+    console.log('Sending analysis prompt to AI...');
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const analysisText = response.text().trim();
+    
+    console.log('AI analysis received, parsing...');
+    const cleanedText = analysisText.replace(/```json\s*|```\s*/g, '').trim();
+    const aiAnalysis = JSON.parse(cleanedText);
+    
+    // Validate and enhance the AI analysis
+    const enhancedFeedback = validateAndEnhanceFeedback(aiAnalysis, questionType, responseText, code);
+    
+    console.log('Analysis complete:', {
+      score: enhancedFeedback.score,
+      strengthsCount: enhancedFeedback.strengths.length,
+      improvementsCount: enhancedFeedback.improvements.length
+    });
+    
+    return enhancedFeedback;
+
+  } catch (error) {
+    console.error('AI analysis error:', error);
+    console.log('Falling back to enhanced rule-based analysis...');
+    return generateEnhancedRuleBasedFeedback(question, questionType, responseText, code, responseTime, expectedDuration);
+  }
+}
+
+// Build comprehensive analysis prompt
+function buildAnalysisPrompt(question, questionType, responseText, code, responseTime, expectedDuration) {
+  const basePrompt = `You are a senior software engineering interviewer at a top tech company. Analyze this interview response for a software engineering intern candidate with detailed, constructive feedback.
+
+INTERVIEW CONTEXT:
+- Question: "${question}"
+- Question Type: ${questionType}
+- Expected Duration: ${expectedDuration || 120} seconds
+- Actual Response Time: ${responseTime || 'Unknown'} seconds
+
+CANDIDATE'S RESPONSE:
+"${responseText}"
+
+${code ? `CODE PROVIDED:\n\`\`\`\n${code}\n\`\`\`\n` : ''}
+
+ANALYSIS REQUIREMENTS:
+Provide detailed analysis in this EXACT JSON format:
+{
+  "score": 75,
+  "strengths": ["specific strength 1", "specific strength 2", "specific strength 3"],
+  "improvements": ["specific improvement 1", "specific improvement 2"],
+  "detailedAnalysis": "detailed paragraph analysis",
+  "communicationClarity": 8,
+  "technicalAccuracy": 7,
+  "structuredResponse": 9
+}
+
+EVALUATION CRITERIA:`;
+
+  // Add specific criteria based on question type
+  if (questionType === 'behavioral') {
+    return basePrompt + `
+1. STAR Method Usage (Situation, Task, Action, Result) - Look for clear structure
+2. Specific Examples - Real projects, experiences, measurable outcomes
+3. Leadership & Initiative - Taking charge, problem-solving, learning from mistakes
+4. Communication - Clear narrative, logical flow, appropriate detail level
+5. Relevance - How well the example relates to software engineering internships
+6. Growth Mindset - Learning from challenges, adaptability, improvement focus
+
+Score Distribution:
+- 90-100: Exceptional STAR structure, compelling examples, strong leadership shown
+- 75-89: Good structure, relevant examples, shows growth and learning
+- 60-74: Basic structure, some examples, adequate for intern level
+- 45-59: Limited structure, vague examples, needs improvement
+- Below 45: Poor structure, no concrete examples, significant gaps
+
+Focus on intern-level expectations. Look for passion, willingness to learn, and potential rather than extensive experience.`;
+
+  } else if (questionType === 'technical_coding' || questionType === 'coding') {
+    return basePrompt + `
+1. Code Quality - Syntax, structure, readability, best practices
+2. Algorithm Approach - Correctness, efficiency, appropriate method selection
+3. Complexity Analysis - Understanding of time/space complexity
+4. Problem-Solving Process - Breaking down the problem, step-by-step approach
+5. Edge Cases - Consideration of special cases, error handling
+6. Code Explanation - Ability to explain the solution clearly
+7. Testing - Mention of test cases, validation approach
+
+Code Analysis:
+${code ? '- Analyze the provided code for correctness, efficiency, and style' : '- No code provided - major deduction for coding question'}
+
+Score Distribution:
+- 90-100: Optimal solution, excellent explanation, discusses complexity, considers edge cases
+- 75-89: Working solution, good explanation, some complexity awareness
+- 60-74: Basic solution, adequate explanation, shows problem-solving approach
+- 45-59: Partial solution or explanation, some understanding but gaps
+- Below 45: Incorrect approach, poor explanation, fundamental misunderstandings
+
+For coding questions, expect intern-level solutions focusing on correctness and clear explanation over advanced optimizations.`;
+
+  } else if (questionType === 'technical_conceptual' || questionType === 'technical') {
+    return basePrompt + `
+1. Technical Accuracy - Correct understanding of concepts, terminology
+2. Depth of Knowledge - Going beyond surface-level explanations
+3. Real-World Applications - Connecting theory to practical use cases
+4. Comparisons - Explaining differences, trade-offs, when to use what
+5. Examples - Concrete illustrations of abstract concepts
+6. Current Understanding - Awareness of modern practices, technologies
+
+Score Distribution:
+- 90-100: Deep technical understanding, excellent examples, compares alternatives
+- 75-89: Good technical grasp, relevant examples, shows practical awareness
+- 60-74: Basic understanding, some examples, adequate for intern level
+- 45-59: Surface-level understanding, limited examples, needs development
+- Below 45: Poor technical grasp, incorrect information, significant gaps
+
+Focus on fundamental concepts important for software engineering interns. Look for understanding over memorization.`;
+  }
+
+  return basePrompt + `
+Provide constructive, specific feedback appropriate for software engineering intern candidates. Focus on growth potential and learning opportunities.`;
+}
+
+// Enhanced rule-based fallback analysis
+function generateEnhancedRuleBasedFeedback(question, questionType, responseText, code, responseTime, expectedDuration) {
+  const feedback = {
+    score: 50,
+    strengths: [],
+    improvements: [],
+    detailedAnalysis: '',
+    communicationClarity: 5,
+    technicalAccuracy: 5,
+    structuredResponse: 5
+  };
+
+  const wordCount = responseText.trim().split(/\s+/).length;
+  const sentences = responseText.split(/[.!?]+/).filter(s => s.trim().length > 0);
+  const responseLength = responseText.trim().length;
+
+  console.log('Rule-based analysis:', { wordCount, sentences: sentences.length, responseLength, questionType });
+
+  // Content depth analysis
+  const contentScore = analyzeContentDepth(responseText, questionType);
+  feedback.score += contentScore.points;
+  feedback.strengths.push(...contentScore.strengths);
+  feedback.improvements.push(...contentScore.improvements);
+  feedback.technicalAccuracy = Math.min(10, feedback.technicalAccuracy + contentScore.technicalBonus);
+
+  // Communication quality
+  const commScore = analyzeCommunicationQuality(responseText, sentences);
+  feedback.score += commScore.points;
+  feedback.strengths.push(...commScore.strengths);
+  feedback.improvements.push(...commScore.improvements);
+  feedback.communicationClarity = Math.min(10, feedback.communicationClarity + commScore.clarityBonus);
+  feedback.structuredResponse = Math.min(10, feedback.structuredResponse + commScore.structureBonus);
+
+  // Question-specific analysis
+  const questionScore = analyzeByQuestionType(questionType, responseText, code);
+  feedback.score += questionScore.points;
+  feedback.strengths.push(...questionScore.strengths);
+  feedback.improvements.push(...questionScore.improvements);
+  feedback.technicalAccuracy = Math.min(10, feedback.technicalAccuracy + questionScore.technicalBonus);
+
+  // Time management
+  if (responseTime && expectedDuration) {
+    const timeScore = analyzeTimeManagement(responseTime, expectedDuration);
+    feedback.score += timeScore.points;
+    if (timeScore.feedback) {
+      if (timeScore.points > 0) {
+        feedback.strengths.push(timeScore.feedback);
+      } else {
+        feedback.improvements.push(timeScore.feedback);
+      }
+    }
+  }
+
+  // Generate detailed analysis
+  feedback.detailedAnalysis = generateDetailedAnalysisSummary(feedback, questionType, wordCount, sentences.length);
+
+  // Ensure quality and clamp values
+  ensureFeedbackQuality(feedback);
+  clampScores(feedback);
+
+  return feedback;
+}
+
+// Detailed content analysis
+function analyzeContentDepth(text, questionType) {
+  const analysis = { points: 0, strengths: [], improvements: [], technicalBonus: 0 };
+  const textLower = text.toLowerCase();
+
+  // Define comprehensive keyword sets
+  const keywordSets = {
+    behavioral: {
+      structure: ['situation', 'task', 'action', 'result', 'when', 'what', 'how', 'why'],
+      experience: ['project', 'experience', 'worked', 'built', 'developed', 'created', 'implemented', 'designed'],
+      skills: ['team', 'collaboration', 'leadership', 'problem', 'challenge', 'solution', 'learned', 'improved'],
+      outcomes: ['result', 'outcome', 'achieved', 'successful', 'completed', 'delivered', 'impact', 'benefit']
+    },
+    coding: {
+      algorithms: ['algorithm', 'complexity', 'time', 'space', 'big o', 'efficient', 'optimize', 'performance'],
+      dataStructures: ['array', 'hash', 'map', 'tree', 'graph', 'stack', 'queue', 'list', 'set'],
+      programming: ['function', 'variable', 'loop', 'condition', 'iteration', 'recursion', 'method', 'class'],
+      problemSolving: ['approach', 'strategy', 'solution', 'problem', 'edge case', 'test', 'validate', 'debug']
+    },
+    technical: {
+      concepts: ['concept', 'principle', 'theory', 'framework', 'library', 'api', 'protocol', 'architecture'],
+      comparison: ['difference', 'compare', 'versus', 'advantage', 'disadvantage', 'trade-off', 'better', 'worse'],
+      implementation: ['implement', 'use case', 'example', 'application', 'practical', 'real-world', 'production'],
+      advanced: ['scalability', 'performance', 'security', 'maintenance', 'best practice', 'industry standard']
+    }
+  };
+
+  // Select appropriate keywords based on question type
+  let relevantKeywords = keywordSets.technical; // default
+  if (questionType === 'behavioral') {
+    relevantKeywords = keywordSets.behavioral;
+  } else if (questionType === 'technical_coding' || questionType === 'coding') {
+    relevantKeywords = keywordSets.coding;
+  }
+
+  // Count keyword usage across categories
+  let totalKeywords = 0;
+  let categoryScores = {};
+
+  Object.entries(relevantKeywords).forEach(([category, keywords]) => {
+    let categoryCount = 0;
+    keywords.forEach(keyword => {
+      const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
+      const matches = text.match(regex);
+      if (matches) {
+        categoryCount += matches.length;
+        totalKeywords += matches.length;
+      }
+    });
+    categoryScores[category] = categoryCount;
+  });
+
+  // Score based on keyword usage
+  if (totalKeywords >= 8) {
+    analysis.strengths.push('Excellent use of relevant technical vocabulary');
+    analysis.points += 25;
+    analysis.technicalBonus += 3;
+  } else if (totalKeywords >= 5) {
+    analysis.strengths.push('Good technical terminology and concepts');
+    analysis.points += 15;
+    analysis.technicalBonus += 2;
+  } else if (totalKeywords >= 2) {
+    analysis.strengths.push('Shows understanding of key concepts');
+    analysis.points += 8;
+    analysis.technicalBonus += 1;
+  } else {
+    analysis.improvements.push('Include more specific technical terminology relevant to the question');
+    analysis.technicalBonus -= 1;
+  }
+
+  // Check for specific examples and quantifiable details
+  const examplePatterns = [
+    /for example|for instance|such as|like when|consider|in my experience/gi,
+    /i worked on|i built|i created|i implemented|i developed/gi,
+    /at \w+|during my time|in my project|when i was/gi
+  ];
+
+  let exampleCount = 0;
+  examplePatterns.forEach(pattern => {
+    const matches = text.match(pattern);
+    if (matches) exampleCount += matches.length;
+  });
+
+  if (exampleCount >= 3) {
+    analysis.strengths.push('Provided multiple concrete examples');
+    analysis.points += 15;
+  } else if (exampleCount >= 1) {
+    analysis.strengths.push('Included specific examples');
+    analysis.points += 10;
+  } else {
+    analysis.improvements.push('Provide specific examples to illustrate your points');
+  }
+
+  // Check for quantifiable metrics
+  const quantifiablePattern = /\b\d+(\.\d+)?\s*(percent|%|times|hours|days|weeks|months|users|requests|mb|gb|ms|seconds|lines|functions|features|bugs|tests)\b/gi;
+  const metrics = text.match(quantifiablePattern);
+  
+  if (metrics && metrics.length >= 2) {
+    analysis.strengths.push('Included quantifiable results and metrics');
+    analysis.points += 12;
+  } else if (metrics && metrics.length >= 1) {
+    analysis.strengths.push('Provided measurable details');
+    analysis.points += 6;
+  }
+
+  return analysis;
+}
+
+// Communication quality analysis
+function analyzeCommunicationQuality(text, sentences) {
+  const analysis = { points: 0, strengths: [], improvements: [], clarityBonus: 0, structureBonus: 0 };
+
+  // Sentence structure analysis
+  if (sentences.length === 0) {
+    analysis.improvements.push('Structure your response with clear sentences');
+    return analysis;
+  }
+
+  const avgSentenceLength = sentences.reduce((acc, s) => acc + s.split(' ').length, 0) / sentences.length;
+  const sentenceLengths = sentences.map(s => s.split(' ').length);
+  const lengthVariety = sentenceLengths.length > 1 ? Math.max(...sentenceLengths) - Math.min(...sentenceLengths) : 0;
+
+  // Optimal sentence length and variety
+  if (avgSentenceLength >= 10 && avgSentenceLength <= 25 && lengthVariety >= 5) {
+    analysis.strengths.push('Excellent sentence structure with good variety');
+    analysis.points += 12;
+    analysis.clarityBonus += 2;
+    analysis.structureBonus += 1;
+  } else if (avgSentenceLength >= 8 && avgSentenceLength <= 30) {
+    analysis.strengths.push('Good sentence structure');
+    analysis.points += 8;
+    analysis.clarityBonus += 1;
+  } else if (avgSentenceLength < 6) {
+    analysis.improvements.push('Expand sentences for more detailed explanations');
+    analysis.clarityBonus -= 1;
+  } else if (avgSentenceLength > 35) {
+    analysis.improvements.push('Break down overly complex sentences for clarity');
+    analysis.clarityBonus -= 1;
+  }
+
+  // Logical flow and connectors
+  const connectorPatterns = [
+    /\b(however|therefore|furthermore|moreover|additionally|consequently)\b/gi,
+    /\b(because|since|although|while|whereas|despite)\b/gi,
+    /\b(first|second|third|finally|in conclusion|as a result|on the other hand)\b/gi,
+    /\b(also|similarly|likewise|in contrast|nevertheless|meanwhile)\b/gi
+  ];
+
+  let connectorCount = 0;
+  connectorPatterns.forEach(pattern => {
+    const matches = text.match(pattern);
+    if (matches) connectorCount += matches.length;
+  });
+
+  if (connectorCount >= 4) {
+    analysis.strengths.push('Excellent logical flow with smooth transitions');
+    analysis.points += 15;
+    analysis.structureBonus += 2;
+  } else if (connectorCount >= 2) {
+    analysis.strengths.push('Good use of connecting words for flow');
+    analysis.points += 10;
+    analysis.structureBonus += 1;
+  } else if (connectorCount === 0) {
+    analysis.improvements.push('Use connecting words (however, therefore, because) to improve flow');
+    analysis.structureBonus -= 1;
+  }
+
+  // Confidence vs hesitation analysis
+  const hesitationWords = text.match(/\b(um|uh|like|you know|sort of|kind of|i think maybe|i guess|probably|not sure)\b/gi);
+  const confidenceWords = text.match(/\b(definitely|certainly|clearly|obviously|confident|sure|believe strongly|know that|understand)\b/gi);
+
+  const hesitationCount = hesitationWords ? hesitationWords.length : 0;
+  const confidenceCount = confidenceWords ? confidenceWords.length : 0;
+
+  if (hesitationCount <= 1 && confidenceCount >= 2) {
+    analysis.strengths.push('Spoke with confidence and conviction');
+    analysis.points += 12;
+    analysis.clarityBonus += 1;
+  } else if (hesitationCount <= 2) {
+    analysis.strengths.push('Clear, decisive communication');
+    analysis.points += 8;
+  } else if (hesitationCount > 4) {
+    analysis.improvements.push('Reduce hesitation words (um, I think, maybe) for more confident delivery');
+    analysis.clarityBonus -= 2;
+  }
+
+  // Professional language use
+  const professionalTerms = text.match(/\b(collaborate|implement|analyze|develop|optimize|facilitate|coordinate|execute|strategic|systematic)\b/gi);
+  if (professionalTerms && professionalTerms.length >= 3) {
+    analysis.strengths.push('Used professional vocabulary appropriately');
+    analysis.points += 8;
+  }
+
+  return analysis;
+}
+
+// Question type specific analysis
+function analyzeByQuestionType(questionType, text, code) {
+  const analysis = { points: 0, strengths: [], improvements: [], technicalBonus: 0 };
+
+  if (questionType === 'behavioral') {
+    return analyzeBehavioralSpecific(text, analysis);
+  } else if (questionType === 'technical_coding' || questionType === 'coding') {
+    return analyzeCodingSpecific(text, code, analysis);
+  } else if (questionType === 'technical_conceptual' || questionType === 'technical') {
+    return analyzeTechnicalSpecific(text, analysis);
+  }
+
+  return analysis;
+}
+
+// Behavioral question specific analysis
+function analyzeBehavioralSpecific(text, analysis) {
+  // STAR method detection
+  const starElements = {
+    situation: /\b(situation|context|background|setting|scenario|when|where|during)\b/gi,
+    task: /\b(task|goal|objective|responsibility|needed to|had to|required|assigned|challenge)\b/gi,
+    action: /\b(action|did|implemented|decided|approach|method|steps|executed|created|built|developed|solved)\b/gi,
+    result: /\b(result|outcome|learned|achieved|impact|success|improvement|benefit|completed|delivered)\b/gi
+  };
+
+  let starScore = 0;
+  let foundElements = [];
+
+  Object.entries(starElements).forEach(([element, pattern]) => {
+    const matches = text.match(pattern);
+    if (matches && matches.length > 0) {
+      starScore++;
+      foundElements.push(element);
+    }
+  });
+
+  if (starScore >= 4) {
+    analysis.strengths.push('Excellent STAR method structure (Situation, Task, Action, Result)');
+    analysis.points += 25;
+    analysis.technicalBonus += 3;
+  } else if (starScore >= 3) {
+    analysis.strengths.push('Good structured response with most STAR elements');
+    analysis.points += 18;
+    analysis.technicalBonus += 2;
+  } else if (starScore >= 2) {
+    analysis.strengths.push('Shows structured thinking approach');
+    analysis.points += 10;
+    analysis.technicalBonus += 1;
+  } else {
+    analysis.improvements.push('Use STAR method: describe Situation, Task, Action taken, and Result achieved');
+    analysis.technicalBonus -= 1;
+  }
+
+  // Leadership and initiative indicators
+  const leadershipWords = text.match(/\b(led|lead|managed|organized|coordinated|initiated|took charge|responsible for|guided|mentored|taught|trained)\b/gi);
+  if (leadershipWords && leadershipWords.length >= 2) {
+    analysis.strengths.push('Demonstrated leadership and initiative');
+    analysis.points += 12;
+  }
+
+  // Problem-solving focus
+  const problemSolvingWords = text.match(/\b(problem|challenge|issue|difficulty|obstacle|solved|resolved|overcame|addressed|fixed|debugged)\b/gi);
+  if (problemSolvingWords && problemSolvingWords.length >= 3) {
+    analysis.strengths.push('Strong problem-solving orientation');
+    analysis.points += 10;
+  }
+
+  // Learning and growth mindset
+  const learningWords = text.match(/\b(learned|improved|grew|developed|practiced|studied|researched|discovered|realized|mistake|feedback)\b/gi);
+  if (learningWords && learningWords.length >= 2) {
+    analysis.strengths.push('Shows growth mindset and willingness to learn');
+    analysis.points += 10;
+  }
+
+  return analysis;
+}
+
+// Coding question specific analysis
+function analyzeCodingSpecific(text, code, analysis) {
+  // Code presence and quality
+  if (!code || code.trim().length === 0) {
+    analysis.improvements.push('Provide actual code implementation for coding questions');
+    analysis.points -= 20;
+    analysis.technicalBonus -= 3;
+    return analysis;
+  }
+
+  // Code quality analysis
+  const codeQuality = analyzeCodeQuality(code);
+  analysis.points += codeQuality.points;
+  analysis.strengths.push(...codeQuality.strengths);
+  analysis.improvements.push(...codeQuality.improvements);
+  analysis.technicalBonus += codeQuality.technicalBonus;
+
+  // Algorithm explanation analysis
+  const algorithmTerms = text.match(/\b(algorithm|approach|strategy|method|complexity|time|space|big o|efficient|optimize|performance)\b/gi);
+  if (algorithmTerms && algorithmTerms.length >= 4) {
+    analysis.strengths.push('Excellent algorithm explanation with complexity analysis');
+    analysis.points += 18;
+    analysis.technicalBonus += 2;
+  } else if (algorithmTerms && algorithmTerms.length >= 2) {
+    analysis.strengths.push('Good technical explanation of approach');
+    analysis.points += 12;
+    analysis.technicalBonus += 1;
+  } else {
+    analysis.improvements.push('Explain your algorithm approach and consider time/space complexity');
+  }
+
+  // Problem-solving process
+  const processWords = text.match(/\b(first|then|next|step|process|break down|analyze|approach|solve|implement)\b/gi);
+  if (processWords && processWords.length >= 3) {
+    analysis.strengths.push('Clear step-by-step problem-solving process');
+    analysis.points += 12;
+  }
+
+  // Edge cases and testing
+  const testingWords = text.match(/\b(test|edge case|boundary|validate|check|handle|error|exception|corner case)\b/gi);
+  if (testingWords && testingWords.length >= 2) {
+    analysis.strengths.push('Considered edge cases and testing');
+    analysis.points += 15;
+    analysis.technicalBonus += 1;
+  } else {
+    analysis.improvements.push('Consider edge cases and how to test your solution');
+  }
+
+  return analysis;
+}
+
+// Technical conceptual analysis
+function analyzeTechnicalSpecific(text, analysis) {
+  // Technical depth and accuracy
+  const technicalTerms = text.match(/\b(asynchronous|synchronous|callback|promise|async|await|api|http|database|framework|library|protocol|architecture|scalability|performance|security)\b/gi);
+  
+  if (technicalTerms && technicalTerms.length >= 6) {
+    analysis.strengths.push('Excellent technical vocabulary and depth');
+    analysis.points += 20;
+    analysis.technicalBonus += 3;
+  } else if (technicalTerms && technicalTerms.length >= 3) {
+    analysis.strengths.push('Good technical understanding');
+    analysis.points += 12;
+    analysis.technicalBonus += 2;
+  } else if (technicalTerms && technicalTerms.length >= 1) {
+    analysis.strengths.push('Shows basic technical knowledge');
+    analysis.points += 6;
+    analysis.technicalBonus += 1;
+  } else {
+    analysis.improvements.push('Use more specific technical terminology');
+    analysis.technicalBonus -= 1;
+  }
+
+  // Comparative analysis
+  const comparisonWords = text.match(/\b(difference|compare|contrast|versus|vs|while|whereas|however|unlike|similar|advantage|disadvantage|better|worse|trade-off)\b/gi);
+  if (comparisonWords && comparisonWords.length >= 4) {
+    analysis.strengths.push('Excellent comparative analysis of concepts');
+    analysis.points += 15;
+  } else if (comparisonWords && comparisonWords.length >= 2) {
+    analysis.strengths.push('Good comparative thinking');
+    analysis.points += 10;
+  } else {
+    analysis.improvements.push('Compare different approaches and discuss trade-offs');
+  }
+
+  // Practical application
+  const practicalWords = text.match(/\b(use case|application|practical|real world|production|industry|business|project|implementation)\b/gi);
+  if (practicalWords && practicalWords.length >= 2) {
+    analysis.strengths.push('Connected theory to practical applications');
+    analysis.points += 12;
+  } else {
+    analysis.improvements.push('Provide real-world examples and use cases');
+  }
+
+  return analysis;
+}
+
+// Code quality analysis
+function analyzeCodeQuality(code) {
+  const analysis = { points: 0, strengths: [], improvements: [], technicalBonus: 0 };
+  
+  // Basic structure checks
+  const hasComments = /\/\/|\/\*|#|"""/.test(code);
+  const hasDescriptiveNames = /\b[a-zA-Z_][a-zA-Z0-9_]{3,}\b/.test(code);
+  const hasProperIndentation = /^(\s{2,4}|\t)/m.test(code);
+  const hasFunctions = /\b(function|def|const\s+\w+\s*=|=>\s*{|\w+\s*\(.*\)\s*{)/.test(code);
+  
+  // Advanced features
+  const hasLoops = /\b(for|while|forEach|map|filter|reduce|range)\b/.test(code);
+  const hasConditionals = /\b(if|else|elif|switch|case|\?.*:)\b/.test(code);
+  const hasErrorHandling = /\b(try|catch|except|throw|raise|finally)\b/i.test(code);
+  const hasDataStructures = /\b(array|list|dict|map|set|hash|tree|queue|stack)\b/i.test(code);
+
+  // Scoring
+  if (hasComments) {
+    analysis.strengths.push('Well-documented code with comments');
+    analysis.points += 10;
+    analysis.technicalBonus += 1;
+  } else {
+    analysis.improvements.push('Add comments to explain complex logic');
+  }
+
+  if (hasDescriptiveNames) {
+    analysis.strengths.push('Used meaningful variable and function names');
+    analysis.points += 8;
+  } else {
+    analysis.improvements.push('Use more descriptive variable names');
+  }
+
+  if (hasProperIndentation) {
+    analysis.strengths.push('Proper code formatting and structure');
+    analysis.points += 5;
+  }
+
+  if (hasFunctions) {
+    analysis.strengths.push('Good code organization with functions');
+    analysis.points += 10;
+    analysis.technicalBonus += 1;
+  }
+
+  if (hasLoops) {
+    analysis.strengths.push('Appropriate use of loops and iteration');
+    analysis.points += 8;
+  }
+
+  if (hasConditionals) {
+    analysis.strengths.push('Good use of conditional logic');
+    analysis.points += 6;
+  }
+
+  if (hasErrorHandling) {
+    analysis.strengths.push('Included error handling for robustness');
+    analysis.points += 15;
+    analysis.technicalBonus += 2;
+  } else {
+    analysis.improvements.push('Consider adding error handling');
+  }
+
+  if (hasDataStructures) {
+    analysis.strengths.push('Appropriate data structure usage');
+    analysis.points += 12;
+    analysis.technicalBonus += 1;
+  }
+
+  // Code complexity analysis
+  const lines = code.split('\n').filter(line => line.trim()).length;
+  if (lines >= 10 && lines <= 30) {
+    analysis.strengths.push('Appropriate code length and complexity');
+    analysis.points += 5;
+  } else if (lines < 5) {
+    analysis.improvements.push('Provide a more complete implementation');
+  } else if (lines > 50) {
+    analysis.improvements.push('Consider simplifying or modularizing the solution');
+  }
+
+  return analysis;
+}
+
+// Time management analysis
+function analyzeTimeManagement(responseTime, expectedTime) {
+  const ratio = responseTime / expectedTime;
+  
+  if (ratio >= 0.8 && ratio <= 1.2) {
+    return { points: 10, feedback: 'Excellent time management' };
+  } else if (ratio >= 0.6 && ratio <= 1.5) {
+    return { points: 5, feedback: 'Good time management' };
+  } else if (ratio < 0.4) {
+    return { points: -5, feedback: 'Take more time to provide comprehensive answers' };
+  } else if (ratio > 2.0) {
+    return { points: -3, feedback: 'Practice being more concise while maintaining detail' };
+  }
+  
+  return { points: 0, feedback: null };
+}
+
+// Generate comprehensive detailed analysis
+function generateDetailedAnalysisSummary(feedback, questionType, wordCount, sentenceCount) {
+  let analysis = '';
+  
+  // Opening assessment
+  if (feedback.score >= 85) {
+    analysis = 'This is an exceptional response that demonstrates strong competency for an intern-level position. ';
+  } else if (feedback.score >= 70) {
+    analysis = 'This is a solid response that shows good understanding and communication skills. ';
+  } else if (feedback.score >= 55) {
+    analysis = 'This response shows potential but has several areas for improvement. ';
+  } else {
+    analysis = 'This response needs significant improvement in multiple areas. ';
+  }
+
+  // Content quality assessment
+  if (wordCount >= 100) {
+    analysis += 'You provided detailed explanations with good depth. ';
+  } else if (wordCount >= 50) {
+    analysis += 'Your response had adequate detail. ';
+  } else {
+    analysis += 'Consider providing more detailed explanations. ';
+  }
+
+  // Question-specific feedback
+  if (questionType === 'behavioral') {
+    if (feedback.strengths.some(s => s.includes('STAR'))) {
+      analysis += 'Your structured approach using STAR method was effective. ';
+    } else {
+      analysis += 'Focus on structuring behavioral responses using the STAR method. ';
+    }
+  } else if (questionType === 'technical_coding' || questionType === 'coding') {
+    if (feedback.strengths.some(s => s.includes('code'))) {
+      analysis += 'Your code implementation was well-structured. ';
+    } else {
+      analysis += 'Ensure you provide working code with clear explanations. ';
+    }
+  } else if (questionType === 'technical_conceptual' || questionType === 'technical') {
+    if (feedback.technicalAccuracy >= 7) {
+      analysis += 'You demonstrated good technical understanding. ';
+    } else {
+      analysis += 'Work on deepening your technical knowledge in this area. ';
+    }
+  }
+
+  // Communication assessment
+  if (feedback.communicationClarity >= 7) {
+    analysis += 'Your communication was clear and well-organized. ';
+  } else {
+    analysis += 'Focus on organizing your thoughts more clearly and using connecting words. ';
+  }
+
+  // Improvement recommendations
+  const topImprovements = feedback.improvements.slice(0, 2);
+  if (topImprovements.length > 0) {
+    analysis += `Key areas for improvement: ${topImprovements.join(' and ').toLowerCase()}.`;
+  }
+
+  return analysis;
+}
+
+// Validate and enhance AI-generated feedback
+function validateAndEnhanceFeedback(aiAnalysis, questionType, responseText, code) {
+  // Ensure all required fields exist with defaults
+  const feedback = {
+    score: Math.max(0, Math.min(100, aiAnalysis.score || 50)),
+    strengths: Array.isArray(aiAnalysis.strengths) ? aiAnalysis.strengths : ['Attempted to answer the question'],
+    improvements: Array.isArray(aiAnalysis.improvements) ? aiAnalysis.improvements : ['Continue practicing'],
+    detailedAnalysis: aiAnalysis.detailedAnalysis || 'Response provided with room for improvement.',
+    communicationClarity: Math.max(1, Math.min(10, aiAnalysis.communicationClarity || 5)),
+    technicalAccuracy: Math.max(1, Math.min(10, aiAnalysis.technicalAccuracy || 5)),
+    structuredResponse: Math.max(1, Math.min(10, aiAnalysis.structuredResponse || 5))
+  };
+
+  // Validation rules
+  if (feedback.strengths.length === 0) {
+    feedback.strengths.push('Provided a response to the question');
+  }
+  
+  if (feedback.improvements.length === 0) {
+    feedback.improvements.push('Continue practicing to build confidence');
+  }
+
+  // Remove duplicates
+  feedback.strengths = [...new Set(feedback.strengths)];
+  feedback.improvements = [...new Set(feedback.improvements)];
+
+  // Limit arrays to reasonable sizes
+  feedback.strengths = feedback.strengths.slice(0, 4);
+  feedback.improvements = feedback.improvements.slice(0, 3);
+
+  return feedback;
+}
+
+// Ensure feedback quality
+function ensureFeedbackQuality(feedback) {
+  if (feedback.strengths.length === 0) {
+    feedback.strengths.push('Attempted to provide a complete response');
+  }
+  
+  if (feedback.improvements.length === 0) {
+    feedback.improvements.push('Continue practicing to build confidence and technical skills');
+  }
+
+  // Remove duplicates
+  feedback.strengths = [...new Set(feedback.strengths)];
+  feedback.improvements = [...new Set(feedback.improvements)];
+
+  // Ensure reasonable array sizes
+  feedback.strengths = feedback.strengths.slice(0, 4);
+  feedback.improvements = feedback.improvements.slice(0, 3);
+}
+
+// Clamp all scores to valid ranges
+function clampScores(feedback) {
+  feedback.score = Math.max(0, Math.min(100, feedback.score));
+  feedback.communicationClarity = Math.max(1, Math.min(10, feedback.communicationClarity));
+  feedback.technicalAccuracy = Math.max(1, Math.min(10, feedback.technicalAccuracy));
+  feedback.structuredResponse = Math.max(1, Math.min(10, feedback.structuredResponse));
+}
+
+// ========== EXISTING FUNCTIONS (Updated) ==========
+
 async function generateInterviewQuestions(resumeText, jobDescription) {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -453,7 +1292,7 @@ async function generateInterviewQuestions(resumeText, jobDescription) {
     return questions.map((q, index) => ({
       ...q,
       questionId: q.questionId || `q${index + 1}`,
-      type: normalizeQuestionType(q.type), // Fix the type here
+      type: normalizeQuestionType(q.type),
       expectedDuration: q.expectedDuration || 120,
       category: q.category || 'general'
     }));
@@ -465,49 +1304,27 @@ async function generateInterviewQuestions(resumeText, jobDescription) {
   }
 }
 
-async function analyzeResponse(question, transcript, questionType, resumeText, jobDescription, responseTime) {
+// Helper function for backward compatibility with existing code
+async function analyzeResponseLegacy(question, transcript, questionType, resumeText, jobDescription, responseTime) {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const analysis = await generateComprehensiveFeedback(
+      question,
+      questionType,
+      transcript,
+      null, // code not provided in this context
+      responseTime,
+      120 // default expected duration
+    );
     
-    const prompt = `Analyze this interview response for a software engineering intern candidate:
-
-    Question: ${question}
-    Question Type: ${questionType}
-    Response: ${transcript}
-    Response Time: ${responseTime} seconds
-    
-    Provide analysis in JSON format:
-    {
-      "feedback": {
-        "strengths": ["Clear communication", "Good technical knowledge"],
-        "improvements": ["Reduce filler words", "More specific examples"],
-        "score": 85,
-        "detailedAnalysis": "The candidate showed...",
-        "communicationClarity": 8,
-        "technicalAccuracy": 7,
-        "structuredResponse": 9
-      }
-    }
-
-    Evaluate based on:
-    - Content quality and relevance
-    - Technical accuracy (for technical questions)
-    - Communication clarity
-    - Response completeness
-    - Appropriate response time
-
-    Be constructive but honest in feedback. Focus on intern-level expectations.`;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const analysisText = response.text().trim();
-    
-    const cleanedText = analysisText.replace(/```json\s*|```\s*/g, '').trim();
-    return JSON.parse(cleanedText);
-
+    // Return in legacy format for backward compatibility
+    return {
+      feedback: analysis
+    };
   } catch (error) {
     console.error('Response analysis error:', error);
-    return getDefaultAnalysis();
+    return {
+      feedback: getDefaultAnalysis()
+    };
   }
 }
 
@@ -517,9 +1334,9 @@ async function generateOverallFeedback(responses, resumeText, jobDescription) {
     
     const responseSummary = responses.map(r => ({
       question: r.question,
-      score: r.feedback.score,
-      strengths: r.feedback.strengths,
-      improvements: r.feedback.improvements
+      score: r.feedback?.score || 70,
+      strengths: r.feedback?.strengths || [],
+      improvements: r.feedback?.improvements || []
     }));
 
     const prompt = `Generate comprehensive feedback for a software engineering intern interview:
@@ -603,7 +1420,7 @@ function getDefaultQuestions() {
     {
       questionId: "q5",
       question: "How would you find the maximum element in an unsorted array?",
-      type: "coding", // Changed from "coding" to valid enum value
+      type: "coding",
       category: "algorithms",
       difficulty: "medium",
       expectedDuration: 180
@@ -613,21 +1430,19 @@ function getDefaultQuestions() {
 
 function getDefaultAnalysis() {
   return {
-    feedback: {
-      strengths: ["Attempted to answer the question"],
-      improvements: ["Provide more specific examples", "Practice technical terminology"],
-      score: 70,
-      detailedAnalysis: "The response shows basic understanding but could benefit from more specific examples and clearer structure.",
-      communicationClarity: 7,
-      technicalAccuracy: 6,
-      structuredResponse: 7
-    }
+    score: 70,
+    strengths: ["Attempted to answer the question"],
+    improvements: ["Provide more specific examples", "Practice technical terminology"],
+    detailedAnalysis: "The response shows basic understanding but could benefit from more specific examples and clearer structure.",
+    communicationClarity: 7,
+    technicalAccuracy: 6,
+    structuredResponse: 7
   };
 }
 
 function getDefaultOverallFeedback(responses) {
   const avgScore = responses.length > 0 
-    ? responses.reduce((acc, r) => acc + (r.feedback.score || 70), 0) / responses.length 
+    ? responses.reduce((acc, r) => acc + ((r.feedback && r.feedback.score) || 70), 0) / responses.length 
     : 70;
 
   return {

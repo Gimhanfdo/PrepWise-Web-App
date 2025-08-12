@@ -1,4 +1,5 @@
 import pdfParse from "pdf-parse";
+import crypto from 'crypto';
 import {
   getSimilarityScore,
   getImprovementSuggestions,
@@ -8,8 +9,8 @@ import {
   createResumeHash
 } from "../utils/CVAnalysisAPI.js";
 import CVAnalysis from "../models/CVAnalysisModel.js";
+import userModel from '../models/userModel.js';
 
-// Function to convert markdown-style formatting to basic HTML
 function convertMarkdownToHTML(text) {
   return text
     .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
@@ -17,7 +18,6 @@ function convertMarkdownToHTML(text) {
     .replace(/\n/g, "<br/>");
 }
 
-// Enhanced function to strip HTML and get clean text for analysis
 function stripHTMLToText(html) {
   return html
     .replace(/<br\s*\/?>/gi, '\n')
@@ -29,7 +29,6 @@ function stripHTMLToText(html) {
     .trim();
 }
 
-// Enhanced resume text validation for software engineering context
 function validateResumeContent(resumeText) {
   const text = resumeText.toLowerCase();
   const minLength = 100;
@@ -38,7 +37,6 @@ function validateResumeContent(resumeText) {
     throw new Error("Resume content too short. Please ensure the PDF contains readable text.");
   }
 
-  // Check for common resume sections
   const hasBasicSections = [
     'education', 'experience', 'skills', 'projects', 'contact'
   ].some(section => text.includes(section));
@@ -50,7 +48,6 @@ function validateResumeContent(resumeText) {
   return true;
 }
 
-// Enhanced job description validation for software engineering internships
 function validateJobDescription(jobDesc) {
   const text = jobDesc.toLowerCase();
   const minLength = 50;
@@ -59,7 +56,6 @@ function validateJobDescription(jobDesc) {
     throw new Error("Job description too short. Please provide a detailed job posting.");
   }
 
-  // Check for software engineering internship indicators
   const internshipIndicators = [
     'intern', 'internship', 'student', 'entry level', 'junior', 'trainee'
   ];
@@ -79,7 +75,156 @@ function validateJobDescription(jobDesc) {
   };
 }
 
-// Controller to analyze a resume against multiple job descriptions
+async function performCVAnalysis(cvText, jobDescriptions) {
+  const analysis = [];
+  let totalNonTechRoles = 0;
+  let totalProcessed = 0;
+
+  for (let i = 0; i < jobDescriptions.length; i++) {
+    const rawJobDesc = jobDescriptions[i];
+    totalProcessed++;
+    
+    try {
+      const validation = validateJobDescription(rawJobDesc);
+      
+      if (!validation.isSoftware) {
+        console.log("Non-software role detected, skipping detailed analysis");
+      }
+    } catch (validationError) {
+      console.error("Job description validation failed:", validationError.message);
+      analysis.push({
+        matchPercentage: 0,
+        isNonTechRole: true,
+        hasError: true,
+        message: "Job description validation failed: " + validationError.message,
+        jobDescription: convertMarkdownToHTML(rawJobDesc)
+      });
+      continue;
+    }
+    
+    const jobDescForDisplay = convertMarkdownToHTML(rawJobDesc);
+    const jobDescForAnalysis = stripHTMLToText(rawJobDesc);
+
+    let analysisResult = null;
+    let hasError = false;
+
+    try {
+      analysisResult = await analyzeResumeMatch(cvText, jobDescForAnalysis);
+      
+      if (analysisResult.isNonTechRole || analysisResult.warning?.includes("Non-software")) {
+        totalNonTechRoles++;
+      }
+      
+      if (analysisResult.error) {
+        hasError = true;
+        console.error(`Analysis error for JD ${i + 1}:`, analysisResult.error);
+      }
+      
+    } catch (e) {
+      console.error(`Critical analysis error for JD ${i + 1}:`, e.message);
+      hasError = true;
+      
+      try {
+        const fallbackSimilarity = await getSimilarityScore(cvText, jobDescForAnalysis);
+        
+        analysisResult = {
+          similarityScore: fallbackSimilarity,
+          matchPercentage: Math.round(fallbackSimilarity * 100),
+          isNonTechRole: fallbackSimilarity === 0,
+          strengths: ["Basic technical assessment completed"],
+          contentWeaknesses: ["Unable to perform detailed content analysis - please try again"],
+          structureWeaknesses: ["Unable to perform detailed structure analysis - please try again"],
+          contentRecommendations: ["Ensure resume contains relevant software engineering experience and skills"],
+          structureRecommendations: ["Use standard resume format with clear technical skills section"],
+          timestamp: new Date().toISOString(),
+          error: "Fallback analysis used due to processing error"
+        };
+        
+        if (fallbackSimilarity === 0) {
+          totalNonTechRoles++;
+        }
+        
+      } catch (fallbackError) {
+        console.error(`Fallback analysis failed for JD ${i + 1}:`, fallbackError.message);
+        analysisResult = {
+          similarityScore: 0,
+          matchPercentage: 0,
+          isNonTechRole: true,
+          message: "Analysis failed - this may not be a software engineering internship role",
+          strengths: ["Unable to analyze"],
+          contentWeaknesses: ["Analysis failed - please verify job description is for software engineering internship"],
+          structureWeaknesses: ["Analysis failed - please verify resume format and content"],
+          contentRecommendations: ["Please ensure job description is for software engineering internship position"],
+          structureRecommendations: ["Please verify resume is properly formatted and contains technical content"],
+          timestamp: new Date().toISOString(),
+          error: "Complete analysis failure"
+        };
+        totalNonTechRoles++;
+      }
+    }
+
+    let matchPercentage = analysisResult.matchPercentage;
+    const similarity = analysisResult.similarityScore;
+
+    if (analysisResult.isNonTechRole || similarity === 0) {
+      matchPercentage = 0;
+    } else {
+      if (similarity < 0.2) {
+        matchPercentage = Math.round(similarity * 25);
+      } else if (similarity < 0.4) {
+        matchPercentage = Math.round(5 + (similarity - 0.2) * 50);
+      } else if (similarity < 0.6) {
+        matchPercentage = Math.round(15 + (similarity - 0.4) * 87.5);
+      } else if (similarity < 0.8) {
+        matchPercentage = Math.round(32 + (similarity - 0.6) * 140);
+      } else if (similarity < 0.9) {
+        matchPercentage = Math.round(60 + (similarity - 0.8) * 200);
+      } else {
+        matchPercentage = Math.round(80 + (similarity - 0.9) * 200);
+      }
+    }
+
+    matchPercentage = Math.max(0, Math.min(100, matchPercentage));
+
+    const resultData = {
+      matchPercentage,
+      jobDescription: jobDescForDisplay,
+      hasError,
+      isNonTechRole: analysisResult.isNonTechRole || false,
+      rawSimilarity: similarity,
+      timestamp: analysisResult.timestamp
+    };
+
+    if (analysisResult && !analysisResult.isNonTechRole) {
+      resultData.strengths = analysisResult.strengths || [];
+      resultData.contentWeaknesses = analysisResult.contentWeaknesses || [];
+      resultData.structureWeaknesses = analysisResult.structureWeaknesses || [];
+      resultData.contentRecommendations = analysisResult.contentRecommendations || [];
+      resultData.structureRecommendations = analysisResult.structureRecommendations || [];
+      
+      resultData.analysisQuality = {
+        strengthsCount: resultData.strengths.length,
+        weaknessesCount: resultData.contentWeaknesses.length + resultData.structureWeaknesses.length,
+        recommendationsCount: resultData.contentRecommendations.length + resultData.structureRecommendations.length,
+        isComprehensive: (resultData.strengths.length >= 3 && 
+                        resultData.contentRecommendations.length >= 5 && 
+                        resultData.structureRecommendations.length >= 5)
+      };
+      
+    } else if (analysisResult.isNonTechRole) {
+      resultData.message = analysisResult.message || "This job description is not for a software engineering internship position.";
+    }
+
+    if (analysisResult.error) {
+      resultData.errorDetails = analysisResult.error;
+    }
+
+    analysis.push(resultData);
+  }
+
+  return analysis;
+}
+
 export const analyzeResume = async (req, res) => {
   try {
     console.log("=== Enhanced Software Engineering Internship Analysis Started ===");
@@ -96,7 +241,6 @@ export const analyzeResume = async (req, res) => {
       });
     }
 
-    // Enhanced PDF text extraction with validation
     let resumeText;
     try {
       const pdfData = await pdfParse(resumeFile.buffer);
@@ -106,7 +250,6 @@ export const analyzeResume = async (req, res) => {
         throw new Error("Resume text extraction failed or content too short");
       }
 
-      // Validate resume content
       validateResumeContent(resumeText);
       console.log("Resume validation successful, length:", resumeText.length);
 
@@ -118,26 +261,22 @@ export const analyzeResume = async (req, res) => {
       });
     }
 
-    // Extract technologies from resume text using Gemini 2.5 Flash
     console.log("Extracting technologies from resume...");
     const extractedTechnologies = await extractTechnologiesFromResume(resumeText);
     console.log(`Extracted ${extractedTechnologies.length} technologies:`, extractedTechnologies.map(t => t.name));
 
-    // Create a hash of the resume text for comparison
     const resumeHash = createResumeHash(resumeText);
 
     const analysis = [];
     let totalNonTechRoles = 0;
     let totalProcessed = 0;
 
-    // Process each job description with enhanced validation
     for (let i = 0; i < rawJobDescriptions.length; i++) {
       const rawJobDesc = rawJobDescriptions[i];
       totalProcessed++;
       
       console.log(`\n--- Processing Job Description ${i + 1}/${rawJobDescriptions.length} ---`);
       
-      // Validate job description
       try {
         const validation = validateJobDescription(rawJobDesc);
         console.log("Job validation:", validation);
@@ -157,10 +296,7 @@ export const analyzeResume = async (req, res) => {
         continue;
       }
       
-      // Convert to HTML for storage/display
       const jobDescForDisplay = convertMarkdownToHTML(rawJobDesc);
-      
-      // Use clean text for analysis
       const jobDescForAnalysis = stripHTMLToText(rawJobDesc);
 
       let analysisResult = null;
@@ -168,19 +304,16 @@ export const analyzeResume = async (req, res) => {
 
       console.log(`Analyzing with enhanced software engineering internship focus...`);
 
-      // Use the comprehensive analyzeResumeMatch function with Gemini 2.5 Flash
       try {
         analysisResult = await analyzeResumeMatch(resumeText, jobDescForAnalysis);
         
         console.log(`Analysis completed - Score: ${analysisResult.similarityScore}, Match: ${analysisResult.matchPercentage}%`);
         
-        // Enhanced non-tech role detection
         if (analysisResult.isNonTechRole || analysisResult.warning?.includes("Non-software")) {
           totalNonTechRoles++;
           console.log("Non-software engineering role confirmed by AI analysis");
         }
         
-        // Check for analysis errors
         if (analysisResult.error) {
           hasError = true;
           console.error(`Analysis error for JD ${i + 1}:`, analysisResult.error);
@@ -190,7 +323,6 @@ export const analyzeResume = async (req, res) => {
         console.error(`Critical analysis error for JD ${i + 1}:`, e.message);
         hasError = true;
         
-        // Enhanced fallback analysis
         try {
           const fallbackSimilarity = await getSimilarityScore(resumeText, jobDescForAnalysis);
           
@@ -230,32 +362,29 @@ export const analyzeResume = async (req, res) => {
         }
       }
 
-      // Enhanced match percentage calculation for internships
       let matchPercentage = analysisResult.matchPercentage;
       const similarity = analysisResult.similarityScore;
 
       if (analysisResult.isNonTechRole || similarity === 0) {
         matchPercentage = 0;
       } else {
-        // More granular scoring for internship positions
         if (similarity < 0.2) {
-          matchPercentage = Math.round(similarity * 25); // 0-5%
+          matchPercentage = Math.round(similarity * 25);
         } else if (similarity < 0.4) {
-          matchPercentage = Math.round(5 + (similarity - 0.2) * 50); // 5-15%
+          matchPercentage = Math.round(5 + (similarity - 0.2) * 50);
         } else if (similarity < 0.6) {
-          matchPercentage = Math.round(15 + (similarity - 0.4) * 87.5); // 15-32%
+          matchPercentage = Math.round(15 + (similarity - 0.4) * 87.5);
         } else if (similarity < 0.8) {
-          matchPercentage = Math.round(32 + (similarity - 0.6) * 140); // 32-60%
+          matchPercentage = Math.round(32 + (similarity - 0.6) * 140);
         } else if (similarity < 0.9) {
-          matchPercentage = Math.round(60 + (similarity - 0.8) * 200); // 60-80%
+          matchPercentage = Math.round(60 + (similarity - 0.8) * 200);
         } else {
-          matchPercentage = Math.round(80 + (similarity - 0.9) * 200); // 80-100%
+          matchPercentage = Math.round(80 + (similarity - 0.9) * 200);
         }
       }
 
       matchPercentage = Math.max(0, Math.min(100, matchPercentage));
 
-      // Prepare the comprehensive result object
       const resultData = {
         matchPercentage,
         jobDescription: jobDescForDisplay,
@@ -265,7 +394,6 @@ export const analyzeResume = async (req, res) => {
         timestamp: analysisResult.timestamp
       };
 
-      // Add enhanced structured analysis data
       if (analysisResult && !analysisResult.isNonTechRole) {
         resultData.strengths = analysisResult.strengths || [];
         resultData.contentWeaknesses = analysisResult.contentWeaknesses || [];
@@ -273,7 +401,6 @@ export const analyzeResume = async (req, res) => {
         resultData.contentRecommendations = analysisResult.contentRecommendations || [];
         resultData.structureRecommendations = analysisResult.structureRecommendations || [];
         
-        // Add quality metrics
         resultData.analysisQuality = {
           strengthsCount: resultData.strengths.length,
           weaknessesCount: resultData.contentWeaknesses.length + resultData.structureWeaknesses.length,
@@ -287,7 +414,6 @@ export const analyzeResume = async (req, res) => {
         resultData.message = analysisResult.message || "This job description is not for a software engineering internship position.";
       }
 
-      // Add error details if present
       if (analysisResult.error) {
         resultData.errorDetails = analysisResult.error;
       }
@@ -301,7 +427,6 @@ export const analyzeResume = async (req, res) => {
     console.log(`Non-tech roles: ${totalNonTechRoles}`);
     console.log(`Software engineering roles: ${totalProcessed - totalNonTechRoles}`);
 
-    // Enhanced database storage with better error handling - SAVE AS UNSAVED BY DEFAULT
     try {
       const existingAnalysis = await CVAnalysis.findOne({
         userId: req.user.id,
@@ -310,7 +435,7 @@ export const analyzeResume = async (req, res) => {
 
       const analysisData = {
         userId: req.user.id,
-        resumeText: resumeText.substring(0, 15000), // Increased limit for better context
+        resumeText: resumeText.substring(0, 15000),
         resumeHash: resumeHash,
         jobDescriptions: rawJobDescriptions.map(jd => convertMarkdownToHTML(jd)),
         results: analysis.map(a => ({
@@ -326,9 +451,7 @@ export const analyzeResume = async (req, res) => {
           timestamp: a.timestamp || new Date().toISOString(),
           analysisQuality: a.analysisQuality || null
         })),
-        // Add extracted technologies to database storage
         extractedTechnologies: extractedTechnologies,
-        // Always save as unsaved initially (isSaved: false)
         isSaved: false,
         analysisMetadata: {
           totalProcessed,
@@ -354,10 +477,8 @@ export const analyzeResume = async (req, res) => {
       }
     } catch (saveError) {
       console.error("Enhanced database save/update error:", saveError);
-      // Continue with response even if save fails
     }
 
-    // Return comprehensive analysis results with extracted technologies
     const responseData = {
       analysis: analysis.map(a => ({
         matchPercentage: a.matchPercentage,
@@ -372,10 +493,9 @@ export const analyzeResume = async (req, res) => {
         timestamp: a.timestamp,
         analysisQuality: a.analysisQuality
       })),
-      // Include required fields for SWOT analysis
-      resumeText: resumeText, // Full resume text
-      extractedTechnologies: extractedTechnologies, // Extracted technologies
-      resumeHash: resumeHash, // Resume hash for SWOT
+      resumeText: resumeText,
+      extractedTechnologies: extractedTechnologies,
+      resumeHash: resumeHash,
       metadata: {
         resumeAnalyzed: true,
         totalJobDescriptions: rawJobDescriptions.length,
@@ -430,17 +550,106 @@ export const analyzeResume = async (req, res) => {
   }
 };
 
-// Get all saved analyses for user - INTEGRATED VERSION
+export const analyzeWithProfileCV = async (req, res) => {
+  try {
+    const { jobDescriptions } = req.body;
+    
+    if (!jobDescriptions || !Array.isArray(jobDescriptions) || jobDescriptions.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Job descriptions are required' 
+      });
+    }
+    
+    const user = await userModel.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'User not found' 
+      });
+    }
+    
+    if (!user.hasCV) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No CV uploaded in profile. Please upload your CV first.' 
+      });
+    }
+    
+    const cvText = user.getCVText();
+    const cvHash = user.getCVHash();
+    
+    if (!cvText || !cvHash) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'CV data is corrupted. Please re-upload your CV.' 
+      });
+    }
+    
+    const jobDescString = jobDescriptions.join('|||');
+    const combinedHash = crypto.createHash('sha256')
+      .update(cvHash + jobDescString)
+      .digest('hex');
+    
+    let existingAnalysis = await CVAnalysis.findUserAnalysis(req.user.id, combinedHash);
+    
+    if (existingAnalysis) {
+      return res.json({
+        success: true,
+        message: 'Analysis retrieved from cache',
+        data: {
+          analysisId: existingAnalysis._id,
+          results: existingAnalysis.results,
+          cached: true,
+          usedProfileCV: true
+        }
+      });
+    }
+    
+    const analysisResults = await performCVAnalysis(cvText, jobDescriptions);
+    
+    const newAnalysis = new CVAnalysis({
+      userId: req.user.id,
+      resumeText: '',
+      resumeHash: combinedHash,
+      usedProfileCV: true,
+      jobDescriptions,
+      results: analysisResults,
+      isSaved: true
+    });
+    
+    newAnalysis.setResumeFromProfile(cvText, cvHash);
+    await newAnalysis.save();
+    
+    res.json({
+      success: true,
+      message: 'CV analysis completed using profile CV',
+      data: {
+        analysisId: newAnalysis._id,
+        results: analysisResults,
+        cached: false,
+        usedProfileCV: true
+      }
+    });
+    
+  } catch (error) {
+    console.error('Profile CV analysis error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to analyze CV from profile' 
+    });
+  }
+};
+
 export const getSavedAnalysis = async (req, res) => {
   try {
     const userId = req.user.id;
 
     console.log('🔍 Fetching saved analyses for user:', userId);
 
-    // Query saved analyses using the static method from your model
     const analyses = await CVAnalysis.findSavedByUser(userId, 50)
-      .populate('userId', 'name email') // Optionally populate user data
-      .lean(); // Use lean() for better performance
+      .populate('userId', 'name email')
+      .lean();
 
     console.log(`📊 Found ${analyses.length} saved analyses`);
 
@@ -452,20 +661,16 @@ export const getSavedAnalysis = async (req, res) => {
       });
     }
 
-    // Transform the data to ensure compatibility with frontend
     const transformedAnalyses = analyses.map(analysis => {
       console.log(`📊 Processing analysis ID: ${analysis._id}, Results: ${analysis.results?.length || 0}`);
 
-      // Ensure results array exists
       const results = analysis.results || [];
       const softwareRoles = results.filter(r => !r.isNonTechRole);
 
-      // Calculate stats
       const avgMatch = softwareRoles.length > 0 
         ? Math.round(softwareRoles.reduce((sum, r) => sum + (r.matchPercentage || 0), 0) / softwareRoles.length)
         : 0;
 
-      // Get best match for summary
       const bestMatch = softwareRoles.length > 0 
         ? softwareRoles.reduce((best, current) => 
             (current.matchPercentage || 0) > (best.matchPercentage || 0) ? current : best
@@ -473,23 +678,21 @@ export const getSavedAnalysis = async (req, res) => {
         : { matchPercentage: 0, jobTitle: 'Position', company: 'Company' };
 
       return {
-        _id: analysis._id, // Keep MongoDB _id
+        _id: analysis._id,
         userId: analysis.userId,
         resumeHash: analysis.resumeHash,
         jobDescriptions: analysis.jobDescriptions || [],
-        results: results, // Include full results array
+        results: results,
         isSaved: analysis.isSaved,
         createdAt: analysis.createdAt,
         updatedAt: analysis.updatedAt,
         
-        // Add computed fields for frontend compatibility
         jobTitle: bestMatch.jobTitle || 'Software Engineering Position',
         company: bestMatch.company || 'Company',
         matchPercentage: avgMatch,
         totalJobs: results.length,
         softwareJobs: softwareRoles.length,
         
-        // Include strengths and recommendations from best match
         strengths: bestMatch.strengths || [],
         contentRecommendations: bestMatch.contentRecommendations || [],
         structureRecommendations: bestMatch.structureRecommendations || [],
@@ -498,7 +701,6 @@ export const getSavedAnalysis = async (req, res) => {
           ...(bestMatch.structureRecommendations || [])
         ],
         
-        // Virtual fields
         isRecent: analysis.isRecent,
         averageMatch: avgMatch,
         bestMatch: bestMatch
@@ -525,16 +727,13 @@ export const getSavedAnalysis = async (req, res) => {
   }
 };
 
-// Enhanced save analysis - toggles isSaved field
 export const saveAnalysis = async (req, res) => {
   try {
     console.log('🔍 Saving/Updating CV analysis...');
     
     let { resumeText, resumeHash, jobDescriptions, results, shouldSave = true } = req.body;
     
-    // Handle both old and new API patterns
     if (!resumeHash && (resumeText || jobDescriptions || results)) {
-      // Old pattern: saving new analysis with full data
       if (!resumeText || !jobDescriptions || !results) {
         return res.status(400).json({
           success: false,
@@ -543,11 +742,9 @@ export const saveAnalysis = async (req, res) => {
         });
       }
       
-      // Generate hash if not provided
       resumeHash = resumeHash || createResumeHash(resumeText);
     } else if (resumeHash && !resumeText && !jobDescriptions && !results) {
-      // New pattern: toggling save status of existing analysis
-      // (handled below)
+      
     } else if (!resumeHash) {
       return res.status(400).json({ 
         success: false,
@@ -556,16 +753,13 @@ export const saveAnalysis = async (req, res) => {
       });
     }
 
-    // Find the analysis by user and resume hash
     let analysis = await CVAnalysis.findOne({
       userId: req.user.id,
       resumeHash: resumeHash
     });
 
     if (analysis) {
-      // Update existing analysis
       if (jobDescriptions && results) {
-        // Old pattern: update with new data
         analysis.jobDescriptions = jobDescriptions;
         analysis.results = results;
         if (resumeText) {
@@ -578,7 +772,6 @@ export const saveAnalysis = async (req, res) => {
       await analysis.save();
       console.log(`${shouldSave ? 'Saved' : 'Updated'} existing analysis ${analysis._id}`);
     } else if (resumeText && jobDescriptions && results) {
-      // Create new analysis (old pattern)
       analysis = new CVAnalysis({
         userId: req.user.id,
         resumeText: resumeText.substring(0, 15000),
@@ -602,7 +795,6 @@ export const saveAnalysis = async (req, res) => {
       });
     }
 
-    // Validate results for response
     const validatedResults = (analysis.results || []).map((result, index) => {
       return {
         matchPercentage: typeof result.matchPercentage === 'number' ? Math.max(0, Math.min(100, result.matchPercentage)) : 0,
@@ -659,7 +851,6 @@ export const saveAnalysis = async (req, res) => {
   }
 };
 
-// Delete specific CV analysis - INTEGRATED VERSION
 export const deleteAnalysis = async (req, res) => {
   try {
     const { id } = req.params;
@@ -667,7 +858,6 @@ export const deleteAnalysis = async (req, res) => {
 
     console.log(`🗑️ Deleting analysis: ${id} for user: ${userId}`);
 
-    // Validate ObjectId format
     if (!id.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({ 
         success: false,
@@ -678,7 +868,7 @@ export const deleteAnalysis = async (req, res) => {
 
     const analysis = await CVAnalysis.findOneAndDelete({
       _id: id,
-      userId: userId // Ensure user owns this analysis
+      userId: userId
     });
 
     if (!analysis) {
@@ -716,7 +906,6 @@ export const deleteAnalysis = async (req, res) => {
   }
 };
 
-// NEW: Get all analyses (saved and unsaved) for user dashboard
 export const getAllAnalyses = async (req, res) => {
   try {
     console.log('🔍 Getting all analyses for user:', req.user.id);
@@ -756,7 +945,7 @@ export const getAllAnalyses = async (req, res) => {
         nonTechJobs: results.filter(r => r.isNonTechRole).length,
         createdAt: analysis.createdAt,
         updatedAt: analysis.updatedAt,
-        extractedTechnologies: (analysis.extractedTechnologies || []).slice(0, 10), // Limit for performance
+        extractedTechnologies: (analysis.extractedTechnologies || []).slice(0, 10),
         technologiesCount: (analysis.extractedTechnologies || []).length,
         analysisVersion: analysis.analysisMetadata?.geminiModel || "legacy",
         hasHighMatches: softwareRoles.some(r => (r.matchPercentage || 0) >= 70),
@@ -801,7 +990,6 @@ export const getAllAnalyses = async (req, res) => {
   }
 };
 
-// NEW: Get specific analysis by ID with full details
 export const getAnalysisById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -869,7 +1057,6 @@ export const getAnalysisById = async (req, res) => {
   }
 };
 
-// NEW: Get technology statistics across all user's analyses
 export const getTechnologyStats = async (req, res) => {
   try {
     console.log('🔍 Getting technology stats for user:', req.user.id);
@@ -892,10 +1079,8 @@ export const getTechnologyStats = async (req, res) => {
       });
     }
 
-    // Aggregate all technologies
     const allTechnologies = analyses.flatMap(a => a.extractedTechnologies || []);
     
-    // Count technology frequency and calculate average confidence
     const techMap = new Map();
     allTechnologies.forEach(tech => {
       if (techMap.has(tech.name)) {
@@ -916,9 +1101,8 @@ export const getTechnologyStats = async (req, res) => {
 
     const technologies = Array.from(techMap.values())
       .sort((a, b) => b.count - a.count)
-      .slice(0, 50); // Top 50 technologies
+      .slice(0, 50);
 
-    // Group by categories
     const categories = technologies.reduce((acc, tech) => {
       const category = tech.category || 'Other';
       if (!acc[category]) {
@@ -933,7 +1117,6 @@ export const getTechnologyStats = async (req, res) => {
       return acc;
     }, {});
 
-    // Generate recommendations based on missing common technologies
     const commonTech = ['JavaScript', 'Python', 'Java', 'React', 'Node.js', 'Git', 'SQL', 'HTML', 'CSS'];
     const userTech = new Set(technologies.map(t => t.name.toLowerCase()));
     const recommendations = commonTech

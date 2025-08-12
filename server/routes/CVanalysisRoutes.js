@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { analyzeResume, deleteAnalysis, getSavedAnalysis, saveAnalysis } from '../controllers/cvAnalysiscontroller.js';
+import { analyzeResume, deleteAnalysis, getSavedAnalysis, saveAnalysis, analyzeWithProfileCV } from '../controllers/cvAnalysiscontroller.js';
 import userAuth from '../middleware/userAuth.js';
 
 const analysisRouter = express.Router();
@@ -21,16 +21,22 @@ const upload = multer({
   }
 });
 
-// POST /api/analyze/analyze-resume - Analyze resume against job descriptions
-analysisRouter.post('/analyze-resume', userAuth, upload.single('resume'), analyzeResume);
+// All routes require authentication
+analysisRouter.use(userAuth);
+
+// POST /api/analyze/analyze-resume - Analyze resume against job descriptions (with uploaded file)
+analysisRouter.post('/analyze-resume', upload.single('resume'), analyzeResume);
+
+// NEW: POST /api/analyze/analyze-profile-cv - Analyze using profile CV (no file upload needed)
+analysisRouter.post('/analyze-profile-cv', analyzeWithProfileCV);
 
 // POST /api/analyze/save - Save analysis results
-analysisRouter.post('/save', userAuth, saveAnalysis);
+analysisRouter.post('/save', saveAnalysis);
 
 // GET /api/analyze/saved - Get all saved analyses for user
-analysisRouter.get('/saved', userAuth, getSavedAnalysis);
+analysisRouter.get('/saved', getSavedAnalysis);
 
 // DELETE /api/analyze/delete/:id - Delete a specific saved analysis
-analysisRouter.delete('/delete/:id', userAuth, deleteAnalysis);
+analysisRouter.delete('/delete/:id', deleteAnalysis);
 
 export default analysisRouter;
