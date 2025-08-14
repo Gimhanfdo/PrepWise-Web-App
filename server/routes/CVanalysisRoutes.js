@@ -1,6 +1,16 @@
 import express from 'express';
 import multer from 'multer';
-import { analyzeResume, deleteAnalysis, getSavedAnalysis, saveAnalysis, analyzeWithProfileCV } from '../controllers/cvAnalysiscontroller.js';
+import { 
+  analyzeResume,
+  saveAnalysis,
+  toggleSaveStatus,  // New method
+  getSavedAnalysis,
+  deleteAnalysis,
+  getAllAnalyses,
+  getAnalysisById,
+  getTechnologyStats,
+  analyzeWithProfileCV
+} from '../controllers/cvAnalysiscontroller.js';
 import userAuth from '../middleware/userAuth.js';
 
 const analysisRouter = express.Router();
@@ -24,6 +34,7 @@ const upload = multer({
 // All routes require authentication
 analysisRouter.use(userAuth);
 
+analysisRouter.post('/toggle-save', toggleSaveStatus); 
 // POST /api/analyze/analyze-resume - Analyze resume against job descriptions (with uploaded file)
 analysisRouter.post('/analyze-resume', upload.single('resume'), analyzeResume);
 
@@ -38,5 +49,6 @@ analysisRouter.get('/saved', getSavedAnalysis);
 
 // DELETE /api/analyze/delete/:id - Delete a specific saved analysis
 analysisRouter.delete('/delete/:id', deleteAnalysis);
+
 
 export default analysisRouter;

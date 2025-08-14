@@ -16,6 +16,7 @@ const SkillsAssessment = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  
 
   // Simple icon components
   const AlertCircle = () => (
@@ -732,6 +733,7 @@ const CVAnalyzer = () => {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(''); // Added missing success state
   const [dragActive, setDragActive] = useState(false);
   const [resumeData, setResumeData] = useState(null);
   const [currentView, setCurrentView] = useState('analysis');
@@ -1002,50 +1004,63 @@ const CVAnalyzer = () => {
     }
   };
 
-  // Save individual analysis
-  const handleSaveIndividualAnalysis = async (index) => {
-    if ((!resumeFile && !useProfileCV) || !results[index] || savedIndices.includes(index)) return;
+  // Fixed handleSaveIndividualAnalysis function
+const handleSaveIndividualAnalysis = async (index) => {
+  if ((!resumeFile && !useProfileCV) || !results[index] || savedIndices.includes(index)) return;
 
-    try {
-      const saveData = {
-        resumeName: useProfileCV ? profileCV?.fileName : resumeFile?.name,
-        jobDescriptions: jobDescriptions.filter(jd => jd.trim()),
-        results: [results[index]],
-        resumeHash: resumeData?.resumeHash,
-        usedProfileCV: useProfileCV
-      };
+  try {
+    const saveData = {
+      // Use resumeText instead of resumeName - this is what the server expects
+      resumeText: resumeData?.resumeText || (useProfileCV ? 'Profile CV content' : resumeFile?.name || 'Resume content'),
+      jobDescriptions: jobDescriptions.filter(jd => jd.trim()),
+      results: [results[index]], // Send only the specific result we're saving
+      resumeHash: resumeData?.resumeHash,
+      usedProfileCV: useProfileCV,
+      extractedTechnologies: resumeData?.extractedTechnologies || [] // Include extracted technologies
+    };
 
-      const response = await fetch(API_ENDPOINTS.saveAnalysis, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify(saveData)
-      });
+    console.log('Saving analysis data:', saveData); // Debug log
 
-      if (!response.ok) {
-        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-        
-        try {
-          const contentType = response.headers.get('content-type');
-          if (contentType && contentType.includes('application/json')) {
-            const errorData = await response.json();
-            errorMessage = errorData.message || errorData.error || errorMessage;
-          }
-        } catch (parseError) {
-          console.warn("Could not parse save error response:", parseError);
+    const response = await fetch(API_ENDPOINTS.saveAnalysis, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify(saveData)
+    });
+
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      
+      try {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorData.error || errorMessage;
         }
-        
-        throw new Error(errorMessage);
+      } catch (parseError) {
+        console.warn("Could not parse save error response:", parseError);
       }
-
-      setSavedIndices((prev) => [...prev, index]);
-    } catch (err) {
-      console.error("Save error:", err);
-      alert(`Error saving analysis: ${err.message}`);
+      
+      throw new Error(errorMessage);
     }
-  };
+
+    const responseData = await response.json();
+    console.log('Save response:', responseData); // Debug log
+
+    setSavedIndices((prev) => [...prev, index]);
+    
+    // Show success message
+    setSuccess(`Analysis ${index + 1} saved successfully!`);
+    setTimeout(() => setSuccess(''), 3000);
+
+  } catch (err) {
+    console.error("Save error:", err);
+    setError(`Error saving analysis: ${err.message}`);
+    setTimeout(() => setError(''), 5000);
+  }
+};
 
   // Navigate to Skills Assessment
   const handleNavigateToSkillsAssessment = () => {

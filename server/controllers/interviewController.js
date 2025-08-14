@@ -2,21 +2,57 @@ import interviewModel from '../models/interviewModel.js';
 import userModel from '../models/userModel.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// Initialize Gemini AI with correct model name
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Create new interview session
+export const getUserCV = async (req, res) => {
+  try {
+    console.log('Getting user CV...');
+    const userId = req.user.userId || req.user.id || req.user._id;
+
+    // Get actual user CV from database
+    const user = await userModel.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    const cvData = {
+      hasText: user.hasCV,
+      textLength: user.currentCV?.text?.length || 0,
+      fileName: user.currentCV?.fileName || '',
+      fileSize: user.currentCV?.fileSize || 0,
+      uploadedAt: user.currentCV?.uploadedAt || null
+    };
+
+    res.json({
+      success: true,
+      data: cvData
+    });
+
+  } catch (error) {
+    console.error('Get user CV error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get user CV'
+    });
+  }
+};
+
 export const createInterview = async (req, res) => {
   try {
-    // Debug: Log the user object from middleware
-    console.log('User from middleware:', req.user);
-    
-    // Handle different user object structures
-    const userId = req.user?.userId || req.user?.id || req.user?._id;
+    console.log('Creating interview...');
     const { jobTitle, jobDescription, resumeText } = req.body;
+    const userId = req.user.userId || req.user.id || req.user._id;
 
-    console.log('Extracted userId:', userId);
-    console.log('Request body:', { jobTitle: !!jobTitle, jobDescription: !!jobDescription, resumeText: !!resumeText });
+    // Validate required fields
+    if (!jobTitle || !jobDescription || !resumeText) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: jobTitle, jobDescription, and resumeText are required'
+      });
+    }
 
     if (!userId) {
       return res.status(401).json({
@@ -25,91 +61,154 @@ export const createInterview = async (req, res) => {
       });
     }
 
-    if (!jobTitle || !jobDescription || !resumeText) {
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields: jobTitle, jobDescription, resumeText'
-      });
-    }
+    // Generate questions using actual resume text
+    console.log('Generating interview questions...');
+    const questions = await generateInterviewQuestions(resumeText, jobDescription, jobTitle);
+    console.log('Generated questions:', questions.length, 'questions');
 
-    // Validate if it's a software engineering role
-    const jobDescLower = jobDescription.toLowerCase();
-    const isTechRole = ['software', 'developer', 'engineer', 'programming', 'coding', 'intern'].some(keyword => 
-      jobDescLower.includes(keyword)
-    );
-
-    if (!isTechRole) {
-      return res.status(400).json({
-        success: false,
-        error: 'This interview system is designed specifically for software engineering internships'
-      });
-    }
-
-    // Generate initial questions
-    console.log('Generating questions...');
-    const questions = await generateInterviewQuestions(resumeText, jobDescription);
-    console.log('Questions generated:', questions.length);
-
-    const interview = new interviewModel({
-      userId,
-      jobTitle,
-      jobDescription,
-      resumeText,
-      questions,
+    const interviewData = {
+      userId: userId,
+      jobTitle: jobTitle.trim(),
+      jobDescription: jobDescription.trim(),
+      resumeText: resumeText.trim(),
+      questions: questions,
+      totalQuestions: questions.length,
+      currentQuestionIndex: 0,
       status: 'created',
-      totalQuestions: questions.length
-    });
+      responses: [],
+      cvSource: 'manual',
+      usedProfileCV: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
 
-    await interview.save();
-    console.log('Interview saved with ID:', interview._id);
+    const interview = new interviewModel(interviewData);
+    const savedInterview = await interview.save();
+
+    console.log('Interview created successfully with MongoDB ID:', savedInterview._id);
 
     res.status(201).json({
       success: true,
+      message: 'Interview created successfully',
       interview: {
-        id: interview._id,
-        status: interview.status,
-        questions: questions,
-        questionsCount: questions.length,
-        estimatedDuration: questions.reduce((acc, q) => acc + q.expectedDuration, 0)
+        id: savedInterview._id,
+        _id: savedInterview._id,
+        userId: savedInterview.userId,
+        jobTitle: savedInterview.jobTitle,
+        jobDescription: savedInterview.jobDescription,
+        resumeText: savedInterview.resumeText,
+        questions: savedInterview.questions,
+        totalQuestions: savedInterview.totalQuestions,
+        status: savedInterview.status,
+        cvSource: savedInterview.cvSource,
+        usedProfileCV: savedInterview.usedProfileCV,
+        createdAt: savedInterview.createdAt
       }
     });
+
   } catch (error) {
     console.error('Create interview error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Failed to create interview session',
+      error: 'Failed to create interview',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-function normalizeQuestionType(type) {
-  // Map various AI-generated types to valid enum values
-  const typeMapping = {
-    'problem-solving': 'coding',
-    'problemsolving': 'coding',
-    'algorithm': 'coding',
-    'algorithms': 'coding',
-    'data-structure': 'technical',
-    'data-structures': 'technical',
-    'system-design': 'system_design',
-    'systemdesign': 'system_design',
-    'design': 'system_design',
-    'behavioral': 'behavioral',
-    'technical': 'technical',
-    'coding': 'coding',
-    'technical_coding': 'coding',
-    'technical_conceptual': 'technical'
-  };
+export const createInterviewWithProfileCV = async (req, res) => {
+  try {
+    console.log('Creating interview with profile CV...');
+    const { jobTitle, jobDescription } = req.body;
+    const userId = req.user.userId || req.user.id || req.user._id;
 
-  return typeMapping[type.toLowerCase()] || 'technical'; // default to technical
-}
+    if (!jobTitle || !jobDescription) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: jobTitle and jobDescription are required'
+      });
+    }
 
-// Start interview
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User not authenticated properly. Please log in again.'
+      });
+    }
+
+    // Get ACTUAL user CV from database - NOT MOCK DATA
+    const user = await userModel.findById(userId);
+    if (!user || !user.hasCV) {
+      return res.status(400).json({
+        success: false,
+        error: 'No CV found in user profile. Please upload a CV first.'
+      });
+    }
+
+    const actualCVText = user.getCVText();
+    console.log('Using actual user CV:', actualCVText.substring(0, 100) + '...');
+
+    // Generate questions using ACTUAL CV text
+    console.log('Generating interview questions with actual profile CV...');
+    const questions = await generateInterviewQuestions(actualCVText, jobDescription, jobTitle);
+    console.log('Generated questions:', questions.length, 'questions');
+
+    const interviewData = {
+      userId: userId,
+      jobTitle: jobTitle.trim(),
+      jobDescription: jobDescription.trim(),
+      resumeText: actualCVText,
+      questions: questions,
+      totalQuestions: questions.length,
+      currentQuestionIndex: 0,
+      status: 'created',
+      responses: [],
+      cvSource: 'profile',
+      usedProfileCV: true,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const interview = new interviewModel(interviewData);
+    const savedInterview = await interview.save();
+
+    console.log('Interview with actual profile CV created successfully');
+
+    res.status(201).json({
+      success: true,
+      message: 'Interview created successfully with profile CV',
+      interview: {
+        id: savedInterview._id,
+        _id: savedInterview._id,
+        userId: savedInterview.userId,
+        jobTitle: savedInterview.jobTitle,
+        jobDescription: savedInterview.jobDescription,
+        resumeText: savedInterview.resumeText,
+        questions: savedInterview.questions,
+        totalQuestions: savedInterview.totalQuestions,
+        status: savedInterview.status,
+        cvSource: savedInterview.cvSource,
+        usedProfileCV: savedInterview.usedProfileCV,
+        createdAt: savedInterview.createdAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Create interview with profile CV error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create interview with profile CV',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 export const startInterview = async (req, res) => {
   try {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
+
+    console.log('Starting interview with ID:', interviewId);
 
     const interview = await interviewModel.findOne({ _id: interviewId, userId });
     if (!interview) {
@@ -126,26 +225,43 @@ export const startInterview = async (req, res) => {
       });
     }
 
+    if (!interview.questions || !Array.isArray(interview.questions) || interview.questions.length === 0) {
+      return res.status(500).json({
+        success: false,
+        error: 'Interview has no questions available. Please recreate the interview.'
+      });
+    }
+
     interview.status = 'in_progress';
     interview.startedAt = new Date();
+    interview.updatedAt = new Date();
     await interview.save();
+
+    console.log('Interview started successfully with', interview.questions.length, 'questions');
 
     res.json({
       success: true,
       message: 'Interview started successfully',
-      firstQuestion: interview.questions[0] || null,
-      totalQuestions: interview.questions.length
+      firstQuestion: interview.questions[0],
+      totalQuestions: interview.questions.length,
+      questions: interview.questions,
+      interviewData: {
+        id: interview._id,
+        jobTitle: interview.jobTitle,
+        status: interview.status,
+        currentQuestionIndex: 0
+      }
     });
   } catch (error) {
     console.error('Start interview error:', error);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to start interview' 
+      error: 'Failed to start interview',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-// Get next question
 export const getNextQuestion = async (req, res) => {
   try {
     const { interviewId } = req.params;
@@ -160,13 +276,26 @@ export const getNextQuestion = async (req, res) => {
     }
 
     const answeredCount = interview.responses.length;
-    const nextQuestion = interview.questions[answeredCount];
 
+    if (answeredCount >= interview.questions.length) {
+      return res.json({
+        success: true,
+        completed: true,
+        message: 'All questions completed',
+        progress: {
+          current: answeredCount,
+          total: interview.questions.length,
+          percentage: 100
+        }
+      });
+    }
+
+    const nextQuestion = interview.questions[answeredCount];
     if (!nextQuestion) {
       return res.json({
         success: true,
         completed: true,
-        message: 'All questions completed'
+        message: 'No more questions available'
       });
     }
 
@@ -183,23 +312,31 @@ export const getNextQuestion = async (req, res) => {
     console.error('Get next question error:', error);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to get next question' 
+      error: 'Failed to get next question',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-// Submit answer with audio transcription
 export const submitAnswer = async (req, res) => {
   try {
     const { interviewId } = req.params;
-    const { questionId, responseTime } = req.body;
-    const audioFile = req.file;
+    const { questionId, responseTime, answerMode, responseText, code } = req.body;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    if (!audioFile) {
+    console.log('Submitting answer:', {
+      interviewId,
+      questionId,
+      answerMode,
+      responseTextLength: responseText?.length,
+      hasCode: !!code,
+      responseTime
+    });
+
+    if (!responseText || responseText.trim().length === 0) {
       return res.status(400).json({ 
         success: false,
-        error: 'Audio file is required' 
+        error: 'Response text is required' 
       });
     }
 
@@ -211,7 +348,6 @@ export const submitAnswer = async (req, res) => {
       });
     }
 
-    // Find the question
     const question = interview.questions.find(q => q.questionId === questionId);
     if (!question) {
       return res.status(400).json({ 
@@ -220,49 +356,80 @@ export const submitAnswer = async (req, res) => {
       });
     }
 
-    // For now, use a placeholder transcript - implement actual transcription later
-    const transcript = `User provided an audio response for the question: "${question.question}". Audio transcription will be implemented in the next phase.`;
-
-    // Analyze confidence and response quality using the enhanced analysis
-    const analysis = await analyzeResponseLegacy(
-      question.question,
-      transcript,
-      question.type,
-      interview.resumeText,
-      interview.jobDescription,
-      responseTime
-    );
+    // Analyze the response with proper intern-level expectations
+    let analysis = null;
+    try {
+      analysis = await generateComprehensiveFeedback(
+        question.question,
+        question.type,
+        responseText,
+        code,
+        responseTime,
+        question.expectedDuration
+      );
+      console.log('Analysis completed:', {
+        score: analysis.score,
+        strengthsCount: analysis.strengths?.length,
+        improvementsCount: analysis.improvements?.length
+      });
+    } catch (analysisError) {
+      console.error('Analysis failed, using basic fallback:', analysisError.message);
+      analysis = generateBasicFeedback(responseText, question.type, responseTime);
+    }
 
     // Create response object
     const response = {
       questionId,
       question: question.question,
-      transcription: transcript,
+      transcription: answerMode === 'audio' ? responseText : null,
+      textResponse: answerMode === 'text' ? responseText : null,
+      code: code || null,
       responseTime: parseInt(responseTime) || 0,
-      recordingDuration: Math.floor(audioFile.size / 1000), // rough estimate
-      feedback: analysis.feedback.feedback,
-      submittedAt: new Date()
+      recordingDuration: answerMode === 'audio' ? parseInt(responseTime) : null,
+      submittedAt: new Date(),
+      feedback: {
+        score: analysis.score,
+        strengths: analysis.strengths,
+        improvements: analysis.improvements,
+        detailedAnalysis: analysis.detailedAnalysis,
+        keywordMatches: [],
+        communicationClarity: analysis.communicationClarity,
+        technicalAccuracy: analysis.technicalAccuracy,
+        structuredResponse: analysis.structuredResponse
+      }
     };
 
     interview.responses.push(response);
+    interview.currentQuestionIndex = interview.responses.length;
+    interview.updatedAt = new Date();
+
+    if (interview.status === 'created') {
+      interview.status = 'in_progress';
+      interview.startedAt = new Date();
+    }
+
     await interview.save();
 
     res.json({
       success: true,
       message: 'Answer submitted successfully',
-      question: question.question,
-      feedback: analysis
+      feedback: analysis,
+      progress: {
+        current: interview.responses.length,
+        total: interview.questions.length,
+        completed: interview.responses.length >= interview.questions.length
+      }
     });
   } catch (error) {
     console.error('Submit answer error:', error);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to process answer' 
+      error: 'Failed to process answer',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-// Enhanced AI-powered response analysis endpoint
 export const analyzeResponse = async (req, res) => {
   try {
     const { question, questionType, responseText, responseTime, code, expectedDuration } = req.body;
@@ -282,14 +449,6 @@ export const analyzeResponse = async (req, res) => {
       });
     }
 
-    console.log('Analyzing response:', {
-      questionType,
-      responseLength: responseText.length,
-      hasCode: !!code,
-      responseTime
-    });
-
-    // Generate comprehensive feedback using AI
     const feedback = await generateComprehensiveFeedback(
       question,
       questionType,
@@ -314,11 +473,12 @@ export const analyzeResponse = async (req, res) => {
   }
 };
 
-// Complete interview
 export const completeInterview = async (req, res) => {
   try {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
+
+    console.log('Completing interview:', interviewId);
 
     const interview = await interviewModel.findOne({ _id: interviewId, userId });
     if (!interview) {
@@ -328,18 +488,68 @@ export const completeInterview = async (req, res) => {
       });
     }
 
-    // Generate overall feedback
-    const overallAnalysis = await generateOverallFeedback(
-      interview.responses,
-      interview.resumeText,
-      interview.jobDescription
-    );
+    if (interview.status === 'completed') {
+      return res.json({
+        success: true,
+        message: 'Interview already completed',
+        results: {
+          score: interview.overallFeedback?.score || 0,
+          feedback: interview.overallFeedback,
+          duration: interview.totalDuration,
+          questionsAnswered: interview.responses.length
+        }
+      });
+    }
 
+    console.log('Generating overall feedback for', interview.responses.length, 'responses...');
+
+    // Generate overall feedback with proper function
+    let overallAnalysis;
+    try {
+      overallAnalysis = await generateOverallFeedback(
+        interview.responses,
+        interview.resumeText,
+        interview.jobDescription
+      );
+      console.log('Overall feedback generated:', {
+        score: overallAnalysis.score,
+        hasRecommendations: !!overallAnalysis.feedback?.recommendations
+      });
+    } catch (feedbackError) {
+      console.error('Overall feedback generation failed:', feedbackError.message);
+      overallAnalysis = generateFallbackOverallFeedback(interview.responses);
+    }
+
+    // Update interview status
     interview.status = 'completed';
     interview.completedAt = new Date();
-    interview.totalDuration = Math.round((interview.completedAt - interview.startedAt) / 1000);
-    interview.overallFeedback = overallAnalysis.feedback;
-
+    
+    if (interview.startedAt) {
+      interview.totalDuration = Math.round((interview.completedAt - interview.startedAt) / 1000);
+    } else {
+      interview.totalDuration = 1800;
+    }
+    
+    interview.overallFeedback = {
+      score: overallAnalysis.score,
+      technicalSkills: {
+        score: overallAnalysis.feedback.categoryScores?.technicalSkills || overallAnalysis.score,
+        feedback: 'Technical skills assessment based on responses'
+      },
+      communicationSkills: {
+        score: overallAnalysis.feedback.categoryScores?.communicationSkills || overallAnalysis.score,
+        feedback: 'Communication skills assessment based on responses'
+      },
+      problemSolving: {
+        score: overallAnalysis.feedback.categoryScores?.problemSolving || overallAnalysis.score,
+        feedback: 'Problem solving skills assessment based on responses'
+      },
+      recommendations: overallAnalysis.feedback.recommendations || [],
+      strengths: overallAnalysis.feedback.strengths || [],
+      areasForImprovement: overallAnalysis.feedback.improvements || []
+    };
+    
+    interview.updatedAt = new Date();
     await interview.save();
 
     res.json({
@@ -349,26 +559,27 @@ export const completeInterview = async (req, res) => {
         score: overallAnalysis.score,
         feedback: interview.overallFeedback,
         duration: interview.totalDuration,
-        questionsAnswered: interview.responses.length
+        questionsAnswered: interview.responses.length,
+        totalQuestions: interview.questions.length
       }
     });
   } catch (error) {
     console.error('Complete interview error:', error);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to complete interview' 
+      error: 'Failed to complete interview',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
-// Get detailed feedback
 export const getInterviewFeedback = async (req, res) => {
   try {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    const interview = await interviewModel.findOne({ _id: interviewId, userId })
-      .populate('userId', 'name email');
+    // Don't populate userId to avoid schema error - just get the interview
+    const interview = await interviewModel.findOne({ _id: interviewId, userId });
 
     if (!interview) {
       return res.status(404).json({ 
@@ -396,7 +607,6 @@ export const getInterviewFeedback = async (req, res) => {
   }
 };
 
-// Get user interview history
 export const getUserInterviews = async (req, res) => {
   try {
     const userId = req.user?.userId || req.user?.id || req.user?._id;
@@ -429,14 +639,13 @@ export const getUserInterviews = async (req, res) => {
   }
 };
 
-// Get interview details
 export const getInterview = async (req, res) => {
   try {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    const interview = await interviewModel.findOne({ _id: interviewId, userId })
-      .populate('userId', 'name email');
+    // Don't populate to avoid schema error
+    const interview = await interviewModel.findOne({ _id: interviewId, userId });
 
     if (!interview) {
       return res.status(404).json({ 
@@ -458,140 +667,513 @@ export const getInterview = async (req, res) => {
   }
 };
 
-// ========== ENHANCED AI ANALYSIS FUNCTIONS ==========
+// HELPER FUNCTIONS
 
-// Comprehensive AI-powered feedback generation
-async function generateComprehensiveFeedback(question, questionType, responseText, code, responseTime, expectedDuration) {
+function extractCVKeywords(resumeText) {
+  const text = resumeText.toLowerCase();
+  const keywords = {
+    languages: [],
+    frameworks: [],
+    databases: [],
+    tools: [],
+    experience: [],
+    projects: [],
+    education: [],
+    skills: [],
+    certifications: [],
+    internships: []
+  };
+  
+  // Programming languages
+  const languages = [
+    'javascript', 'python', 'java', 'typescript', 'html', 'css', 'sql', 'c++', 'c#', 
+    'php', 'ruby', 'go', 'swift', 'kotlin', 'dart', 'rust', 'scala', 'perl', 'r', 'c'
+  ];
+  languages.forEach(lang => {
+    if (text.includes(lang)) keywords.languages.push(lang);
+  });
+  
+  // Frameworks and libraries
+  const frameworks = [
+    'react', 'angular', 'vue', 'nodejs', 'node.js', 'express', 'django', 'flask', 
+    'spring', 'laravel', 'bootstrap', 'jquery', 'next.js', 'nuxt.js', 'svelte',
+    'ember.js', 'backbone.js', 'meteor', 'electron', 'react native', 'flutter',
+    '.net', 'tailwind'
+  ];
+  frameworks.forEach(fw => {
+    if (text.includes(fw.toLowerCase())) keywords.frameworks.push(fw);
+  });
+  
+  // Databases
+  const databases = [
+    'mysql', 'postgresql', 'mongodb', 'sqlite', 'redis', 'firebase', 'dynamodb',
+    'cassandra', 'elasticsearch', 'oracle', 'sql server', 'mariadb'
+  ];
+  databases.forEach(db => {
+    if (text.includes(db.toLowerCase())) keywords.databases.push(db);
+  });
+
+  // Tools and technologies
+  const tools = [
+    'git', 'docker', 'kubernetes', 'aws', 'azure', 'gcp', 'jenkins', 'webpack',
+    'babel', 'eslint', 'prettier', 'jest', 'cypress', 'selenium', 'postman', 'figma',
+    'visual studio', 'vscode', 'github', 'gitlab'
+  ];
+  tools.forEach(tool => {
+    if (text.includes(tool.toLowerCase())) keywords.tools.push(tool);
+  });
+
+  // Experience indicators
+  const experienceIndicators = [
+    'intern', 'internship', 'freelance', 'tutor', 'project', 'developed', 'built', 
+    'created', 'implemented', 'designed', 'worked', 'experience'
+  ];
+  experienceIndicators.forEach(exp => {
+    if (text.includes(exp)) keywords.experience.push(exp);
+  });
+
+  // Certifications
+  if (text.includes('certif') || text.includes('course')) {
+    keywords.certifications.push('has certifications');
+  }
+
+  // Education level
+  if (text.includes('university') || text.includes('college') || text.includes('degree')) {
+    keywords.education.push('university student');
+  }
+  
+  return keywords;
+}
+
+function extractJobKeywords(jobDescription) {
+  const text = jobDescription.toLowerCase();
+  const keywords = {
+    skills: [],
+    focus: [],
+    level: 'intern'
+  };
+  
+  if (text.includes('frontend') || text.includes('front-end')) keywords.focus.push('frontend');
+  if (text.includes('backend') || text.includes('back-end')) keywords.focus.push('backend');
+  if (text.includes('fullstack') || text.includes('full-stack')) keywords.focus.push('fullstack');
+  if (text.includes('mobile')) keywords.focus.push('mobile');
+  if (text.includes('web')) keywords.focus.push('web');
+  if (text.includes('intern')) keywords.level = 'intern';
+  
+  return keywords;
+}
+
+async function generateInterviewQuestions(resumeText, jobDescription, jobTitle) {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
-    // Build comprehensive prompt based on question type
-    let prompt = buildAnalysisPrompt(question, questionType, responseText, code, responseTime, expectedDuration);
+    const cvKeywords = extractCVKeywords(resumeText);
+    const jobKeywords = extractJobKeywords(jobDescription);
     
-    console.log('Sending analysis prompt to AI...');
+    console.log('CV Keywords:', cvKeywords);
+    console.log('Job Keywords:', jobKeywords);
+    
+    const prompt = `You are interviewing a SOFTWARE ENGINEERING INTERN candidate. Generate exactly 10 interview questions based on their actual CV content and the Software Engineering Intern job requirements.
+
+CRITICAL REQUIREMENTS:
+1. This is for a SOFTWARE ENGINEERING INTERN position - adjust difficulty accordingly
+2. Questions must be based on specific technologies/experiences from the candidate's CV
+3. Questions must relate to Software Engineering intern-level expectations
+4. Distribution: 3 behavioral + 4 technical + 3 coding questions
+5. All questions should be appropriate for someone seeking an INTERNSHIP
+
+CANDIDATE'S ACTUAL CV:
+${resumeText}
+
+JOB DESCRIPTION:
+${jobDescription}
+
+POSITION: ${jobTitle} (SOFTWARE ENGINEERING INTERN)
+
+BASED ON CV ANALYSIS:
+- Languages mentioned: ${cvKeywords.languages.join(', ') || 'Basic programming'}
+- Frameworks mentioned: ${cvKeywords.frameworks.join(', ') || 'Learning frameworks'}
+- Experience level: ${cvKeywords.experience.length > 0 ? 'Some experience' : 'Academic/beginner'}
+- Has certifications: ${cvKeywords.certifications.length > 0 ? 'Yes' : 'No'}
+
+BEHAVIORAL QUESTIONS (3) - Intern Level:
+- Ask about learning experiences, challenges in projects they mention
+- Focus on growth mindset, problem-solving approach
+- Reference specific projects/experiences from their CV
+
+TECHNICAL QUESTIONS (4) - Intern Level:
+- Basic concepts in technologies they mention
+- Simple comparisons (not advanced architecture)
+- Foundational knowledge appropriate for interns
+
+CODING QUESTIONS (3) - Intern Level:
+- Simple algorithms and data structures
+- Basic programming problems
+- Use languages they actually know from CV
+
+RETURN ONLY VALID JSON:
+[
+  {
+    "questionId": "q1",
+    "type": "behavioral",
+    "question": "Based on your CV showing [specific project/experience], tell me about...",
+    "category": "relevant category",
+    "difficulty": "easy" or "medium",
+    "expectedDuration": 180,
+    "followUpQuestions": [],
+    "starterCode": null
+  }
+]`;
+
+    console.log('Generating intern-specific questions...');
     const result = await model.generateContent(prompt);
     const response = await result.response;
-    const analysisText = response.text().trim();
+    let questionsText = response.text().trim();
     
-    console.log('AI analysis received, parsing...');
-    const cleanedText = analysisText.replace(/```json\s*|```\s*/g, '').trim();
-    const aiAnalysis = JSON.parse(cleanedText);
+    questionsText = cleanAndExtractJSON(questionsText);
     
-    // Validate and enhance the AI analysis
-    const enhancedFeedback = validateAndEnhanceFeedback(aiAnalysis, questionType, responseText, code);
-    
-    console.log('Analysis complete:', {
-      score: enhancedFeedback.score,
-      strengthsCount: enhancedFeedback.strengths.length,
-      improvementsCount: enhancedFeedback.improvements.length
+    let questions;
+    try {
+      questions = JSON.parse(questionsText);
+    } catch (parseError) {
+      console.error('JSON parse failed, using intern-specific fallback');
+      return getInternSpecificFallbackQuestions(resumeText, jobDescription, jobTitle, cvKeywords, jobKeywords);
+    }
+
+    if (!Array.isArray(questions) || questions.length !== 10) {
+      console.error('Invalid questions array, using intern-specific fallback');
+      return getInternSpecificFallbackQuestions(resumeText, jobDescription, jobTitle, cvKeywords, jobKeywords);
+    }
+
+    // Validate and normalize questions for intern level
+    const validatedQuestions = questions.map((q, index) => {
+      const questionId = q.questionId || `q${index + 1}`;
+      const normalizedType = normalizeQuestionType(q.type);
+      
+      let starterCode = q.starterCode;
+      if (normalizedType === 'coding' && !starterCode) {
+        starterCode = generateInternLevelStarterCode(q.question, cvKeywords.languages);
+      }
+      
+      return {
+        questionId,
+        type: normalizedType,
+        question: q.question || `Intern-level question ${index + 1}`,
+        category: q.category || 'general',
+        difficulty: q.difficulty === 'hard' ? 'medium' : q.difficulty || 'easy', // Cap at medium for interns
+        expectedDuration: normalizedType === 'coding' ? 300 : 180,
+        followUpQuestions: q.followUpQuestions || [],
+        starterCode: starterCode
+      };
     });
-    
-    return enhancedFeedback;
+
+    console.log('✅ Generated intern-specific questions successfully');
+    return validatedQuestions;
 
   } catch (error) {
-    console.error('AI analysis error:', error);
-    console.log('Falling back to enhanced rule-based analysis...');
-    return generateEnhancedRuleBasedFeedback(question, questionType, responseText, code, responseTime, expectedDuration);
+    console.error('AI question generation failed:', error);
+    const cvKeywords = extractCVKeywords(resumeText);
+    const jobKeywords = extractJobKeywords(jobDescription);
+    return getInternSpecificFallbackQuestions(resumeText, jobDescription, jobTitle, cvKeywords, jobKeywords);
   }
 }
 
-// Build comprehensive analysis prompt
-function buildAnalysisPrompt(question, questionType, responseText, code, responseTime, expectedDuration) {
-  const basePrompt = `You are a senior software engineering interviewer at a top tech company. Analyze this interview response for a software engineering intern candidate with detailed, constructive feedback.
+function getInternSpecificFallbackQuestions(resumeText, jobDescription, jobTitle, cvKeywords, jobKeywords) {
+  console.log('Generating intern-specific fallback questions...');
+  
+  const primaryLang = cvKeywords.languages[0] || 'javascript';
+  const hasProjects = resumeText.toLowerCase().includes('project');
+  const hasInternship = resumeText.toLowerCase().includes('intern');
+  const hasCertifications = cvKeywords.certifications.length > 0;
+  const isStudent = cvKeywords.education.length > 0;
+
+  const questions = [
+    // 3 Behavioral Questions - Intern Level
+    {
+      questionId: "q1",
+      type: "behavioral",
+      question: hasProjects 
+        ? `I see from your CV that you've worked on projects using ${cvKeywords.languages.join(' and ')}. Tell me about one project you're most proud of. What challenges did you face as a beginner and how did you overcome them?`
+        : `As someone starting their software engineering journey, tell me about a programming challenge you faced during your studies or personal learning. How did you approach solving it?`,
+      category: "learning_experience",
+      difficulty: "easy",
+      expectedDuration: 180,
+      followUpQuestions: [
+        "What would you do differently if you started this project again?",
+        "What did you learn from this experience that you'll apply to future projects?"
+      ],
+      starterCode: null
+    },
+    {
+      questionId: "q2",
+      type: "behavioral",
+      question: hasCertifications
+        ? `Your CV shows you've completed certifications in ${cvKeywords.languages.join(', ')}. What motivated you to pursue these certifications, and how do you approach learning new technologies?`
+        : `Tell me about a time when you had to learn a new programming concept or technology quickly. What resources did you use and what was your learning process?`,
+      category: "learning_approach",
+      difficulty: "easy",
+      expectedDuration: 180,
+      followUpQuestions: [
+        "How do you stay motivated when learning difficult concepts?",
+        "What's the most challenging technical concept you've learned so far?"
+      ],
+      starterCode: null
+    },
+    {
+      questionId: "q3",
+      type: "behavioral",
+      question: hasInternship
+        ? `I notice you have internship experience. Tell me about a situation where you had to ask for help or guidance. How did you approach it and what did you learn?`
+        : `As an intern, you'll be working with senior developers. Describe a situation where you had to collaborate with others on a technical project or seek guidance from more experienced people.`,
+      category: "collaboration",
+      difficulty: "easy",
+      expectedDuration: 180,
+      followUpQuestions: [
+        "How comfortable are you with asking questions when you're stuck?",
+        "What would you do if you disagreed with a senior developer's approach?"
+      ],
+      starterCode: null
+    },
+
+    // 4 Technical Questions - Intern Level
+    {
+      questionId: "q4",
+      type: "technical",
+      question: primaryLang === 'javascript'
+        ? `Since you know JavaScript, explain the difference between var, let, and const. When would you use each one in your code?`
+        : primaryLang === 'python'
+        ? `I see you know Python. Explain what Python lists and dictionaries are, and give me an example of when you'd use each one.`
+        : `Based on your experience with ${primaryLang}, explain some basic concepts of this language that every intern should know.`,
+      category: "fundamentals",
+      difficulty: "easy",
+      expectedDuration: 150,
+      followUpQuestions: [],
+      starterCode: null
+    },
+    {
+      questionId: "q5",
+      type: "technical",
+      question: cvKeywords.databases.length > 0
+        ? `Your CV mentions ${cvKeywords.databases[0]}. As an intern, explain the difference between storing data in a database versus storing it in regular variables. Why would we use a database?`
+        : `As a software engineering intern, you'll likely work with databases. Can you explain in simple terms what a database is and why we use them instead of just storing data in files?`,
+      category: "databases",
+      difficulty: "easy",
+      expectedDuration: 150,
+      followUpQuestions: [],
+      starterCode: null
+    },
+    {
+      questionId: "q6",
+      type: "technical",
+      question: cvKeywords.frameworks.includes('react')
+        ? `I see you have React experience. For an intern role, explain what React components are and why they're useful in web development.`
+        : jobKeywords.focus.includes('web')
+        ? `This internship involves web development. Explain the difference between frontend and backend development in simple terms.`
+        : `Explain what object-oriented programming means to you and why it's useful in software development.`,
+      category: "development_concepts",
+      difficulty: "easy",
+      expectedDuration: 150,
+      followUpQuestions: [],
+      starterCode: null
+    },
+    {
+      questionId: "q7",
+      type: "technical",
+      question: cvKeywords.tools.includes('git') || resumeText.toLowerCase().includes('github')
+        ? `I see you have Git/GitHub experience. Explain what version control is and why it's important for software development, especially when working in teams.`
+        : `As an intern, you'll use version control systems like Git. Based on any experience or research you've done, what do you understand about version control and why it's important?`,
+      category: "tools",
+      difficulty: "easy",
+      expectedDuration: 150,
+      followUpQuestions: [],
+      starterCode: null
+    },
+
+    // 3 Coding Questions - Intern Level
+    {
+      questionId: "q8",
+      type: "coding",
+      question: `Write a simple ${primaryLang} function that takes an array of numbers and returns the largest number. This is a basic problem that tests your understanding of loops and comparison logic.`,
+      category: "arrays",
+      difficulty: "easy",
+      expectedDuration: 300,
+      followUpQuestions: [],
+      starterCode: generateInternLevelStarterCode("find max in array", [primaryLang])
+    },
+    {
+      questionId: "q9",
+      type: "coding", 
+      question: primaryLang === 'javascript'
+        ? `Create a simple JavaScript function that checks if a string is a palindrome (reads the same forwards and backwards). For example, "racecar" is a palindrome.`
+        : `Write a ${primaryLang} function that checks if a string is a palindrome (reads the same forwards and backwards). This tests your string manipulation skills.`,
+      category: "strings",
+      difficulty: "easy",
+      expectedDuration: 300,
+      followUpQuestions: [],
+      starterCode: generateInternLevelStarterCode("palindrome check", [primaryLang])
+    },
+    {
+      questionId: "q10",
+      type: "coding",
+      question: `Write a ${primaryLang} function that counts how many times each character appears in a string. For example, "hello" should return h:1, e:1, l:2, o:1. This tests your ability to work with data structures.`,
+      category: "data_structures",
+      difficulty: "medium",
+      expectedDuration: 300,
+      followUpQuestions: [],
+      starterCode: generateInternLevelStarterCode("character count", [primaryLang])
+    }
+  ];
+
+  console.log(`✅ Generated ${questions.length} intern-specific fallback questions for ${primaryLang}`);
+  return questions;
+}
+
+function generateInternLevelStarterCode(questionHint, candidateLanguages) {
+  const primaryLang = candidateLanguages[0] || 'javascript';
+  const starterCode = {};
+
+  if (primaryLang === 'javascript' || candidateLanguages.includes('javascript')) {
+    if (questionHint.includes('max') || questionHint.includes('largest')) {
+      starterCode.javascript = `function findMax(numbers) {\n    // Your code here\n    // Hint: Use a loop to compare numbers\n    \n    return maxNumber;\n}\n\n// Test\nconst testArray = [3, 7, 2, 9, 1];\nconsole.log(findMax(testArray)); // Should return 9`;
+    } else if (questionHint.includes('palindrome')) {
+      starterCode.javascript = `function isPalindrome(str) {\n    // Your code here\n    // Hint: Compare the string with its reverse\n    \n    return true; // or false\n}\n\n// Test\nconsole.log(isPalindrome("racecar")); // Should return true\nconsole.log(isPalindrome("hello")); // Should return false`;
+    } else if (questionHint.includes('character') || questionHint.includes('count')) {
+      starterCode.javascript = `function countCharacters(str) {\n    // Your code here\n    // Hint: Use an object to store character counts\n    const counts = {};\n    \n    return counts;\n}\n\n// Test\nconsole.log(countCharacters("hello")); // Should return {h:1, e:1, l:2, o:1}`;
+    } else {
+      starterCode.javascript = `function solution(input) {\n    // Your code here\n    // Write your intern-level solution\n    \n    return result;\n}\n\n// Test case\nconsole.log(solution(testInput));`;
+    }
+  }
+
+  if (primaryLang === 'python' || candidateLanguages.includes('python')) {
+    if (questionHint.includes('max') || questionHint.includes('largest')) {
+      starterCode.python = `def find_max(numbers):\n    # Your code here\n    # Hint: Use a loop to compare numbers\n    pass\n\n# Test\ntest_array = [3, 7, 2, 9, 1]\nprint(find_max(test_array))  # Should return 9`;
+    } else if (questionHint.includes('palindrome')) {
+      starterCode.python = `def is_palindrome(s):\n    # Your code here\n    # Hint: Compare the string with its reverse\n    pass\n\n# Test\nprint(is_palindrome("racecar"))  # Should return True\nprint(is_palindrome("hello"))    # Should return False`;
+    } else if (questionHint.includes('character') || questionHint.includes('count')) {
+      starterCode.python = `def count_characters(s):\n    # Your code here\n    # Hint: Use a dictionary to store character counts\n    counts = {}\n    return counts\n\n# Test\nprint(count_characters("hello"))  # Should return {'h':1, 'e':1, 'l':2, 'o':1}`;
+    } else {
+      starterCode.python = `def solution(input_data):\n    # Your code here\n    # Write your intern-level solution\n    pass\n\n# Test case\nprint(solution(test_input))`;
+    }
+  }
+
+  if (primaryLang === 'java' || candidateLanguages.includes('java')) {
+    starterCode.java = `public class Solution {\n    public static int solution(int[] input) {\n        // Your intern-level Java solution here\n        return 0;\n    }\n    \n    public static void main(String[] args) {\n        int[] test = {1, 2, 3, 4, 5};\n        System.out.println(solution(test));\n    }\n}`;
+  }
+
+  // Default fallback
+  if (Object.keys(starterCode).length === 0) {
+    starterCode[primaryLang] = `// Your ${primaryLang} solution here\n// This is an intern-level problem\n// Take your time and think through the logic step by step`;
+  }
+
+  return starterCode;
+}
+
+function normalizeQuestionType(type) {
+  const typeMapping = {
+    'behavioral': 'behavioral',
+    'technical': 'technical',
+    'coding': 'coding',
+    'problem-solving': 'problem-solving',
+    'system_design': 'system_design',
+    'technical_coding': 'coding',
+    'technical_conceptual': 'technical',
+    'problemsolving': 'problem-solving',
+    'algorithm': 'coding',
+    'algorithms': 'coding',
+    'data-structure': 'technical',
+    'data-structures': 'technical',
+    'system-design': 'system_design',
+    'systemdesign': 'system_design',
+    'design': 'technical',
+    'web-development': 'technical',
+    'frontend': 'technical',
+    'backend': 'technical',
+    'database': 'technical',
+    'api': 'technical',
+    'general': 'technical'
+  };
+
+  const normalized = type ? type.toLowerCase().replace(/[^a-z-]/g, '') : '';
+  return typeMapping[normalized] || typeMapping[type?.toLowerCase()] || 'technical';
+}
+
+function cleanAndExtractJSON(text) {
+  console.log('Cleaning JSON response...');
+  
+  let cleaned = text
+    .replace(/```json\s*/gi, '')
+    .replace(/```javascript\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .replace(/^```/gm, '')
+    .replace(/```$/gm, '')
+    .trim();
+  
+  const arrayStartIndex = cleaned.indexOf('[');
+  const arrayEndIndex = cleaned.lastIndexOf(']');
+  
+  if (arrayStartIndex !== -1 && arrayEndIndex !== -1 && arrayEndIndex > arrayStartIndex) {
+    cleaned = cleaned.substring(arrayStartIndex, arrayEndIndex + 1);
+  }
+  
+  return cleaned;
+}
+
+async function generateComprehensiveFeedback(question, questionType, responseText, code, responseTime, expectedDuration) {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    
+    // Enhanced prompt for intern-level evaluation
+    const prompt = `You are evaluating a SOFTWARE ENGINEERING INTERN candidate's response. Provide constructive, encouraging feedback appropriate for someone starting their career.
 
 INTERVIEW CONTEXT:
 - Question: "${question}"
 - Question Type: ${questionType}
-- Expected Duration: ${expectedDuration || 120} seconds
-- Actual Response Time: ${responseTime || 'Unknown'} seconds
+- Response: "${responseText}"
+${code ? `\nCode Provided:\n${code}` : ''}
+- Response Time: ${responseTime || 'Unknown'} seconds
 
-CANDIDATE'S RESPONSE:
-"${responseText}"
+EVALUATION CRITERIA FOR INTERNS:
+- Focus on learning potential and growth mindset
+- Encourage effort and partial understanding
+- Provide specific, actionable improvement suggestions
+- Score should reflect intern-level expectations (not senior developer standards)
 
-${code ? `CODE PROVIDED:\n\`\`\`\n${code}\n\`\`\`\n` : ''}
+SCORING GUIDELINES:
+- 80-100: Excellent for intern level
+- 60-79: Good intern response
+- 40-59: Acceptable intern attempt  
+- 20-39: Needs improvement but shows potential
+- 0-19: Minimal effort or understanding
 
-ANALYSIS REQUIREMENTS:
-Provide detailed analysis in this EXACT JSON format:
+Return ONLY valid JSON:
 {
   "score": 75,
-  "strengths": ["specific strength 1", "specific strength 2", "specific strength 3"],
-  "improvements": ["specific improvement 1", "specific improvement 2"],
-  "detailedAnalysis": "detailed paragraph analysis",
+  "strengths": ["specific strength 1", "specific strength 2"],
+  "improvements": ["specific actionable improvement 1", "specific actionable improvement 2"],
+  "detailedAnalysis": "Detailed analysis paragraph with intern-appropriate feedback",
   "communicationClarity": 8,
   "technicalAccuracy": 7,
   "structuredResponse": 9
-}
+}`;
 
-EVALUATION CRITERIA:`;
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const analysisText = response.text().trim();
+    
+    const cleanedText = analysisText.replace(/```json\s*|```\s*/g, '').trim();
+    const aiAnalysis = JSON.parse(cleanedText);
+    
+    return validateAndEnhanceFeedback(aiAnalysis, questionType, responseText, code);
 
-  // Add specific criteria based on question type
-  if (questionType === 'behavioral') {
-    return basePrompt + `
-1. STAR Method Usage (Situation, Task, Action, Result) - Look for clear structure
-2. Specific Examples - Real projects, experiences, measurable outcomes
-3. Leadership & Initiative - Taking charge, problem-solving, learning from mistakes
-4. Communication - Clear narrative, logical flow, appropriate detail level
-5. Relevance - How well the example relates to software engineering internships
-6. Growth Mindset - Learning from challenges, adaptability, improvement focus
-
-Score Distribution:
-- 90-100: Exceptional STAR structure, compelling examples, strong leadership shown
-- 75-89: Good structure, relevant examples, shows growth and learning
-- 60-74: Basic structure, some examples, adequate for intern level
-- 45-59: Limited structure, vague examples, needs improvement
-- Below 45: Poor structure, no concrete examples, significant gaps
-
-Focus on intern-level expectations. Look for passion, willingness to learn, and potential rather than extensive experience.`;
-
-  } else if (questionType === 'technical_coding' || questionType === 'coding') {
-    return basePrompt + `
-1. Code Quality - Syntax, structure, readability, best practices
-2. Algorithm Approach - Correctness, efficiency, appropriate method selection
-3. Complexity Analysis - Understanding of time/space complexity
-4. Problem-Solving Process - Breaking down the problem, step-by-step approach
-5. Edge Cases - Consideration of special cases, error handling
-6. Code Explanation - Ability to explain the solution clearly
-7. Testing - Mention of test cases, validation approach
-
-Code Analysis:
-${code ? '- Analyze the provided code for correctness, efficiency, and style' : '- No code provided - major deduction for coding question'}
-
-Score Distribution:
-- 90-100: Optimal solution, excellent explanation, discusses complexity, considers edge cases
-- 75-89: Working solution, good explanation, some complexity awareness
-- 60-74: Basic solution, adequate explanation, shows problem-solving approach
-- 45-59: Partial solution or explanation, some understanding but gaps
-- Below 45: Incorrect approach, poor explanation, fundamental misunderstandings
-
-For coding questions, expect intern-level solutions focusing on correctness and clear explanation over advanced optimizations.`;
-
-  } else if (questionType === 'technical_conceptual' || questionType === 'technical') {
-    return basePrompt + `
-1. Technical Accuracy - Correct understanding of concepts, terminology
-2. Depth of Knowledge - Going beyond surface-level explanations
-3. Real-World Applications - Connecting theory to practical use cases
-4. Comparisons - Explaining differences, trade-offs, when to use what
-5. Examples - Concrete illustrations of abstract concepts
-6. Current Understanding - Awareness of modern practices, technologies
-
-Score Distribution:
-- 90-100: Deep technical understanding, excellent examples, compares alternatives
-- 75-89: Good technical grasp, relevant examples, shows practical awareness
-- 60-74: Basic understanding, some examples, adequate for intern level
-- 45-59: Surface-level understanding, limited examples, needs development
-- Below 45: Poor technical grasp, incorrect information, significant gaps
-
-Focus on fundamental concepts important for software engineering interns. Look for understanding over memorization.`;
+  } catch (error) {
+    console.error('AI feedback generation failed:', error);
+    return generateInternLevelRuleBasedFeedback(question, questionType, responseText, code, responseTime);
   }
-
-  return basePrompt + `
-Provide constructive, specific feedback appropriate for software engineering intern candidates. Focus on growth potential and learning opportunities.`;
 }
 
-// Enhanced rule-based fallback analysis
-function generateEnhancedRuleBasedFeedback(question, questionType, responseText, code, responseTime, expectedDuration) {
+function generateInternLevelRuleBasedFeedback(question, questionType, responseText, code, responseTime) {
   const feedback = {
-    score: 50,
+    score: 40, // Start with intern-appropriate base score
     strengths: [],
     improvements: [],
     detailedAnalysis: '',
@@ -601,1125 +1183,179 @@ function generateEnhancedRuleBasedFeedback(question, questionType, responseText,
   };
 
   const wordCount = responseText.trim().split(/\s+/).length;
-  const sentences = responseText.split(/[.!?]+/).filter(s => s.trim().length > 0);
-  const responseLength = responseText.trim().length;
+  
+  // Intern-level evaluation
+  if (wordCount >= 10) {
+    feedback.score += 20;
+    feedback.strengths.push('Provided a meaningful response');
+    feedback.communicationClarity += 2;
+  } else if (wordCount >= 5) {
+    feedback.score += 10;
+    feedback.strengths.push('Attempted to answer the question');
+    feedback.communicationClarity += 1;
+  } else {
+    feedback.improvements.push('Try to provide more detailed explanations in your responses');
+  }
 
-  console.log('Rule-based analysis:', { wordCount, sentences: sentences.length, responseLength, questionType });
-
-  // Content depth analysis
-  const contentScore = analyzeContentDepth(responseText, questionType);
-  feedback.score += contentScore.points;
-  feedback.strengths.push(...contentScore.strengths);
-  feedback.improvements.push(...contentScore.improvements);
-  feedback.technicalAccuracy = Math.min(10, feedback.technicalAccuracy + contentScore.technicalBonus);
-
-  // Communication quality
-  const commScore = analyzeCommunicationQuality(responseText, sentences);
-  feedback.score += commScore.points;
-  feedback.strengths.push(...commScore.strengths);
-  feedback.improvements.push(...commScore.improvements);
-  feedback.communicationClarity = Math.min(10, feedback.communicationClarity + commScore.clarityBonus);
-  feedback.structuredResponse = Math.min(10, feedback.structuredResponse + commScore.structureBonus);
-
-  // Question-specific analysis
-  const questionScore = analyzeByQuestionType(questionType, responseText, code);
-  feedback.score += questionScore.points;
-  feedback.strengths.push(...questionScore.strengths);
-  feedback.improvements.push(...questionScore.improvements);
-  feedback.technicalAccuracy = Math.min(10, feedback.technicalAccuracy + questionScore.technicalBonus);
-
-  // Time management
-  if (responseTime && expectedDuration) {
-    const timeScore = analyzeTimeManagement(responseTime, expectedDuration);
-    feedback.score += timeScore.points;
-    if (timeScore.feedback) {
-      if (timeScore.points > 0) {
-        feedback.strengths.push(timeScore.feedback);
-      } else {
-        feedback.improvements.push(timeScore.feedback);
+  // Question-specific evaluation for interns
+  if (questionType === 'coding') {
+    if (code && code.trim().length > 10) {
+      feedback.score += 25;
+      feedback.technicalAccuracy += 3;
+      feedback.strengths.push('Provided code implementation - great job!');
+      
+      // Basic code quality checks
+      if (code.includes('function') || code.includes('def') || code.includes('class')) {
+        feedback.score += 10;
+        feedback.strengths.push('Used proper function/class structure');
       }
+      
+      if (code.includes('//') || code.includes('#') || code.includes('/*')) {
+        feedback.score += 5;
+        feedback.strengths.push('Added helpful comments to code');
+      }
+    } else if (code && code.trim().length > 0) {
+      feedback.score += 10;
+      feedback.strengths.push('Attempted to write code');
+      feedback.improvements.push('Try to expand your code implementation with more complete logic');
+    } else {
+      feedback.improvements.push('Remember to provide code for coding questions - even pseudocode is helpful!');
+      feedback.score = Math.max(20, feedback.score - 15);
     }
   }
 
-  // Generate detailed analysis
-  feedback.detailedAnalysis = generateDetailedAnalysisSummary(feedback, questionType, wordCount, sentences.length);
+  // Behavioral question evaluation
+  if (questionType === 'behavioral') {
+    if (responseText.toLowerCase().includes('learn') || responseText.toLowerCase().includes('challenge')) {
+      feedback.score += 15;
+      feedback.strengths.push('Showed learning mindset and self-awareness');
+    }
+    
+    if (responseText.toLowerCase().includes('project') || responseText.toLowerCase().includes('experience')) {
+      feedback.score += 10;
+      feedback.strengths.push('Referenced specific examples from experience');
+    }
+  }
 
-  // Ensure quality and clamp values
-  ensureFeedbackQuality(feedback);
-  clampScores(feedback);
+  // Technical question evaluation
+  if (questionType === 'technical') {
+    // Look for any technical keywords or concepts
+    const techWords = ['algorithm', 'function', 'variable', 'loop', 'array', 'object', 'database', 'api'];
+    const foundTechWords = techWords.filter(word => responseText.toLowerCase().includes(word));
+    
+    if (foundTechWords.length > 0) {
+      feedback.score += 15;
+      feedback.technicalAccuracy += 2;
+      feedback.strengths.push('Used appropriate technical terminology');
+    }
+  }
+
+  // Encourage effort for interns
+  if (responseText.trim().length > 0) {
+    feedback.strengths.push('Showed effort in responding to the question');
+  }
+
+  // Ensure intern-appropriate improvements
+  if (feedback.improvements.length === 0) {
+    feedback.improvements.push('Continue practicing and building your technical communication skills');
+  }
+
+  // Cap scores appropriately for interns
+  feedback.score = Math.min(95, Math.max(15, feedback.score));
+  feedback.communicationClarity = Math.min(10, Math.max(3, feedback.communicationClarity));
+  feedback.technicalAccuracy = Math.min(10, Math.max(3, feedback.technicalAccuracy));
+  feedback.structuredResponse = Math.min(10, Math.max(3, feedback.structuredResponse));
+
+  feedback.detailedAnalysis = `Response contains ${wordCount} words. ${questionType === 'coding' && code ? 'Code implementation provided. ' : ''}${questionType === 'coding' && !code ? 'Consider providing code for coding questions. ' : ''}Great effort for an intern-level response! Keep practicing and building your skills.`;
 
   return feedback;
 }
 
-// Detailed content analysis
-function analyzeContentDepth(text, questionType) {
-  const analysis = { points: 0, strengths: [], improvements: [], technicalBonus: 0 };
-  const textLower = text.toLowerCase();
-
-  // Define comprehensive keyword sets
-  const keywordSets = {
-    behavioral: {
-      structure: ['situation', 'task', 'action', 'result', 'when', 'what', 'how', 'why'],
-      experience: ['project', 'experience', 'worked', 'built', 'developed', 'created', 'implemented', 'designed'],
-      skills: ['team', 'collaboration', 'leadership', 'problem', 'challenge', 'solution', 'learned', 'improved'],
-      outcomes: ['result', 'outcome', 'achieved', 'successful', 'completed', 'delivered', 'impact', 'benefit']
-    },
-    coding: {
-      algorithms: ['algorithm', 'complexity', 'time', 'space', 'big o', 'efficient', 'optimize', 'performance'],
-      dataStructures: ['array', 'hash', 'map', 'tree', 'graph', 'stack', 'queue', 'list', 'set'],
-      programming: ['function', 'variable', 'loop', 'condition', 'iteration', 'recursion', 'method', 'class'],
-      problemSolving: ['approach', 'strategy', 'solution', 'problem', 'edge case', 'test', 'validate', 'debug']
-    },
-    technical: {
-      concepts: ['concept', 'principle', 'theory', 'framework', 'library', 'api', 'protocol', 'architecture'],
-      comparison: ['difference', 'compare', 'versus', 'advantage', 'disadvantage', 'trade-off', 'better', 'worse'],
-      implementation: ['implement', 'use case', 'example', 'application', 'practical', 'real-world', 'production'],
-      advanced: ['scalability', 'performance', 'security', 'maintenance', 'best practice', 'industry standard']
-    }
-  };
-
-  // Select appropriate keywords based on question type
-  let relevantKeywords = keywordSets.technical; // default
-  if (questionType === 'behavioral') {
-    relevantKeywords = keywordSets.behavioral;
-  } else if (questionType === 'technical_coding' || questionType === 'coding') {
-    relevantKeywords = keywordSets.coding;
-  }
-
-  // Count keyword usage across categories
-  let totalKeywords = 0;
-  let categoryScores = {};
-
-  Object.entries(relevantKeywords).forEach(([category, keywords]) => {
-    let categoryCount = 0;
-    keywords.forEach(keyword => {
-      const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
-      const matches = text.match(regex);
-      if (matches) {
-        categoryCount += matches.length;
-        totalKeywords += matches.length;
-      }
-    });
-    categoryScores[category] = categoryCount;
-  });
-
-  // Score based on keyword usage
-  if (totalKeywords >= 8) {
-    analysis.strengths.push('Excellent use of relevant technical vocabulary');
-    analysis.points += 25;
-    analysis.technicalBonus += 3;
-  } else if (totalKeywords >= 5) {
-    analysis.strengths.push('Good technical terminology and concepts');
-    analysis.points += 15;
-    analysis.technicalBonus += 2;
-  } else if (totalKeywords >= 2) {
-    analysis.strengths.push('Shows understanding of key concepts');
-    analysis.points += 8;
-    analysis.technicalBonus += 1;
-  } else {
-    analysis.improvements.push('Include more specific technical terminology relevant to the question');
-    analysis.technicalBonus -= 1;
-  }
-
-  // Check for specific examples and quantifiable details
-  const examplePatterns = [
-    /for example|for instance|such as|like when|consider|in my experience/gi,
-    /i worked on|i built|i created|i implemented|i developed/gi,
-    /at \w+|during my time|in my project|when i was/gi
-  ];
-
-  let exampleCount = 0;
-  examplePatterns.forEach(pattern => {
-    const matches = text.match(pattern);
-    if (matches) exampleCount += matches.length;
-  });
-
-  if (exampleCount >= 3) {
-    analysis.strengths.push('Provided multiple concrete examples');
-    analysis.points += 15;
-  } else if (exampleCount >= 1) {
-    analysis.strengths.push('Included specific examples');
-    analysis.points += 10;
-  } else {
-    analysis.improvements.push('Provide specific examples to illustrate your points');
-  }
-
-  // Check for quantifiable metrics
-  const quantifiablePattern = /\b\d+(\.\d+)?\s*(percent|%|times|hours|days|weeks|months|users|requests|mb|gb|ms|seconds|lines|functions|features|bugs|tests)\b/gi;
-  const metrics = text.match(quantifiablePattern);
-  
-  if (metrics && metrics.length >= 2) {
-    analysis.strengths.push('Included quantifiable results and metrics');
-    analysis.points += 12;
-  } else if (metrics && metrics.length >= 1) {
-    analysis.strengths.push('Provided measurable details');
-    analysis.points += 6;
-  }
-
-  return analysis;
-}
-
-// Communication quality analysis
-function analyzeCommunicationQuality(text, sentences) {
-  const analysis = { points: 0, strengths: [], improvements: [], clarityBonus: 0, structureBonus: 0 };
-
-  // Sentence structure analysis
-  if (sentences.length === 0) {
-    analysis.improvements.push('Structure your response with clear sentences');
-    return analysis;
-  }
-
-  const avgSentenceLength = sentences.reduce((acc, s) => acc + s.split(' ').length, 0) / sentences.length;
-  const sentenceLengths = sentences.map(s => s.split(' ').length);
-  const lengthVariety = sentenceLengths.length > 1 ? Math.max(...sentenceLengths) - Math.min(...sentenceLengths) : 0;
-
-  // Optimal sentence length and variety
-  if (avgSentenceLength >= 10 && avgSentenceLength <= 25 && lengthVariety >= 5) {
-    analysis.strengths.push('Excellent sentence structure with good variety');
-    analysis.points += 12;
-    analysis.clarityBonus += 2;
-    analysis.structureBonus += 1;
-  } else if (avgSentenceLength >= 8 && avgSentenceLength <= 30) {
-    analysis.strengths.push('Good sentence structure');
-    analysis.points += 8;
-    analysis.clarityBonus += 1;
-  } else if (avgSentenceLength < 6) {
-    analysis.improvements.push('Expand sentences for more detailed explanations');
-    analysis.clarityBonus -= 1;
-  } else if (avgSentenceLength > 35) {
-    analysis.improvements.push('Break down overly complex sentences for clarity');
-    analysis.clarityBonus -= 1;
-  }
-
-  // Logical flow and connectors
-  const connectorPatterns = [
-    /\b(however|therefore|furthermore|moreover|additionally|consequently)\b/gi,
-    /\b(because|since|although|while|whereas|despite)\b/gi,
-    /\b(first|second|third|finally|in conclusion|as a result|on the other hand)\b/gi,
-    /\b(also|similarly|likewise|in contrast|nevertheless|meanwhile)\b/gi
-  ];
-
-  let connectorCount = 0;
-  connectorPatterns.forEach(pattern => {
-    const matches = text.match(pattern);
-    if (matches) connectorCount += matches.length;
-  });
-
-  if (connectorCount >= 4) {
-    analysis.strengths.push('Excellent logical flow with smooth transitions');
-    analysis.points += 15;
-    analysis.structureBonus += 2;
-  } else if (connectorCount >= 2) {
-    analysis.strengths.push('Good use of connecting words for flow');
-    analysis.points += 10;
-    analysis.structureBonus += 1;
-  } else if (connectorCount === 0) {
-    analysis.improvements.push('Use connecting words (however, therefore, because) to improve flow');
-    analysis.structureBonus -= 1;
-  }
-
-  // Confidence vs hesitation analysis
-  const hesitationWords = text.match(/\b(um|uh|like|you know|sort of|kind of|i think maybe|i guess|probably|not sure)\b/gi);
-  const confidenceWords = text.match(/\b(definitely|certainly|clearly|obviously|confident|sure|believe strongly|know that|understand)\b/gi);
-
-  const hesitationCount = hesitationWords ? hesitationWords.length : 0;
-  const confidenceCount = confidenceWords ? confidenceWords.length : 0;
-
-  if (hesitationCount <= 1 && confidenceCount >= 2) {
-    analysis.strengths.push('Spoke with confidence and conviction');
-    analysis.points += 12;
-    analysis.clarityBonus += 1;
-  } else if (hesitationCount <= 2) {
-    analysis.strengths.push('Clear, decisive communication');
-    analysis.points += 8;
-  } else if (hesitationCount > 4) {
-    analysis.improvements.push('Reduce hesitation words (um, I think, maybe) for more confident delivery');
-    analysis.clarityBonus -= 2;
-  }
-
-  // Professional language use
-  const professionalTerms = text.match(/\b(collaborate|implement|analyze|develop|optimize|facilitate|coordinate|execute|strategic|systematic)\b/gi);
-  if (professionalTerms && professionalTerms.length >= 3) {
-    analysis.strengths.push('Used professional vocabulary appropriately');
-    analysis.points += 8;
-  }
-
-  return analysis;
-}
-
-// Question type specific analysis
-function analyzeByQuestionType(questionType, text, code) {
-  const analysis = { points: 0, strengths: [], improvements: [], technicalBonus: 0 };
-
-  if (questionType === 'behavioral') {
-    return analyzeBehavioralSpecific(text, analysis);
-  } else if (questionType === 'technical_coding' || questionType === 'coding') {
-    return analyzeCodingSpecific(text, code, analysis);
-  } else if (questionType === 'technical_conceptual' || questionType === 'technical') {
-    return analyzeTechnicalSpecific(text, analysis);
-  }
-
-  return analysis;
-}
-
-// Behavioral question specific analysis
-function analyzeBehavioralSpecific(text, analysis) {
-  // STAR method detection
-  const starElements = {
-    situation: /\b(situation|context|background|setting|scenario|when|where|during)\b/gi,
-    task: /\b(task|goal|objective|responsibility|needed to|had to|required|assigned|challenge)\b/gi,
-    action: /\b(action|did|implemented|decided|approach|method|steps|executed|created|built|developed|solved)\b/gi,
-    result: /\b(result|outcome|learned|achieved|impact|success|improvement|benefit|completed|delivered)\b/gi
-  };
-
-  let starScore = 0;
-  let foundElements = [];
-
-  Object.entries(starElements).forEach(([element, pattern]) => {
-    const matches = text.match(pattern);
-    if (matches && matches.length > 0) {
-      starScore++;
-      foundElements.push(element);
-    }
-  });
-
-  if (starScore >= 4) {
-    analysis.strengths.push('Excellent STAR method structure (Situation, Task, Action, Result)');
-    analysis.points += 25;
-    analysis.technicalBonus += 3;
-  } else if (starScore >= 3) {
-    analysis.strengths.push('Good structured response with most STAR elements');
-    analysis.points += 18;
-    analysis.technicalBonus += 2;
-  } else if (starScore >= 2) {
-    analysis.strengths.push('Shows structured thinking approach');
-    analysis.points += 10;
-    analysis.technicalBonus += 1;
-  } else {
-    analysis.improvements.push('Use STAR method: describe Situation, Task, Action taken, and Result achieved');
-    analysis.technicalBonus -= 1;
-  }
-
-  // Leadership and initiative indicators
-  const leadershipWords = text.match(/\b(led|lead|managed|organized|coordinated|initiated|took charge|responsible for|guided|mentored|taught|trained)\b/gi);
-  if (leadershipWords && leadershipWords.length >= 2) {
-    analysis.strengths.push('Demonstrated leadership and initiative');
-    analysis.points += 12;
-  }
-
-  // Problem-solving focus
-  const problemSolvingWords = text.match(/\b(problem|challenge|issue|difficulty|obstacle|solved|resolved|overcame|addressed|fixed|debugged)\b/gi);
-  if (problemSolvingWords && problemSolvingWords.length >= 3) {
-    analysis.strengths.push('Strong problem-solving orientation');
-    analysis.points += 10;
-  }
-
-  // Learning and growth mindset
-  const learningWords = text.match(/\b(learned|improved|grew|developed|practiced|studied|researched|discovered|realized|mistake|feedback)\b/gi);
-  if (learningWords && learningWords.length >= 2) {
-    analysis.strengths.push('Shows growth mindset and willingness to learn');
-    analysis.points += 10;
-  }
-
-  return analysis;
-}
-
-// Coding question specific analysis
-function analyzeCodingSpecific(text, code, analysis) {
-  // Code presence and quality
-  if (!code || code.trim().length === 0) {
-    analysis.improvements.push('Provide actual code implementation for coding questions');
-    analysis.points -= 20;
-    analysis.technicalBonus -= 3;
-    return analysis;
-  }
-
-  // Code quality analysis
-  const codeQuality = analyzeCodeQuality(code);
-  analysis.points += codeQuality.points;
-  analysis.strengths.push(...codeQuality.strengths);
-  analysis.improvements.push(...codeQuality.improvements);
-  analysis.technicalBonus += codeQuality.technicalBonus;
-
-  // Algorithm explanation analysis
-  const algorithmTerms = text.match(/\b(algorithm|approach|strategy|method|complexity|time|space|big o|efficient|optimize|performance)\b/gi);
-  if (algorithmTerms && algorithmTerms.length >= 4) {
-    analysis.strengths.push('Excellent algorithm explanation with complexity analysis');
-    analysis.points += 18;
-    analysis.technicalBonus += 2;
-  } else if (algorithmTerms && algorithmTerms.length >= 2) {
-    analysis.strengths.push('Good technical explanation of approach');
-    analysis.points += 12;
-    analysis.technicalBonus += 1;
-  } else {
-    analysis.improvements.push('Explain your algorithm approach and consider time/space complexity');
-  }
-
-  // Problem-solving process
-  const processWords = text.match(/\b(first|then|next|step|process|break down|analyze|approach|solve|implement)\b/gi);
-  if (processWords && processWords.length >= 3) {
-    analysis.strengths.push('Clear step-by-step problem-solving process');
-    analysis.points += 12;
-  }
-
-  // Edge cases and testing
-  const testingWords = text.match(/\b(test|edge case|boundary|validate|check|handle|error|exception|corner case)\b/gi);
-  if (testingWords && testingWords.length >= 2) {
-    analysis.strengths.push('Considered edge cases and testing');
-    analysis.points += 15;
-    analysis.technicalBonus += 1;
-  } else {
-    analysis.improvements.push('Consider edge cases and how to test your solution');
-  }
-
-  return analysis;
-}
-
-// Technical conceptual analysis
-function analyzeTechnicalSpecific(text, analysis) {
-  // Technical depth and accuracy
-  const technicalTerms = text.match(/\b(asynchronous|synchronous|callback|promise|async|await|api|http|database|framework|library|protocol|architecture|scalability|performance|security)\b/gi);
-  
-  if (technicalTerms && technicalTerms.length >= 6) {
-    analysis.strengths.push('Excellent technical vocabulary and depth');
-    analysis.points += 20;
-    analysis.technicalBonus += 3;
-  } else if (technicalTerms && technicalTerms.length >= 3) {
-    analysis.strengths.push('Good technical understanding');
-    analysis.points += 12;
-    analysis.technicalBonus += 2;
-  } else if (technicalTerms && technicalTerms.length >= 1) {
-    analysis.strengths.push('Shows basic technical knowledge');
-    analysis.points += 6;
-    analysis.technicalBonus += 1;
-  } else {
-    analysis.improvements.push('Use more specific technical terminology');
-    analysis.technicalBonus -= 1;
-  }
-
-  // Comparative analysis
-  const comparisonWords = text.match(/\b(difference|compare|contrast|versus|vs|while|whereas|however|unlike|similar|advantage|disadvantage|better|worse|trade-off)\b/gi);
-  if (comparisonWords && comparisonWords.length >= 4) {
-    analysis.strengths.push('Excellent comparative analysis of concepts');
-    analysis.points += 15;
-  } else if (comparisonWords && comparisonWords.length >= 2) {
-    analysis.strengths.push('Good comparative thinking');
-    analysis.points += 10;
-  } else {
-    analysis.improvements.push('Compare different approaches and discuss trade-offs');
-  }
-
-  // Practical application
-  const practicalWords = text.match(/\b(use case|application|practical|real world|production|industry|business|project|implementation)\b/gi);
-  if (practicalWords && practicalWords.length >= 2) {
-    analysis.strengths.push('Connected theory to practical applications');
-    analysis.points += 12;
-  } else {
-    analysis.improvements.push('Provide real-world examples and use cases');
-  }
-
-  return analysis;
-}
-
-// Code quality analysis
-function analyzeCodeQuality(code) {
-  const analysis = { points: 0, strengths: [], improvements: [], technicalBonus: 0 };
-  
-  // Basic structure checks
-  const hasComments = /\/\/|\/\*|#|"""/.test(code);
-  const hasDescriptiveNames = /\b[a-zA-Z_][a-zA-Z0-9_]{3,}\b/.test(code);
-  const hasProperIndentation = /^(\s{2,4}|\t)/m.test(code);
-  const hasFunctions = /\b(function|def|const\s+\w+\s*=|=>\s*{|\w+\s*\(.*\)\s*{)/.test(code);
-  
-  // Advanced features
-  const hasLoops = /\b(for|while|forEach|map|filter|reduce|range)\b/.test(code);
-  const hasConditionals = /\b(if|else|elif|switch|case|\?.*:)\b/.test(code);
-  const hasErrorHandling = /\b(try|catch|except|throw|raise|finally)\b/i.test(code);
-  const hasDataStructures = /\b(array|list|dict|map|set|hash|tree|queue|stack)\b/i.test(code);
-
-  // Scoring
-  if (hasComments) {
-    analysis.strengths.push('Well-documented code with comments');
-    analysis.points += 10;
-    analysis.technicalBonus += 1;
-  } else {
-    analysis.improvements.push('Add comments to explain complex logic');
-  }
-
-  if (hasDescriptiveNames) {
-    analysis.strengths.push('Used meaningful variable and function names');
-    analysis.points += 8;
-  } else {
-    analysis.improvements.push('Use more descriptive variable names');
-  }
-
-  if (hasProperIndentation) {
-    analysis.strengths.push('Proper code formatting and structure');
-    analysis.points += 5;
-  }
-
-  if (hasFunctions) {
-    analysis.strengths.push('Good code organization with functions');
-    analysis.points += 10;
-    analysis.technicalBonus += 1;
-  }
-
-  if (hasLoops) {
-    analysis.strengths.push('Appropriate use of loops and iteration');
-    analysis.points += 8;
-  }
-
-  if (hasConditionals) {
-    analysis.strengths.push('Good use of conditional logic');
-    analysis.points += 6;
-  }
-
-  if (hasErrorHandling) {
-    analysis.strengths.push('Included error handling for robustness');
-    analysis.points += 15;
-    analysis.technicalBonus += 2;
-  } else {
-    analysis.improvements.push('Consider adding error handling');
-  }
-
-  if (hasDataStructures) {
-    analysis.strengths.push('Appropriate data structure usage');
-    analysis.points += 12;
-    analysis.technicalBonus += 1;
-  }
-
-  // Code complexity analysis
-  const lines = code.split('\n').filter(line => line.trim()).length;
-  if (lines >= 10 && lines <= 30) {
-    analysis.strengths.push('Appropriate code length and complexity');
-    analysis.points += 5;
-  } else if (lines < 5) {
-    analysis.improvements.push('Provide a more complete implementation');
-  } else if (lines > 50) {
-    analysis.improvements.push('Consider simplifying or modularizing the solution');
-  }
-
-  return analysis;
-}
-
-// Time management analysis
-function analyzeTimeManagement(responseTime, expectedTime) {
-  const ratio = responseTime / expectedTime;
-  
-  if (ratio >= 0.8 && ratio <= 1.2) {
-    return { points: 10, feedback: 'Excellent time management' };
-  } else if (ratio >= 0.6 && ratio <= 1.5) {
-    return { points: 5, feedback: 'Good time management' };
-  } else if (ratio < 0.4) {
-    return { points: -5, feedback: 'Take more time to provide comprehensive answers' };
-  } else if (ratio > 2.0) {
-    return { points: -3, feedback: 'Practice being more concise while maintaining detail' };
-  }
-  
-  return { points: 0, feedback: null };
-}
-
-// Generate comprehensive detailed analysis
-function generateDetailedAnalysisSummary(feedback, questionType, wordCount, sentenceCount) {
-  let analysis = '';
-  
-  // Opening assessment
-  if (feedback.score >= 85) {
-    analysis = 'This is an exceptional response that demonstrates strong competency for an intern-level position. ';
-  } else if (feedback.score >= 70) {
-    analysis = 'This is a solid response that shows good understanding and communication skills. ';
-  } else if (feedback.score >= 55) {
-    analysis = 'This response shows potential but has several areas for improvement. ';
-  } else {
-    analysis = 'This response needs significant improvement in multiple areas. ';
-  }
-
-  // Content quality assessment
-  if (wordCount >= 100) {
-    analysis += 'You provided detailed explanations with good depth. ';
-  } else if (wordCount >= 50) {
-    analysis += 'Your response had adequate detail. ';
-  } else {
-    analysis += 'Consider providing more detailed explanations. ';
-  }
-
-  // Question-specific feedback
-  if (questionType === 'behavioral') {
-    if (feedback.strengths.some(s => s.includes('STAR'))) {
-      analysis += 'Your structured approach using STAR method was effective. ';
-    } else {
-      analysis += 'Focus on structuring behavioral responses using the STAR method. ';
-    }
-  } else if (questionType === 'technical_coding' || questionType === 'coding') {
-    if (feedback.strengths.some(s => s.includes('code'))) {
-      analysis += 'Your code implementation was well-structured. ';
-    } else {
-      analysis += 'Ensure you provide working code with clear explanations. ';
-    }
-  } else if (questionType === 'technical_conceptual' || questionType === 'technical') {
-    if (feedback.technicalAccuracy >= 7) {
-      analysis += 'You demonstrated good technical understanding. ';
-    } else {
-      analysis += 'Work on deepening your technical knowledge in this area. ';
-    }
-  }
-
-  // Communication assessment
-  if (feedback.communicationClarity >= 7) {
-    analysis += 'Your communication was clear and well-organized. ';
-  } else {
-    analysis += 'Focus on organizing your thoughts more clearly and using connecting words. ';
-  }
-
-  // Improvement recommendations
-  const topImprovements = feedback.improvements.slice(0, 2);
-  if (topImprovements.length > 0) {
-    analysis += `Key areas for improvement: ${topImprovements.join(' and ').toLowerCase()}.`;
-  }
-
-  return analysis;
-}
-
-function getEnhancedDefaultQuestions() {
-  return [
-    // 3 Behavioral Questions
-    {
-      questionId: "q1",
-      question: "Tell me about yourself and why you're passionate about software engineering. What draws you to this field?",
-      type: "behavioral",
-      category: "introduction",
-      difficulty: "easy",
-      expectedDuration: 120,
-      starterCode: null
-    },
-    {
-      questionId: "q2",
-      question: "Describe a challenging programming project you worked on. What obstacles did you face and how did you overcome them?",
-      type: "behavioral",
-      category: "problem-solving",
-      difficulty: "medium",
-      expectedDuration: 180,
-      starterCode: null
-    },
-    {
-      questionId: "q3",
-      question: "Tell me about a time you had to work in a team on a software project. How did you handle collaboration and any conflicts?",
-      type: "behavioral",
-      category: "teamwork",
-      difficulty: "medium",
-      expectedDuration: 180,
-      starterCode: null
-    },
-
-    // 3 Coding Questions
-    {
-      questionId: "q4",
-      question: "Write a function that finds the two numbers in an array that add up to a target sum. Return their indices.",
-      type: "coding",
-      category: "algorithms",
-      difficulty: "medium",
-      expectedDuration: 300,
-      starterCode: {
-        javascript: `function twoSum(nums, target) {
-    // Your implementation here
-    
-}
-
-// Test cases
-console.log(twoSum([2, 7, 11, 15], 9)); // Expected: [0, 1]
-console.log(twoSum([3, 2, 4], 6)); // Expected: [1, 2]
-console.log(twoSum([3, 3], 6)); // Expected: [0, 1]`,
-        python: `def two_sum(nums, target):
-    # Your implementation here
-    pass
-
-# Test cases
-print(two_sum([2, 7, 11, 15], 9))  # Expected: [0, 1]
-print(two_sum([3, 2, 4], 6))  # Expected: [1, 2]
-print(two_sum([3, 3], 6))  # Expected: [0, 1]`,
-        java: `public class Solution {
-    public int[] twoSum(int[] nums, int target) {
-        // Your implementation here
-        return new int[0];
-    }
-    
-    public static void main(String[] args) {
-        Solution sol = new Solution();
-        // Test cases
-        int[] result1 = sol.twoSum(new int[]{2, 7, 11, 15}, 9);
-        int[] result2 = sol.twoSum(new int[]{3, 2, 4}, 6);
-        int[] result3 = sol.twoSum(new int[]{3, 3}, 6);
-        
-        // Print results
-        System.out.println(java.util.Arrays.toString(result1));
-        System.out.println(java.util.Arrays.toString(result2));
-        System.out.println(java.util.Arrays.toString(result3));
-    }
-}`
-      }
-    },
-    {
-      questionId: "q5",
-      question: "Write a function to reverse a string without using built-in reverse functions. Consider both iterative and recursive approaches.",
-      type: "coding",
-      category: "strings",
-      difficulty: "easy",
-      expectedDuration: 240,
-      starterCode: {
-        javascript: `function reverseString(str) {
-    // Your implementation here
-    
-}
-
-// Test cases
-console.log(reverseString("hello")); // Expected: "olleh"
-console.log(reverseString("world")); // Expected: "dlrow"
-console.log(reverseString("a")); // Expected: "a"
-console.log(reverseString("")); // Expected: ""`,
-        python: `def reverse_string(s):
-    # Your implementation here
-    pass
-
-# Test cases
-print(reverse_string("hello"))  # Expected: "olleh"
-print(reverse_string("world"))  # Expected: "dlrow"
-print(reverse_string("a"))  # Expected: "a"
-print(reverse_string(""))  # Expected: ""`,
-        java: `public class Solution {
-    public String reverseString(String s) {
-        // Your implementation here
-        return "";
-    }
-    
-    public static void main(String[] args) {
-        Solution sol = new Solution();
-        // Test cases
-        System.out.println(sol.reverseString("hello")); // Expected: "olleh"
-        System.out.println(sol.reverseString("world")); // Expected: "dlrow"
-        System.out.println(sol.reverseString("a")); // Expected: "a"
-        System.out.println(sol.reverseString("")); // Expected: ""
-    }
-}`
-      }
-    },
-    {
-      questionId: "q6",
-      question: "Given a binary tree, write a function to find its maximum depth (height). The maximum depth is the number of nodes along the longest path from root to leaf.",
-      type: "coding",
-      category: "data-structures",
-      difficulty: "medium",
-      expectedDuration: 360,
-      starterCode: {
-        javascript: `// Definition for a binary tree node
-function TreeNode(val, left, right) {
-    this.val = (val === undefined ? 0 : val);
-    this.left = (left === undefined ? null : left);
-    this.right = (right === undefined ? null : right);
-}
-
-function maxDepth(root) {
-    // Your implementation here
-    
-}
-
-// Test case
-// Create tree:    3
-//               /   \\
-//              9     20
-//                   /  \\
-//                  15   7
-const root = new TreeNode(3);
-root.left = new TreeNode(9);
-root.right = new TreeNode(20);
-root.right.left = new TreeNode(15);
-root.right.right = new TreeNode(7);
-
-console.log(maxDepth(root)); // Expected: 3`,
-        python: `# Definition for a binary tree node
-class TreeNode:
-    def __init__(self, val=0, left=None, right=None):
-        self.val = val
-        self.left = left
-        self.right = right
-
-def max_depth(root):
-    # Your implementation here
-    pass
-
-# Test case
-# Create tree:    3
-#               /   \\
-#              9     20
-#                   /  \\
-#                  15   7
-root = TreeNode(3)
-root.left = TreeNode(9)
-root.right = TreeNode(20)
-root.right.left = TreeNode(15)
-root.right.right = TreeNode(7)
-
-print(max_depth(root))  # Expected: 3`,
-        java: `// Definition for a binary tree node
-class TreeNode {
-    int val;
-    TreeNode left;
-    TreeNode right;
-    TreeNode() {}
-    TreeNode(int val) { this.val = val; }
-    TreeNode(int val, TreeNode left, TreeNode right) {
-        this.val = val;
-        this.left = left;
-        this.right = right;
-    }
-}
-
-public class Solution {
-    public int maxDepth(TreeNode root) {
-        // Your implementation here
-        return 0;
-    }
-    
-    public static void main(String[] args) {
-        Solution sol = new Solution();
-        
-        // Create tree:    3
-        //               /   \\
-        //              9     20
-        //                   /  \\
-        //                  15   7
-        TreeNode root = new TreeNode(3);
-        root.left = new TreeNode(9);
-        root.right = new TreeNode(20);
-        root.right.left = new TreeNode(15);
-        root.right.right = new TreeNode(7);
-        
-        System.out.println(sol.maxDepth(root)); // Expected: 3
-    }
-}`
-      }
-    },
-
-    // 4 Technical Theory Questions
-    {
-      questionId: "q7",
-      question: "Explain the difference between synchronous and asynchronous programming. Give examples of when you would use each approach and discuss the benefits and drawbacks.",
-      type: "technical",
-      category: "programming-concepts",
-      difficulty: "medium",
-      expectedDuration: 180,
-      starterCode: null
-    },
-    {
-      questionId: "q8",
-      question: "What is the difference between HTTP and HTTPS? Explain how HTTPS works and why it's important for web security.",
-      type: "technical",
-      category: "web-security",
-      difficulty: "medium",
-      expectedDuration: 150,
-      starterCode: null
-    },
-    {
-      questionId: "q9",
-      question: "Explain the concept of Object-Oriented Programming. What are the four main principles (encapsulation, inheritance, polymorphism, abstraction) and how do they benefit software development?",
-      type: "technical",
-      category: "oop",
-      difficulty: "medium",
-      expectedDuration: 200,
-      starterCode: null
-    },
-    {
-      questionId: "q10",
-      question: "What is the difference between SQL and NoSQL databases? When would you choose one over the other? Give examples of each type and their use cases.",
-      type: "technical",
-      category: "databases",
-      difficulty: "medium",
-      expectedDuration: 180,
-      starterCode: null
-    }
-  ];
-}
-
-// Validate and enhance AI-generated feedback
 function validateAndEnhanceFeedback(aiAnalysis, questionType, responseText, code) {
-  // Ensure all required fields exist with defaults
   const feedback = {
-    score: Math.max(0, Math.min(100, aiAnalysis.score || 50)),
-    strengths: Array.isArray(aiAnalysis.strengths) ? aiAnalysis.strengths : ['Attempted to answer the question'],
-    improvements: Array.isArray(aiAnalysis.improvements) ? aiAnalysis.improvements : ['Continue practicing'],
-    detailedAnalysis: aiAnalysis.detailedAnalysis || 'Response provided with room for improvement.',
-    communicationClarity: Math.max(1, Math.min(10, aiAnalysis.communicationClarity || 5)),
-    technicalAccuracy: Math.max(1, Math.min(10, aiAnalysis.technicalAccuracy || 5)),
-    structuredResponse: Math.max(1, Math.min(10, aiAnalysis.structuredResponse || 5))
+    score: Math.min(100, Math.max(0, aiAnalysis.score || 50)),
+    strengths: Array.isArray(aiAnalysis.strengths) ? aiAnalysis.strengths : ['Good effort'],
+    improvements: Array.isArray(aiAnalysis.improvements) ? aiAnalysis.improvements : ['Keep practicing'],
+    detailedAnalysis: aiAnalysis.detailedAnalysis || 'Response analyzed for intern-level expectations.',
+    communicationClarity: Math.min(10, Math.max(0, aiAnalysis.communicationClarity || 5)),
+    technicalAccuracy: Math.min(10, Math.max(0, aiAnalysis.technicalAccuracy || 5)),
+    structuredResponse: Math.min(10, Math.max(0, aiAnalysis.structuredResponse || 5))
   };
 
-  // Validation rules
+  // Ensure minimum encouragement for interns
   if (feedback.strengths.length === 0) {
-    feedback.strengths.push('Provided a response to the question');
+    feedback.strengths.push('Provided a response - good job attempting the question!');
   }
   
-  if (feedback.improvements.length === 0) {
-    feedback.improvements.push('Continue practicing to build confidence');
-  }
-
-  // Remove duplicates
-  feedback.strengths = [...new Set(feedback.strengths)];
-  feedback.improvements = [...new Set(feedback.improvements)];
-
-  // Limit arrays to reasonable sizes
-  feedback.strengths = feedback.strengths.slice(0, 4);
-  feedback.improvements = feedback.improvements.slice(0, 3);
-
   return feedback;
 }
 
-// Ensure feedback quality
-function ensureFeedbackQuality(feedback) {
-  if (feedback.strengths.length === 0) {
-    feedback.strengths.push('Attempted to provide a complete response');
-  }
+function generateBasicFeedback(responseText, questionType, responseTime) {
+  const wordCount = responseText.trim().split(/\s+/).length;
+  const baseScore = wordCount >= 10 ? 60 : 40; // Intern-appropriate scoring
   
-  if (feedback.improvements.length === 0) {
-    feedback.improvements.push('Continue practicing to build confidence and technical skills');
-  }
-
-  // Remove duplicates
-  feedback.strengths = [...new Set(feedback.strengths)];
-  feedback.improvements = [...new Set(feedback.improvements)];
-
-  // Ensure reasonable array sizes
-  feedback.strengths = feedback.strengths.slice(0, 4);
-  feedback.improvements = feedback.improvements.slice(0, 3);
-}
-
-// Clamp all scores to valid ranges
-function clampScores(feedback) {
-  feedback.score = Math.max(0, Math.min(100, feedback.score));
-  feedback.communicationClarity = Math.max(1, Math.min(10, feedback.communicationClarity));
-  feedback.technicalAccuracy = Math.max(1, Math.min(10, feedback.technicalAccuracy));
-  feedback.structuredResponse = Math.max(1, Math.min(10, feedback.structuredResponse));
-}
-
-function getDefaultStarterCode() {
   return {
-    javascript: `function solution() {
-    // Your implementation here
-    
-}
-
-// Test your solution
-console.log(solution());`,
-    python: `def solution():
-    # Your implementation here
-    pass
-
-# Test your solution
-print(solution())`,
-    java: `public class Solution {
-    public void solution() {
-        // Your implementation here
-        
-    }
-    
-    public static void main(String[] args) {
-        Solution sol = new Solution();
-        sol.solution();
-    }
-}`
+    score: baseScore,
+    strengths: [
+      'Attempted to answer the question',
+      wordCount >= 10 ? 'Provided adequate detail' : 'Showed effort in responding'
+    ],
+    improvements: [
+      wordCount < 10 ? 'Try to provide more detailed explanations' : 'Continue developing your technical communication skills',
+      'Keep practicing - you\'re doing great for intern level!'
+    ],
+    detailedAnalysis: `Response contains ${wordCount} words. ${questionType === 'coding' ? 'For coding questions, remember to include your code solution. ' : ''}This is good progress for an intern-level interview.`,
+    communicationClarity: Math.max(5, Math.min(8, wordCount >= 15 ? 7 : 5)),
+    technicalAccuracy: 6,
+    structuredResponse: 6
   };
 }
 
-async function generateInterviewQuestions(resumeText, jobDescription) {
-  try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    
-    const prompt = `You are a senior software engineering interviewer at a top tech company. Generate exactly 10 interview questions for a software engineering internship candidate.
-
-    Resume Summary: ${resumeText.substring(0, 2000)}
-    Job Description: ${jobDescription.substring(0, 2000)}
-
-    Generate questions in the following categories with EXACT distribution:
-    - 3 behavioral/soft skill questions (use type: "behavioral")
-    - 3 coding/algorithm questions (use type: "coding")  
-    - 4 technical theory questions (use type: "technical")
-
-    IMPORTANT: 
-    1. Only use these exact types: "behavioral", "technical", "coding"
-    2. Must be exactly 10 questions total
-    3. Must follow the exact distribution: 3 behavioral + 3 coding + 4 technical = 10
-
-    BEHAVIORAL QUESTIONS should focus on:
-    - Past experiences and projects
-    - Team collaboration and leadership
-    - Problem-solving in real situations
-    - Learning from challenges and failures
-    - Communication and interpersonal skills
-
-    CODING QUESTIONS should include:
-    - Algorithm problems (arrays, strings, sorting)
-    - Data structure problems (trees, graphs, hash maps)
-    - Problem-solving with code implementation
-    - Time/space complexity considerations
-
-    TECHNICAL THEORY QUESTIONS should cover:
-    - Programming concepts (OOP, functional programming)
-    - System design basics
-    - Database concepts
-    - Web development fundamentals
-    - Software engineering principles
-
-    Format your response as a JSON array with this structure:
-    [
-      {
-        "questionId": "q1",
-        "question": "Tell me about a challenging project you worked on and how you overcame obstacles",
-        "type": "behavioral",
-        "category": "experience",
-        "difficulty": "medium",
-        "expectedDuration": 180,
-        "starterCode": null
-      },
-      {
-        "questionId": "q2",
-        "question": "Write a function that finds the two numbers in an array that add up to a target sum",
-        "type": "coding",
-        "category": "algorithms",
-        "difficulty": "medium",
-        "expectedDuration": 300,
-        "starterCode": {
-          "javascript": "function twoSum(nums, target) {\n    // Your implementation here\n    \n}\n\n// Test cases\nconsole.log(twoSum([2, 7, 11, 15], 9)); // Expected: [0, 1]",
-          "python": "def two_sum(nums, target):\n    # Your implementation here\n    pass\n\n# Test cases\nprint(two_sum([2, 7, 11, 15], 9))  # Expected: [0, 1]",
-          "java": "public int[] twoSum(int[] nums, int target) {\n    // Your implementation here\n    return new int[0];\n}"
-        }
-      }
-    ]
-
-    Make questions specific to the candidate's background and internship level. Focus on:
-    - Learning experiences and growth potential
-    - Technical fundamentals appropriate for interns
-    - Problem-solving approach and thinking process
-    - Real-world application of concepts
-    - Specific technologies mentioned in resume/job description
-
-    Ensure coding questions have appropriate starter code templates for JavaScript, Python, and Java.
-
-    Return only valid JSON, no explanations or additional text.`;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const questionsText = response.text().trim();
-    
-    console.log('Raw AI response:', questionsText);
-    
-    const cleanedText = questionsText.replace(/```json\s*|```\s*/g, '').trim();
-    const questions = JSON.parse(cleanedText);
-
-    // Validate the distribution
-    const distribution = {
-      behavioral: questions.filter(q => normalizeQuestionType(q.type) === 'behavioral').length,
-      coding: questions.filter(q => normalizeQuestionType(q.type) === 'coding').length,
-      technical: questions.filter(q => normalizeQuestionType(q.type) === 'technical').length
-    };
-
-    console.log('Question distribution:', distribution);
-
-    // If distribution is incorrect, use fallback questions
-    if (questions.length !== 10 || distribution.behavioral !== 3 || distribution.coding !== 3 || distribution.technical !== 4) {
-      console.log('AI generated incorrect distribution, using fallback questions');
-      return getEnhancedDefaultQuestions();
-    }
-
-    // Normalize and validate question types
-    return questions.map((q, index) => ({
-      ...q,
-      questionId: q.questionId || `q${index + 1}`,
-      type: normalizeQuestionType(q.type),
-      expectedDuration: q.expectedDuration || getDefaultDuration(normalizeQuestionType(q.type)),
-      category: q.category || 'general',
-      difficulty: q.difficulty || 'medium',
-      starterCode: q.starterCode || (normalizeQuestionType(q.type) === 'coding' ? getDefaultStarterCode() : null)
-    }));
-
-  } catch (error) {
-    console.error('Generate questions error:', error);
-    console.log('Falling back to enhanced default questions...');
-    return getEnhancedDefaultQuestions();
-  }
-}
-
-// Helper function for backward compatibility with existing code
-async function analyzeResponseLegacy(question, transcript, questionType, resumeText, jobDescription, responseTime) {
-  try {
-    const analysis = await generateComprehensiveFeedback(
-      question,
-      questionType,
-      transcript,
-      null, // code not provided in this context
-      responseTime,
-      120 // default expected duration
-    );
-    
-    // Return in legacy format for backward compatibility
-    return {
-      feedback: analysis
-    };
-  } catch (error) {
-    console.error('Response analysis error:', error);
-    return {
-      feedback: getDefaultAnalysis()
-    };
-  }
-}
-
-function getDefaultDuration(type) {
-  switch (type) {
-    case 'behavioral': return 180;
-    case 'coding': return 300;
-    case 'technical': return 150;
-    default: return 120;
-  }
-}
-
+// Add the missing generateOverallFeedback function
 async function generateOverallFeedback(responses, resumeText, jobDescription) {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
-    const responseSummary = responses.map(r => ({
-      question: r.question,
-      score: r.feedback?.score || 70,
-      strengths: r.feedback?.strengths || [],
-      improvements: r.feedback?.improvements || []
+    const averageScore = responses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / responses.length;
+    const responsesSummary = responses.map(r => ({
+      type: r.question?.includes('behavioral') ? 'behavioral' : r.question?.includes('coding') ? 'coding' : 'technical',
+      score: r.feedback?.score || 0,
+      length: r.textResponse?.length || 0
     }));
 
-    const prompt = `Generate comprehensive feedback for a software engineering intern interview:
+    const prompt = `Provide overall feedback for a SOFTWARE ENGINEERING INTERN candidate who completed ${responses.length} interview questions.
 
-    Responses Summary: ${JSON.stringify(responseSummary, null, 2)}
-    
-    Provide overall assessment in JSON format:
-    {
-      "score": 78,
-      "feedback": {
-        "technicalSkills": {
-          "score": 80,
-          "feedback": "Strong foundation in programming concepts..."
-        },
-        "communicationSkills": {
-          "score": 85,
-          "feedback": "Clear and articulate responses..."
-        },
-        "problemSolving": {
-          "score": 70,
-          "feedback": "Good approach to breaking down problems..."
-        },
-        "recommendations": [
-          "Practice more coding problems",
-          "Work on explaining technical concepts clearly"
-        ],
-        "strengths": ["Good communication", "Technical knowledge"],
-        "areasForImprovement": ["More practice needed", "Expand project portfolio"]
-      }
+CANDIDATE PERFORMANCE SUMMARY:
+- Average Score: ${averageScore.toFixed(1)}
+- Question Types: ${responsesSummary.map(r => r.type).join(', ')}
+- Response Quality: ${responsesSummary.map(r => `${r.type}:${r.score}`).join(', ')}
+
+CANDIDATE'S BACKGROUND:
+${resumeText.substring(0, 500)}...
+
+JOB REQUIREMENTS:
+${jobDescription.substring(0, 300)}...
+
+Provide intern-appropriate feedback focusing on:
+1. Growth potential and learning attitude
+2. Technical foundation for intern level
+3. Areas to develop before/during internship
+4. Encouraging, constructive recommendations
+
+Return ONLY valid JSON:
+{
+  "score": ${Math.round(averageScore)},
+  "feedback": {
+    "strengths": ["strength1", "strength2", "strength3"],
+    "improvements": ["improvement1", "improvement2", "improvement3"],
+    "recommendations": ["rec1", "rec2", "rec3"],
+    "categoryScores": {
+      "technicalSkills": ${Math.round(averageScore)},
+      "communicationSkills": ${Math.round(averageScore)},
+      "problemSolving": ${Math.round(averageScore)}
     }
-
-    Focus on intern-level expectations and growth potential.`;
+  }
+}`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -1729,95 +1365,38 @@ async function generateOverallFeedback(responses, resumeText, jobDescription) {
     return JSON.parse(cleanedText);
 
   } catch (error) {
-    console.error('Overall feedback error:', error);
-    return getDefaultOverallFeedback(responses);
+    console.error('Overall feedback generation failed:', error);
+    return generateFallbackOverallFeedback(responses);
   }
 }
 
-function getDefaultQuestions() {
-  return [
-    {
-      questionId: "q1",
-      question: "Tell me about yourself and why you're interested in software engineering",
-      type: "behavioral",
-      category: "introduction",
-      difficulty: "easy",
-      expectedDuration: 120
-    },
-    {
-      questionId: "q2",
-      question: "Describe a challenging programming project you've worked on",
-      type: "behavioral",
-      category: "experience",
-      difficulty: "medium",
-      expectedDuration: 180
-    },
-    {
-      questionId: "q3",
-      question: "How do you approach debugging a piece of code that isn't working?",
-      type: "technical",
-      category: "problem-solving",
-      difficulty: "medium",
-      expectedDuration: 150
-    },
-    {
-      questionId: "q4",
-      question: "Explain the difference between a stack and a queue",
-      type: "technical",
-      category: "data-structures",
-      difficulty: "easy",
-      expectedDuration: 120
-    },
-    {
-      questionId: "q5",
-      question: "How would you find the maximum element in an unsorted array?",
-      type: "coding",
-      category: "algorithms",
-      difficulty: "medium",
-      expectedDuration: 180
-    }
-  ];
-}
-
-function getDefaultAnalysis() {
+function generateFallbackOverallFeedback(responses) {
+  const averageScore = responses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / responses.length;
+  
   return {
-    score: 70,
-    strengths: ["Attempted to answer the question"],
-    improvements: ["Provide more specific examples", "Practice technical terminology"],
-    detailedAnalysis: "The response shows basic understanding but could benefit from more specific examples and clearer structure.",
-    communicationClarity: 7,
-    technicalAccuracy: 6,
-    structuredResponse: 7
-  };
-}
-
-function getDefaultOverallFeedback(responses) {
-  const avgScore = responses.length > 0 
-    ? responses.reduce((acc, r) => acc + ((r.feedback && r.feedback.score) || 70), 0) / responses.length 
-    : 70;
-
-  return {
-    score: Math.round(avgScore),
+    score: Math.round(averageScore),
     feedback: {
-      technicalSkills: {
-        score: Math.round(avgScore),
-        feedback: "Shows basic understanding of software engineering concepts with room for growth"
-      },
-      communicationSkills: {
-        score: Math.round(avgScore),
-        feedback: "Communicates clearly with room for improvement in structure and examples"
-      },
-      problemSolving: {
-        score: Math.round(avgScore),
-        feedback: "Demonstrates logical thinking approach but could benefit from more systematic problem-solving"
-      },
-      recommendations: [
-        "Practice coding problems regularly",
-        "Work on explaining technical concepts clearly",
-        "Build more projects to gain practical experience"
+      strengths: [
+        'Completed all interview questions',
+        'Demonstrated willingness to learn',
+        'Showed problem-solving effort'
       ],
-      strengths: ["Shows enthusiasm for learning", "Basic technical understanding"],
-      areasForImprovement: ["Need more hands-on project experience", "Improve technical communication"]
+      improvements: [
+        'Continue practicing technical interviews',
+        'Work on providing more detailed explanations',
+        'Keep building hands-on coding experience'
+      ],
+      recommendations: [
+        'Practice coding problems regularly',
+        'Work on personal projects to gain experience',
+        'Study fundamental computer science concepts',
+        'Practice explaining technical concepts clearly'
+      ],
+      categoryScores: {
+        technicalSkills: Math.round(averageScore),
+        communicationSkills: Math.round(averageScore * 0.9),
+        problemSolving: Math.round(averageScore * 1.1)
+      }
     }
   };
 }

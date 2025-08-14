@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Mic, MicOff, Play, Pause, ChevronRight, Clock, User, FileText, BarChart3, CheckCircle, AlertCircle, Volume2, Code, Terminal, Send, Type, Headphones } from 'lucide-react';
+import { Mic, MicOff, Play, Pause, ChevronRight, Clock, User, FileText, BarChart3, CheckCircle, AlertCircle, Volume2, Code, Terminal, Send, Type, Headphones, Upload, Download, FileCheck, RefreshCw } from 'lucide-react';
 
 const MockInterviewSystem = () => {
-  // Main state
   const [currentStep, setCurrentStep] = useState('setup'); 
   const [interviewData, setInterviewData] = useState({
     jobTitle: '',
@@ -10,6 +9,7 @@ const MockInterviewSystem = () => {
     resumeText: ''
   });
   const [interview, setInterview] = useState(null);
+  const [questions, setQuestions] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
@@ -21,31 +21,32 @@ const MockInterviewSystem = () => {
   const [feedback, setFeedback] = useState(null);
   const [user, setUser] = useState(null);
   
-  // Audio states
   const [audioStream, setAudioStream] = useState(null);
   const [recordingTime, setRecordingTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioPermission, setAudioPermission] = useState(false);
   const [audioError, setAudioError] = useState('');
   
-  // Answer input states
   const [answerMode, setAnswerMode] = useState('audio');
   const [textAnswer, setTextAnswer] = useState('');
   const [transcription, setTranscription] = useState('');
   const [transcriptionError, setTranscriptionError] = useState('');
   const [isTranscribing, setIsTranscribing] = useState(false);
   
-  // Code editor states
   const [code, setCode] = useState('');
   const [language, setLanguage] = useState('javascript');
   const [codeOutput, setCodeOutput] = useState('');
   const [showCodeEditor, setShowCodeEditor] = useState(false);
 
-  // Debug states
+  const [cvMode, setCvMode] = useState('profile');
+  const [profileCV, setProfileCV] = useState(null);
+  const [cvLoading, setCvLoading] = useState(false);
+  const [cvError, setCvError] = useState('');
+  const [uploadedFile, setUploadedFile] = useState(null);
+
   const [debugMode, setDebugMode] = useState(false);
   const [debugLogs, setDebugLogs] = useState([]);
 
-  // Refs
   const mediaRecorderRef = useRef(null);
   const audioStreamRef = useRef(null);
   const timerRef = useRef(null);
@@ -54,158 +55,8 @@ const MockInterviewSystem = () => {
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const fileInputRef = useRef(null);
 
-  const mockQuestions = useMemo(() => [
-  // 3 Behavioral Questions
-  {
-    questionId: 'q1',
-    type: 'behavioral',
-    question: 'Tell me about yourself and why you\'re passionate about software engineering. What draws you to this field?',
-    expectedDuration: 120
-  },
-  {
-    questionId: 'q2',
-    type: 'behavioral',
-    question: 'Describe a challenging programming project you worked on. What obstacles did you face and how did you overcome them?',
-    expectedDuration: 180
-  },
-  {
-    questionId: 'q3',
-    type: 'behavioral',
-    question: 'Tell me about a time you had to work in a team on a software project. How did you handle collaboration and any conflicts?',
-    expectedDuration: 180
-  },
-
-  // 3 Coding Questions
-  {
-    questionId: 'q4',
-    type: 'technical_coding',
-    question: 'Write a function that finds the two numbers in an array that add up to a target sum. Return their indices.',
-    expectedDuration: 300,
-    starterCode: {
-      javascript: `function twoSum(nums, target) {
-    // Your implementation here
-    
-}
-
-// Test cases
-console.log(twoSum([2, 7, 11, 15], 9)); // Expected: [0, 1]
-console.log(twoSum([3, 2, 4], 6)); // Expected: [1, 2]`,
-      python: `def two_sum(nums, target):
-    # Your implementation here
-    pass
-
-# Test cases
-print(two_sum([2, 7, 11, 15], 9))  # Expected: [0, 1]
-print(two_sum([3, 2, 4], 6))  # Expected: [1, 2]`,
-      java: `public class Solution {
-    public int[] twoSum(int[] nums, int target) {
-        // Your implementation here
-        return new int[0];
-    }
-    
-    public static void main(String[] args) {
-        Solution sol = new Solution();
-        // Test cases
-        int[] result1 = sol.twoSum(new int[]{2, 7, 11, 15}, 9);
-        int[] result2 = sol.twoSum(new int[]{3, 2, 4}, 6);
-    }
-}`
-    }
-  },
-  {
-    questionId: 'q5',
-    type: 'technical_coding',
-    question: 'Write a function to reverse a string without using built-in reverse functions.',
-    expectedDuration: 240,
-    starterCode: {
-      javascript: `function reverseString(str) {
-    // Your implementation here
-    
-}
-
-// Test cases
-console.log(reverseString("hello")); // Expected: "olleh"`,
-      python: `def reverse_string(s):
-    # Your implementation here
-    pass
-
-# Test cases
-print(reverse_string("hello"))  # Expected: "olleh"`,
-      java: `public class Solution {
-    public String reverseString(String s) {
-        // Your implementation here
-        return "";
-    }
-}`
-    }
-  },
-  {
-    questionId: 'q6',
-    type: 'technical_coding',
-    question: 'Given a binary tree, write a function to find its maximum depth.',
-    expectedDuration: 360,
-    starterCode: {
-      javascript: `function TreeNode(val, left, right) {
-    this.val = val;
-    this.left = left || null;
-    this.right = right || null;
-}
-
-function maxDepth(root) {
-    // Your implementation here
-    
-}`,
-      python: `class TreeNode:
-    def __init__(self, val=0, left=None, right=None):
-        self.val = val
-        self.left = left
-        self.right = right
-
-def max_depth(root):
-    # Your implementation here
-    pass`,
-      java: `class TreeNode {
-    int val;
-    TreeNode left;
-    TreeNode right;
-}
-
-public int maxDepth(TreeNode root) {
-    // Your implementation here
-    return 0;
-}`
-    }
-  },
-
-  // 4 Technical Theory Questions
-  {
-    questionId: 'q7',
-    type: 'technical_conceptual',
-    question: 'Explain the difference between synchronous and asynchronous programming. Give examples of when you would use each approach.',
-    expectedDuration: 180
-  },
-  {
-    questionId: 'q8',
-    type: 'technical_conceptual',
-    question: 'What is the difference between HTTP and HTTPS? Explain how HTTPS works and why it\'s important for web security.',
-    expectedDuration: 150
-  },
-  {
-    questionId: 'q9',
-    type: 'technical_conceptual',
-    question: 'Explain Object-Oriented Programming principles: encapsulation, inheritance, polymorphism, and abstraction.',
-    expectedDuration: 200
-  },
-  {
-    questionId: 'q10',
-    type: 'technical_conceptual',
-    question: 'What is the difference between SQL and NoSQL databases? When would you choose one over the other?',
-    expectedDuration: 180
-  }
-], []);
-
-  // Debug logger - memoized to prevent re-creation
   const addDebugLog = useCallback((message, type = 'info') => {
     const log = {
       timestamp: new Date().toLocaleTimeString(),
@@ -216,17 +67,12 @@ public int maxDepth(TreeNode root) {
     console.log(`[${type.toUpperCase()}] ${message}`);
   }, []);
 
-  // Memoize handler functions to prevent re-creation
   const handleJobTitleChange = useCallback((e) => {
     setInterviewData(prev => ({ ...prev, jobTitle: e.target.value }));
   }, []);
 
   const handleJobDescriptionChange = useCallback((e) => {
     setInterviewData(prev => ({ ...prev, jobDescription: e.target.value }));
-  }, []);
-
-  const handleResumeTextChange = useCallback((e) => {
-    setInterviewData(prev => ({ ...prev, resumeText: e.target.value }));
   }, []);
 
   const handleTextAnswerChange = useCallback((e) => {
@@ -248,7 +94,6 @@ public int maxDepth(TreeNode root) {
     setCodeOutput('');
   }, [currentQuestion]);
 
-  // Check authentication on component mount
   useEffect(() => {
     checkAuthentication();
   }, []);
@@ -283,6 +128,7 @@ public int maxDepth(TreeNode root) {
         setUser(result.user);
         setError(''); 
         addDebugLog(`User authenticated: ${result.user.name}`);
+        loadProfileCV();
       } else {
         setError(result.message || 'Please log in to access the mock interview system.');
         addDebugLog('Authentication failed - no user found', 'error');
@@ -294,7 +140,167 @@ public int maxDepth(TreeNode root) {
     }
   };
 
-  // Audio Recording Functions
+  const loadProfileCV = async () => {
+    try {
+      setCvLoading(true);
+      setCvError('');
+      addDebugLog('Loading profile CV...');
+      
+      const response = await fetch('/api/user/cv', {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        }
+      });
+
+      const result = await response.json();
+      addDebugLog(`CV response: ${JSON.stringify(result)}`);
+      
+      if (result.success && result.data) {
+        if (result.data.hasText && result.data.textLength > 0) {
+          await loadCVText(result.data);
+        } else {
+          addDebugLog('CV found but no text content, switching to upload mode');
+          setCvMode('upload');
+          setProfileCV(null);
+        }
+      } else {
+        addDebugLog('No CV found in profile, switching to upload mode');
+        setCvMode('upload');
+        setProfileCV(null);
+      }
+      
+    } catch (err) {
+      console.error('Failed to load profile CV:', err);
+      addDebugLog(`Failed to load profile CV: ${err.message}`, 'error');
+      setCvError(err.message);
+      setCvMode('upload');
+    } finally {
+      setCvLoading(false);
+    }
+  };
+
+  const loadCVText = async (cvMetadata) => {
+    try {
+      addDebugLog('Loading CV text content...');
+      
+      const textResponse = await fetch('/api/user/cv/text', {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        }
+      });
+
+      const contentType = textResponse.headers.get('content-type');
+      
+      if (textResponse.ok && contentType && contentType.includes('application/json')) {
+        try {
+          const textResult = await textResponse.json();
+          if (textResult.success && textResult.text) {
+            const cvData = {
+              text: textResult.text,
+              fileName: cvMetadata.fileName,
+              fileSize: cvMetadata.fileSize,
+              uploadedAt: cvMetadata.uploadedAt,
+              age: cvMetadata.uploadedAt ? Math.floor((Date.now() - new Date(cvMetadata.uploadedAt)) / (1000 * 60 * 60 * 24)) + ' days' : null
+            };
+            setProfileCV(cvData);
+            setInterviewData(prev => ({ ...prev, resumeText: cvData.text }));
+            setCvMode('profile');
+            addDebugLog(`Profile CV loaded: ${cvData.text.length} characters`);
+            return;
+          }
+        } catch (jsonError) {
+          addDebugLog(`JSON parse error: ${jsonError.message}`, 'error');
+        }
+      } else {
+        addDebugLog(`CV text endpoint not available (status: ${textResponse.status})`, 'warn');
+      }
+
+      const cvData = {
+        text: `RESUME/CV
+        
+Name: ${cvMetadata.fileName ? cvMetadata.fileName.replace(/\.(pdf|docx?|txt)$/i, '').replace(/[_-]/g, ' ') : 'Candidate'}
+Document: ${cvMetadata.fileName}
+File Size: ${cvMetadata.fileSize ? Math.round(cvMetadata.fileSize / 1024) + 'KB' : 'N/A'}
+Upload Date: ${cvMetadata.uploadedAt ? new Date(cvMetadata.uploadedAt).toLocaleDateString() : 'N/A'}
+
+[Your CV content would be extracted here from the uploaded ${cvMetadata.fileName}]
+
+This CV contains your professional experience, skills, education, and qualifications that will be used to customize the interview questions and provide relevant feedback.
+
+Note: The actual CV text extraction would require server-side processing of the uploaded PDF/DOCX file.`,
+        fileName: cvMetadata.fileName,
+        fileSize: cvMetadata.fileSize,
+        uploadedAt: cvMetadata.uploadedAt,
+        age: cvMetadata.uploadedAt ? Math.floor((Date.now() - new Date(cvMetadata.uploadedAt)) / (1000 * 60 * 60 * 24)) + ' days' : null
+      };
+      
+      setProfileCV(cvData);
+      setInterviewData(prev => ({ ...prev, resumeText: cvData.text }));
+      setCvMode('profile');
+      addDebugLog(`Profile CV loaded (placeholder): ${cvData.fileName}`);
+      
+    } catch (err) {
+      addDebugLog(`Failed to load CV text: ${err.message}`, 'error');
+      setCvError('Could not load CV text content. Please try uploading a new file.');
+      setCvMode('upload');
+    }
+  };
+
+  const handleCvModeChange = useCallback((mode) => {
+    setCvMode(mode);
+    setCvError('');
+    
+    if (mode === 'profile' && profileCV) {
+      setInterviewData(prev => ({ ...prev, resumeText: profileCV.text }));
+    } else if (mode === 'upload') {
+      setInterviewData(prev => ({ ...prev, resumeText: '' }));
+      setUploadedFile(null);
+    }
+  }, [profileCV]);
+
+  const handleFileUpload = useCallback(async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const validTypes = ['application/pdf', 'text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    if (!validTypes.includes(file.type)) {
+      setCvError('Please upload a PDF, TXT, or DOCX file');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setCvError('File size must be less than 5MB');
+      return;
+    }
+
+    setUploadedFile(file);
+    setCvError('');
+    addDebugLog(`File selected: ${file.name} (${file.size} bytes)`);
+
+    try {
+      if (file.type === 'text/plain') {
+        const text = await file.text();
+        setInterviewData(prev => ({ ...prev, resumeText: text }));
+        addDebugLog('Plain text file processed');
+      } else {
+        setInterviewData(prev => ({ 
+          ...prev, 
+          resumeText: `[${file.name}] CV content will be processed by the server. Please ensure your CV contains relevant work experience, skills, and education details.` 
+        }));
+        addDebugLog('PDF/DOCX file uploaded - would be processed by server');
+      }
+    } catch (err) {
+      setCvError('Failed to process file');
+      addDebugLog(`File processing error: ${err.message}`, 'error');
+    }
+  }, [addDebugLog]);
+
   const initializeAudio = async () => {
     try {
       addDebugLog('Initializing audio...');
@@ -427,6 +433,9 @@ public int maxDepth(TreeNode root) {
       const response = await fetch('/api/interviews/transcribe', {
         method: 'POST',
         credentials: 'include',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
         body: formData
       });
 
@@ -485,7 +494,6 @@ public int maxDepth(TreeNode root) {
     }
   };
 
-  // Code execution
   const executeCode = () => {
     try {
       setCodeOutput('Running code...\n');
@@ -523,114 +531,204 @@ public int maxDepth(TreeNode root) {
     }
   };
 
-  // Helper functions
   const isSetupValid = useCallback(() => {
     return interviewData.jobTitle && interviewData.jobDescription && interviewData.resumeText;
   }, [interviewData]);
 
   const createInterview = useCallback(async () => {
-    if (!user) {
-      setError('Please log in to start an interview');
-      return;
+  if (!user) {
+    setError('Please log in to start an interview');
+    return;
+  }
+
+  setLoading(true);
+  setError('');
+  addDebugLog('Creating interview...');
+
+  try {
+    const endpoint = cvMode === 'profile' && profileCV 
+      ? '/api/interviews/create-with-profile-cv'
+      : '/api/interviews/create';
+
+    const requestBody = {
+      jobTitle: interviewData.jobTitle.trim(),
+      jobDescription: interviewData.jobDescription.trim(),
+      ...(cvMode === 'profile' && profileCV 
+        ? { useProfileCV: true }
+        : { resumeText: interviewData.resumeText.trim() }
+      )
+    };
+
+    addDebugLog(`Creating interview with endpoint: ${endpoint}`);
+    addDebugLog(`Request body: ${JSON.stringify({...requestBody, resumeText: requestBody.resumeText ? `${requestBody.resumeText.substring(0, 100)}...` : undefined})}`);
+
+    const interviewResponse = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      credentials: 'include',
+      body: JSON.stringify(requestBody)
+    });
+
+    const interviewResult = await interviewResponse.json();
+    addDebugLog(`Interview creation response: ${JSON.stringify({
+      success: interviewResult.success,
+      interviewId: interviewResult.interview?.id,
+      questionsCount: interviewResult.interview?.questions?.length,
+      error: interviewResult.error
+    })}`);
+    
+    if (!interviewResult.success) {
+      throw new Error(interviewResult.error || 'Failed to create interview');
     }
 
-    setLoading(true);
-    setError('');
-    addDebugLog('Creating interview...');
-
-    try {
-      const interviewResponse = await fetch('/api/interviews/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          jobTitle: interviewData.jobTitle,
-          jobDescription: interviewData.jobDescription,
-          resumeText: interviewData.resumeText
-        })
-      });
-
-      const interviewResult = await interviewResponse.json();
-      addDebugLog(`Interview creation response: ${interviewResult.success}`);
-      
-      if (!interviewResult.success) {
-        throw new Error(interviewResult.error || 'Failed to create interview');
-      }
-
-      setInterview(interviewResult.interview);
-      addDebugLog('Interview created successfully');
-      
-      await startInterview(interviewResult.interview.id);
-      
-    } catch (err) {
-      addDebugLog(`Interview creation failed: ${err.message}`, 'error');
-      setError(err.message);
-    } finally {
-      setLoading(false);
+    if (!interviewResult.interview || !interviewResult.interview.questions || interviewResult.interview.questions.length === 0) {
+      throw new Error('Interview created but no questions were generated');
     }
-  }, [user, interviewData, addDebugLog]);
+
+    setInterview(interviewResult.interview);
+    setQuestions(interviewResult.interview.questions);
+    addDebugLog(`Interview created successfully with ${interviewResult.interview.questions.length} questions`);
+    
+    // Start the interview
+    await startInterview(interviewResult.interview.id);
+    
+  } catch (err) {
+    addDebugLog(`Interview creation failed: ${err.message}`, 'error');
+    setError(`Failed to create interview: ${err.message}`);
+  } finally {
+    setLoading(false);
+  }
+}, [user, interviewData, cvMode, profileCV, addDebugLog]);
 
   const startInterview = async (interviewId) => {
-    try {
-      addDebugLog('Starting interview...');
-      const response = await fetch(`/api/interviews/${interviewId}/start`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+  try {
+    addDebugLog(`Starting interview with ID: ${interviewId}...`);
+    const response = await fetch(`/api/interviews/${interviewId}/start`, {
+      method: 'PUT',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      credentials: 'include'
+    });
+
+    const result = await response.json();
+    addDebugLog(`Start interview response: ${JSON.stringify(result)}`);
+    
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to start interview');
+    }
+
+    // Use the first question from the result or from the questions array
+    const firstQuestion = result.firstQuestion || result.questions?.[0] || questions[0];
+    
+    if (!firstQuestion) {
+      throw new Error('No questions available to start the interview');
+    }
+
+    setCurrentQuestion(firstQuestion);
+    setQuestionIndex(0);
+    setCode(firstQuestion.starterCode?.[language] || '');
+    setShowCodeEditor(firstQuestion.type === 'coding' || firstQuestion.type === 'technical_coding');
+    setCurrentStep('interview');
+    startTimer();
+    
+    addDebugLog(`Interview started successfully with first question: ${firstQuestion.question.substring(0, 50)}...`);
+    
+  } catch (err) {
+    addDebugLog(`Start interview failed: ${err.message}`, 'error');
+    setError(`Failed to start interview: ${err.message}`);
+  }
+};
+  const submitAnswer = async () => {
+  const responseText = answerMode === 'audio' ? transcription : textAnswer;
+  
+  if (!responseText || responseText.trim().length === 0) {
+    setError('Please provide a valid response before submitting');
+    return;
+  }
+
+  setLoading(true);
+  setError('');
+  addDebugLog(`Submitting answer for question ${questionIndex + 1}...`);
+
+  try {
+    // Calculate actual response time for this question
+    const questionStartTime = timer - (responses.length * 150); // Rough estimate
+    const actualResponseTime = Math.max(questionStartTime, 30); // Minimum 30 seconds
+
+    // Submit to backend API
+    const submitData = {
+      questionId: currentQuestion.questionId,
+      responseTime: actualResponseTime,
+      answerMode: answerMode,
+      responseText: responseText,
+      code: (currentQuestion.type === 'coding' || currentQuestion.type === 'technical_coding') ? code : null
+    };
+
+    addDebugLog(`Submitting to backend: ${JSON.stringify(submitData)}`);
+
+    // Call the actual backend API to submit answer
+    const submitResponse = await fetch(`/api/interviews/${interview.id}/submit-answer`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      credentials: 'include',
+      body: JSON.stringify(submitData)
+    });
+
+    const submitResult = await submitResponse.json();
+    addDebugLog(`Submit response: ${JSON.stringify(submitResult)}`);
+    
+    if (!submitResult.success) {
+      throw new Error(submitResult.error || 'Failed to submit answer');
+    }
+
+    // Store response locally for UI
+    const response = {
+      questionId: currentQuestion.questionId,
+      question: currentQuestion.question,
+      transcription: answerMode === 'audio' ? transcription : null,
+      textResponse: answerMode === 'text' ? textAnswer : null,
+      responseTime: actualResponseTime,
+      code: (currentQuestion.type === 'coding' || currentQuestion.type === 'technical_coding') ? code : null,
+      answerMode: answerMode,
+      timestamp: new Date().toISOString(),
+      feedback: submitResult.feedback || null
+    };
+
+    setResponses(prev => [...prev, response]);
+    addDebugLog(`Answer submitted successfully for question ${questionIndex + 1}`);
+
+    // Check if there are more questions
+    if (questionIndex < questions.length - 1) {
+      // Get next question from backend
+      addDebugLog(`Getting next question (${questionIndex + 2}/${questions.length})...`);
+      
+      const nextResponse = await fetch(`/api/interviews/${interview.id}/next-question`, {
+        method: 'GET',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
         credentials: 'include'
       });
 
-      const result = await response.json();
-      addDebugLog(`Start interview response: ${result.success}`);
+      const nextResult = await nextResponse.json();
+      addDebugLog(`Next question response: ${JSON.stringify(nextResult)}`);
       
-      if (!result.success) {
-        throw new Error(result.error);
-      }
-
-      const firstQuestion = mockQuestions[0];
-      setCurrentQuestion(firstQuestion);
-      setCode(firstQuestion.starterCode?.[language] || '');
-      setShowCodeEditor(firstQuestion.type === 'technical_coding');
-      setCurrentStep('interview');
-      startTimer();
-      addDebugLog('Interview started successfully');
-      
-    } catch (err) {
-      addDebugLog(`Start interview failed: ${err.message}`, 'error');
-      setError(err.message);
-    }
-  };
-
-  const submitAnswer = async () => {
-    const responseText = answerMode === 'audio' ? transcription : textAnswer;
-    
-    if (!responseText || responseText.trim().length === 0) {
-      setError('Please provide a valid response before submitting');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    addDebugLog(`Submitting answer for question ${questionIndex + 1}...`);
-
-    try {
-      const response = {
-        questionId: currentQuestion.questionId,
-        question: currentQuestion.question,
-        transcription: answerMode === 'audio' ? transcription : null,
-        textResponse: answerMode === 'text' ? textAnswer : null,
-        responseTime: timer - (responses.length * 150),
-        code: currentQuestion.type === 'technical_coding' ? code : null,
-        answerMode: answerMode,
-        timestamp: new Date().toISOString()
-      };
-
-      setResponses(prev => [...prev, response]);
-      addDebugLog(`Answer submitted for question ${questionIndex + 1}`);
-
-      if (questionIndex < mockQuestions.length - 1) {
-        const nextQuestion = mockQuestions[questionIndex + 1];
+      if (nextResult.success && !nextResult.completed) {
+        // Move to next question
+        const nextQuestion = nextResult.question || questions[questionIndex + 1];
         setCurrentQuestion(nextQuestion);
         setQuestionIndex(prev => prev + 1);
+        
+        // Reset form state
         setAudioBlob(null);
         setRecordingTime(0);
         setTextAnswer('');
@@ -638,25 +736,67 @@ public int maxDepth(TreeNode root) {
         setTranscriptionError('');
         setCode(nextQuestion.starterCode?.[language] || '');
         setCodeOutput('');
-        setShowCodeEditor(nextQuestion.type === 'technical_coding');
-        addDebugLog(`Moved to question ${questionIndex + 2}`);
+        setShowCodeEditor(nextQuestion.type === 'coding' || nextQuestion.type === 'technical_coding');
+        
+        addDebugLog(`Moved to question ${questionIndex + 2}: ${nextQuestion.question.substring(0, 50)}...`);
       } else {
-        addDebugLog('Completing interview...');
-        completeInterview();
+        // All questions completed
+        addDebugLog('All questions completed, finishing interview...');
+        await completeInterview();
       }
-      
-    } catch (err) {
-      addDebugLog(`Submit answer failed: ${err.message}`, 'error');
-      setError(err.message);
-    } finally {
-      setLoading(false);
+    } else {
+      // Last question completed
+      addDebugLog('Last question completed, finishing interview...');
+      await completeInterview();
     }
-  };
-
-  const completeInterview = async () => {
-    try {
-      addDebugLog('Generating overall feedback...');
       
+  } catch (err) {
+    addDebugLog(`Submit answer failed: ${err.message}`, 'error');
+    setError(`Failed to submit answer: ${err.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
+
+
+const completeInterview = async () => {
+  try {
+    addDebugLog('Completing interview...');
+    
+    // Call backend to complete interview
+    const completeResponse = await fetch(`/api/interviews/${interview.id}/complete`, {
+      method: 'PUT',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      credentials: 'include'
+    });
+
+    const completeResult = await completeResponse.json();
+    addDebugLog(`Complete interview response: ${JSON.stringify(completeResult)}`);
+    
+    if (!completeResult.success) {
+      throw new Error(completeResult.error || 'Failed to complete interview');
+    }
+
+    // Get detailed feedback from backend
+    const feedbackResponse = await fetch(`/api/interviews/${interview.id}/feedback`, {
+      method: 'GET',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      credentials: 'include'
+    });
+
+    const feedbackResult = await feedbackResponse.json();
+    addDebugLog(`Feedback response: ${JSON.stringify(feedbackResult)}`);
+
+    if (feedbackResult.success && feedbackResult.feedback) {
+      setFeedback(feedbackResult.feedback);
+    } else {
+      // Fallback to mock feedback if backend feedback fails
       const mockFeedback = {
         score: 75,
         feedback: {
@@ -679,17 +819,33 @@ public int maxDepth(TreeNode root) {
           ]
         }
       };
-
       setFeedback(mockFeedback);
-      setCurrentStep('feedback');
-      stopTimer();
-      addDebugLog(`Interview completed with overall score: 75%`);
-      
-    } catch (err) {
-      addDebugLog(`Complete interview failed: ${err.message}`, 'error');
-      setError(err.message);
+      addDebugLog('Using fallback feedback due to backend error');
     }
-  };
+
+    setCurrentStep('feedback');
+    stopTimer();
+    addDebugLog(`Interview completed successfully`);
+    
+  } catch (err) {
+    addDebugLog(`Complete interview failed: ${err.message}`, 'error');
+    setError(`Failed to complete interview: ${err.message}`);
+    
+    // Even if completion fails, show feedback page with local data
+    const fallbackFeedback = {
+      score: 70,
+      feedback: {
+        technicalSkills: { score: 70, feedback: "Interview completed with limited backend feedback." },
+        communicationSkills: { score: 75, feedback: "Responses were recorded successfully." },
+        problemSolving: { score: 65, feedback: "Good effort in completing all questions." },
+        recommendations: ["Review technical concepts", "Practice more interviews"]
+      }
+    };
+    setFeedback(fallbackFeedback);
+    setCurrentStep('feedback');
+    stopTimer();
+  }
+};
 
   const startTimer = () => {
     timerRef.current = setInterval(() => {
@@ -706,11 +862,12 @@ public int maxDepth(TreeNode root) {
   const resetInterview = useCallback(() => {
     setCurrentStep('setup');
     setInterview(null);
+    setQuestions([]);
     setCurrentQuestion(null);
     setQuestionIndex(0);
     setResponses([]);
     setFeedback(null);
-    setInterviewData({ jobTitle: '', jobDescription: '', resumeText: '' });
+    setInterviewData(prev => ({ ...prev, jobTitle: '', jobDescription: '' }));
     setCode('');
     setCodeOutput('');
     setShowCodeEditor(false);
@@ -721,9 +878,16 @@ public int maxDepth(TreeNode root) {
     setTranscription('');
     setTranscriptionError('');
     setAnswerMode('audio');
-  }, []);
+    setUploadedFile(null);
+    if (profileCV) {
+      setCvMode('profile');
+      setInterviewData(prev => ({ ...prev, resumeText: profileCV.text }));
+    } else {
+      setCvMode('upload');
+      setInterviewData(prev => ({ ...prev, resumeText: '' }));
+    }
+  }, [profileCV]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopTimer();
@@ -745,7 +909,183 @@ public int maxDepth(TreeNode root) {
     }
   }, [currentQuestion, language]);
 
-  // Memoized components to prevent unnecessary re-renders
+  const CVSection = useMemo(() => (
+    <div className="mb-6">
+      <label className="block text-sm font-medium text-gray-700 mb-3">Resume/CV *</label>
+      
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => handleCvModeChange('profile')}
+          disabled={!profileCV}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
+            cvMode === 'profile' 
+              ? 'bg-blue-100 border-blue-500 text-blue-700' 
+              : profileCV
+                ? 'bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100'
+                : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          <User className="w-4 h-4" />
+          Use Profile CV
+          {profileCV && <CheckCircle className="w-4 h-4 text-green-500" />}
+        </button>
+        
+        <button
+          onClick={() => handleCvModeChange('upload')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
+            cvMode === 'upload' 
+              ? 'bg-purple-100 border-purple-500 text-purple-700' 
+              : 'bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          <Upload className="w-4 h-4" />
+          Upload New File
+        </button>
+
+        {profileCV && (
+          <button
+            onClick={loadProfileCV}
+            disabled={cvLoading}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 border border-gray-300 text-gray-600 hover:bg-gray-200 transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${cvLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        )}
+      </div>
+
+      {cvMode === 'profile' && profileCV && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+          <div className="flex items-start justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <FileCheck className="w-5 h-5 text-blue-600" />
+              <h4 className="font-medium text-blue-900">Profile CV Loaded</h4>
+            </div>
+            <span className="text-xs text-blue-600">
+              {profileCV.age ? `${profileCV.age} old` : 'Current'}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+            <div>
+              <span className="font-medium text-blue-700">File:</span>
+              <span className="ml-1 text-blue-600">{profileCV.fileName}</span>
+            </div>
+            <div>
+              <span className="font-medium text-blue-700">Size:</span>
+              <span className="ml-1 text-blue-600">{profileCV.fileSize ? `${Math.round(profileCV.fileSize / 1024)}KB` : 'N/A'}</span>
+            </div>
+            <div>
+              <span className="font-medium text-blue-700">Length:</span>
+              <span className="ml-1 text-blue-600">{profileCV.text.length} characters</span>
+            </div>
+          </div>
+          {profileCV.uploadedAt && (
+            <div className="mt-2 text-xs text-blue-600">
+              Uploaded: {new Date(profileCV.uploadedAt).toLocaleDateString()}
+            </div>
+          )}
+          
+          <div className="mt-3 p-3 bg-white rounded border border-blue-200">
+            <div className="text-xs text-blue-700 mb-1">Preview:</div>
+            <div className="text-sm text-gray-700 max-h-24 overflow-y-auto">
+              {profileCV.text.substring(0, 300)}
+              {profileCV.text.length > 300 && '...'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cvMode === 'profile' && !profileCV && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertCircle className="w-5 h-5 text-yellow-600" />
+            <span className="font-medium text-yellow-800">No CV in Profile</span>
+          </div>
+          <p className="text-sm text-yellow-700 mb-3">
+            You don't have a CV uploaded to your profile yet. Please upload one to your profile first, or upload a file below.
+          </p>
+          <button
+            onClick={() => handleCvModeChange('upload')}
+            className="text-sm bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded transition-colors"
+          >
+            Upload File Instead
+          </button>
+        </div>
+      )}
+
+      {cvMode === 'upload' && (
+        <div className="space-y-4">
+          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.txt,.docx"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+            <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+            <div className="text-sm text-gray-600 mb-2">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="text-blue-600 hover:text-blue-700 font-medium"
+              >
+                Click to upload
+              </button>
+              {' '}or drag and drop
+            </div>
+            <div className="text-xs text-gray-500">
+              PDF, TXT, or DOCX (Max 5MB)
+            </div>
+          </div>
+
+          {uploadedFile && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+              <div className="flex items-center gap-2">
+                <FileCheck className="w-4 h-4 text-green-600" />
+                <span className="text-sm font-medium text-green-800">
+                  {uploadedFile.name} ({Math.round(uploadedFile.size / 1024)}KB)
+                </span>
+              </div>
+            </div>
+          )}
+
+          {(uploadedFile || (!profileCV && cvMode === 'upload')) && (
+            <div>
+              <textarea
+                value={interviewData.resumeText}
+                onChange={(e) => setInterviewData(prev => ({ ...prev, resumeText: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-40 resize-none"
+                placeholder={uploadedFile && interviewData.resumeText.includes('[' + uploadedFile.name + ']')
+                  ? "File content will appear here after processing..." 
+                  : "Or paste your resume/CV text here directly..."
+                }
+                disabled={uploadedFile && interviewData.resumeText.includes('[' + uploadedFile.name + ']')}
+              />
+              <div className="mt-2 flex justify-between text-xs text-gray-500">
+                <span>Characters: {interviewData.resumeText.length}</span>
+                <span>Words: {interviewData.resumeText.split(' ').filter(word => word.length > 0).length}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {cvError && (
+        <div className="mt-3 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <AlertCircle className="w-5 h-5 text-red-500" />
+          <span className="text-red-700 text-sm">{cvError}</span>
+        </div>
+      )}
+
+      {cvLoading && (
+        <div className="mt-3 flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />
+          <span className="text-blue-700 text-sm">Loading CV from profile...</span>
+        </div>
+      )}
+    </div>
+  ), [cvMode, profileCV, interviewData.resumeText, cvLoading, cvError, uploadedFile, handleCvModeChange, loadProfileCV]);
+
   const SetupPhase = useMemo(() => (
     <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-lg">
       <div className="mb-6">
@@ -809,20 +1149,12 @@ public int maxDepth(TreeNode root) {
           <textarea
             value={interviewData.jobDescription}
             onChange={handleJobDescriptionChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-32"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-32 resize-none"
             placeholder="Paste the complete job description here..."
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Resume Content *</label>
-          <textarea
-            value={interviewData.resumeText}
-            onChange={handleResumeTextChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-40"
-            placeholder="Paste your resume text here..."
-          />
-        </div>
+        {CVSection}
 
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <h4 className="font-medium text-blue-900 mb-2">Audio Test</h4>
@@ -873,13 +1205,13 @@ public int maxDepth(TreeNode root) {
         </button>
       </div>
     </div>
-  ), [user, interviewData, debugMode, debugLogs, audioPermission, audioError, error, loading, isSetupValid, createInterview, handleJobTitleChange, handleJobDescriptionChange, handleResumeTextChange]);
+  ), [user, interviewData, debugMode, debugLogs, audioPermission, audioError, error, loading, isSetupValid, createInterview, handleJobTitleChange, handleJobDescriptionChange, CVSection]);
 
   const InterviewPhase = useMemo(() => (
     <div className="max-w-6xl mx-auto p-6">
       <div className="mb-6">
         <div className="flex justify-between items-center mb-2">
-          <span className="text-sm font-medium text-gray-700">Question {questionIndex + 1} of {mockQuestions.length}</span>
+          <span className="text-sm font-medium text-gray-700">Question {questionIndex + 1} of {questions.length}</span>
           <span className="text-sm text-gray-500">
             <Clock className="w-4 h-4 inline mr-1" />
             {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
@@ -888,7 +1220,7 @@ public int maxDepth(TreeNode root) {
         <div className="w-full bg-gray-200 rounded-full h-2">
           <div 
             className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-            style={{ width: `${((questionIndex + 1) / mockQuestions.length) * 100}%` }}
+            style={{ width: `${((questionIndex + 1) / questions.length) * 100}%` }}
           ></div>
         </div>
       </div>
@@ -897,18 +1229,18 @@ public int maxDepth(TreeNode root) {
         <div className="bg-white rounded-lg shadow-lg p-6">
           <div className="flex items-start gap-4 mb-4">
             <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-              currentQuestion?.type === 'technical_coding' ? 'bg-purple-100 text-purple-600' :
-              currentQuestion?.type === 'technical_conceptual' ? 'bg-indigo-100 text-indigo-600' :
+              currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding' ? 'bg-purple-100 text-purple-600' :
+              currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-indigo-100 text-indigo-600' :
               currentQuestion?.type === 'behavioral' ? 'bg-green-100 text-green-600' :
               'bg-blue-100 text-blue-600'
             }`}>
-              {currentQuestion?.type === 'technical_coding' ? <Code className="w-6 h-6" /> : <FileText className="w-6 h-6" />}
+              {currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding' ? <Code className="w-6 h-6" /> : <FileText className="w-6 h-6" />}
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-2">
                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                  currentQuestion?.type === 'technical_coding' ? 'bg-purple-100 text-purple-700' :
-                  currentQuestion?.type === 'technical_conceptual' ? 'bg-indigo-100 text-indigo-700' :
+                  currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding' ? 'bg-purple-100 text-purple-700' :
+                  currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-indigo-100 text-indigo-700' :
                   currentQuestion?.type === 'behavioral' ? 'bg-green-100 text-green-700' :
                   'bg-blue-100 text-blue-700'
                 }`}>
@@ -952,7 +1284,7 @@ public int maxDepth(TreeNode root) {
             </div>
           </div>
 
-          {currentQuestion?.type === 'technical_coding' && (
+          {(currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding') && (
             <div className="mb-4">
               <button
                 onClick={() => setShowCodeEditor(!showCodeEditor)}
@@ -1098,7 +1430,7 @@ public int maxDepth(TreeNode root) {
           )}
         </div>
 
-        {showCodeEditor && currentQuestion?.type === 'technical_coding' && (
+        {showCodeEditor && (currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding') && (
           <div className="bg-white rounded-lg shadow-lg p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900">Code Editor</h3>
@@ -1149,7 +1481,7 @@ public int maxDepth(TreeNode root) {
 
       <audio ref={audioPlaybackRef} className="hidden" />
     </div>
-  ), [questionIndex, mockQuestions.length, timer, currentQuestion, answerMode, isRecording, loading, audioBlob, isPlaying, recordingTime, audioError, isTranscribing, transcriptionError, transcription, textAnswer, error, debugMode, debugLogs, showCodeEditor, language, code, codeOutput, handleTranscriptionChange, handleTextAnswerChange, handleCodeChange, handleLanguageChange]);
+  ), [questionIndex, questions.length, timer, currentQuestion, answerMode, isRecording, loading, audioBlob, isPlaying, recordingTime, audioError, isTranscribing, transcriptionError, transcription, textAnswer, error, debugMode, debugLogs, showCodeEditor, language, code, codeOutput, handleTranscriptionChange, handleTextAnswerChange, handleCodeChange, handleLanguageChange]);
 
   const FeedbackPhase = useMemo(() => (
     <div className="max-w-4xl mx-auto p-6">
@@ -1227,7 +1559,7 @@ public int maxDepth(TreeNode root) {
                   <h4 className="font-medium text-gray-900">Question {index + 1}</h4>
                   <span className="text-sm font-medium text-blue-600">Completed</span>
                 </div>
-                <p className="text-gray-600 text-sm mb-3">{mockQuestions[index]?.question}</p>
+                <p className="text-gray-600 text-sm mb-3">{questions[index]?.question}</p>
                 
                 {response.code && (
                   <div className="mt-3 p-3 bg-gray-50 rounded border">
@@ -1265,9 +1597,8 @@ public int maxDepth(TreeNode root) {
         </button>
       </div>
     </div>
-  ), [feedback, responses, mockQuestions, resetInterview]);
+  ), [feedback, responses, questions, resetInterview]);
 
-  // Show loading while checking auth
   if (user === null && !error) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -1279,7 +1610,6 @@ public int maxDepth(TreeNode root) {
     );
   }
 
-  // Render current step
   const renderCurrentStep = () => {
     switch (currentStep) {
       case 'setup':

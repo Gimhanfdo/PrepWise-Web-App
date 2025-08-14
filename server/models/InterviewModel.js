@@ -5,7 +5,7 @@ const questionSchema = new mongoose.Schema({
   type: { 
     type: String, 
     required: true, 
-    enum: ['behavioral', 'technical', 'system_design', 'coding', 'problem-solving'] // Added 'problem-solving'
+    enum: ['behavioral', 'technical', 'system_design', 'coding', 'problem-solving'] 
   },
   question: { type: String, required: true },
   category: { type: String, required: true },
@@ -14,17 +14,21 @@ const questionSchema = new mongoose.Schema({
     required: true, 
     enum: ['easy', 'medium', 'hard'] 
   },
-  expectedDuration: { type: Number, default: 120 }, // in seconds
-  followUpQuestions: [{ type: String }]
+  expectedDuration: { type: Number, default: 120 }, 
+  followUpQuestions: [{ type: String }],
+  starterCode: {
+    type: mongoose.Schema.Types.Mixed, // Allow flexible structure for different languages
+    default: null
+  }
 });
 
 const responseSchema = new mongoose.Schema({
   questionId: { type: String, required: true },
   question: { type: String, required: true },
-  audioUrl: { type: String }, // Path to stored audio file
+  audioUrl: { type: String }, 
   transcription: { type: String },
-  responseTime: { type: Number }, // time taken to respond in seconds
-  recordingDuration: { type: Number }, // length of recording in seconds
+  responseTime: { type: Number }, 
+  recordingDuration: { type: Number }, 
   submittedAt: { type: Date, default: Date.now },
   feedback: {
     score: { type: Number, min: 0, max: 100 },
@@ -48,27 +52,33 @@ const interviewSchema = new mongoose.Schema({
   jobDescription: { type: String, required: true },
   resumeText: { type: String, required: true },
   
-  // Interview configuration
   questions: [questionSchema],
   totalQuestions: { type: Number, default: 5 },
   currentQuestionIndex: { type: Number, default: 0 },
   
-  // Interview session data
   status: { 
     type: String, 
     enum: ['created', 'in_progress', 'completed', 'cancelled'], 
     default: 'created' 
   },
+
+  usedProfileCV: {
+    type: Boolean,
+    default: false
+  },
   
-  // Interview timing
+  cvSource: {
+    type: String,
+    enum: ['profile', 'manual', 'upload'],
+    default: 'manual'
+  },
+  
   startedAt: { type: Date },
   completedAt: { type: Date },
-  totalDuration: { type: Number }, // in seconds
+  totalDuration: { type: Number }, 
   
-  // Responses
   responses: [responseSchema],
-  
-  // Overall feedback and scoring
+
   overallFeedback: {
     score: { type: Number, min: 0, max: 100 },
     technicalSkills: {
@@ -87,22 +97,81 @@ const interviewSchema = new mongoose.Schema({
     strengths: [{ type: String }],
     areasForImprovement: [{ type: String }]
   },
-  
-  // Metadata
+
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });
 
-// Update the updatedAt field before saving
+// Pre-save middleware to update the updatedAt field
 interviewSchema.pre('save', function(next) {
   this.updatedAt = new Date();
   next();
 });
 
-// Index for better query performance
+// Pre-save validation to ensure question types are valid
+interviewSchema.pre('save', function(next) {
+  const validTypes = ['behavioral', 'technical', 'system_design', 'coding', 'problem-solving'];
+  
+  for (let question of this.questions) {
+    if (!validTypes.includes(question.type)) {
+      console.warn(`Invalid question type: ${question.type}, converting to 'technical'`);
+      question.type = 'technical';
+    }
+  }
+  next();
+});
+
+// Indexes for better query performance
 interviewSchema.index({ userId: 1, createdAt: -1 });
 interviewSchema.index({ status: 1 });
+interviewSchema.index({ userId: 1, status: 1 });
 
+// Virtual for interview duration calculation
+interviewSchema.virtual('duration').get(function() {
+  if (this.startedAt && this.completedAt) {
+    return Math.round((this.completedAt - this.startedAt) / 1000); // in seconds
+  }
+  return null;
+});
+
+// Method to get current question
+interviewSchema.methods.getCurrentQuestion = function() {
+  const answeredCount = this.responses.length;
+  return this.questions[answeredCount] || null;
+};
+
+// Method to check if interview is complete
+interviewSchema.methods.isComplete = function() {
+  return this.responses.length >= this.questions.length;
+};
+
+// Method to get progress percentage
+interviewSchema.methods.getProgress = function() {
+  if (this.questions.length === 0) return 0;
+  return Math.round((this.responses.length / this.questions.length) * 100);
+};
+
+// Static method to find user interviews with pagination
+interviewSchema.statics.findUserInterviewsPaginated = function(userId, page = 1, limit = 10) {
+  const skip = (page - 1) * limit;
+  return this.find({ userId })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .skip(skip)
+    .select('jobTitle status overallFeedback createdAt completedAt totalDuration');
+};
+
+// Transform function to clean up output
+interviewSchema.set('toJSON', {
+  virtuals: true,
+  transform: function(doc, ret) {
+    // Remove sensitive information if needed
+    delete ret.__v;
+    return ret;
+  }
+});
+
+// Create the model
 const interviewModel = mongoose.models.interview || mongoose.model('interview', interviewSchema);
 
 export default interviewModel;

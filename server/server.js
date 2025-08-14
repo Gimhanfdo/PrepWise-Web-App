@@ -7,7 +7,7 @@ import authRouter from './routes/authRoutes.js';
 import skillAssessor from './routes/skillAssessorRoutes.js';
 import userRouter from './routes/userRoutes.js';
 import analysisRouter from './routes/CVanalysisRoutes.js';
-import interviewRouter from './routes/interviewRoutes.js'; // ADD THIS IMPORT
+import interviewRouter from './routes/InterviewRoutes.js'; 
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -23,13 +23,11 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(cors({origin: allowedOrigins, credentials: true}));
 
-//API Endpoints
-// app.get('/', (req, res) =>res.send("API Working"));
 app.use('/api/auth', authRouter)
 app.use('/api/user', userRouter)
 app.use('/api/analyze', analysisRouter);
 app.use('/api/swot', skillAssessor); 
-app.use('/api/interviews', interviewRouter); // ADD THIS LINE - This is the missing route!
+app.use('/api/interviews', interviewRouter); 
 
 app.use(express.static(path.join(__dirname, '../client/dist')));
 

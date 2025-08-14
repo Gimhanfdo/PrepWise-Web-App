@@ -1,16 +1,14 @@
 import pdfParse from "pdf-parse";
 import crypto from 'crypto';
-import {
-  getSimilarityScore,
-  getImprovementSuggestions,
-  getStructuredRecommendations,
-  analyzeResumeMatch,
-  extractTechnologiesFromResume,
-  createResumeHash
-} from "../utils/CVAnalysisAPI.js";
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import CVAnalysis from "../models/CVAnalysisModel.js";
 import userModel from '../models/userModel.js';
 
+// Initialize Gemini AI
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+// Utility functions
 function convertMarkdownToHTML(text) {
   return text
     .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
@@ -75,481 +73,582 @@ function validateJobDescription(jobDesc) {
   };
 }
 
+// Create hash for resume
+function createResumeHash(resumeText) {
+  return crypto.createHash('sha256').update(resumeText.trim()).digest('hex');
+}
+
+// CS Technical Skills for matching
+const CS_TECHNICAL_SKILLS = {
+  programming_languages: {
+    weight: 0.3,
+    keywords: ['python', 'java', 'javascript', 'typescript', 'c++', 'c#', 'go', 'rust', 'swift', 'kotlin', 'scala', 'ruby', 'php', 'c', 'r', 'matlab']
+  },
+  web_technologies: {
+    weight: 0.25,
+    keywords: ['react', 'angular', 'vue', 'nodejs', 'express', 'django', 'flask', 'spring', 'html', 'css', 'bootstrap', 'tailwind', 'next.js', 'nuxt.js']
+  },
+  cs_fundamentals: {
+    weight: 0.2,
+    keywords: ['data structures', 'algorithms', 'algorithm', 'binary tree', 'graph', 'hash table', 'linked list', 'array', 'sorting', 'searching', 'recursion', 'dynamic programming', 'big o', 'complexity analysis']
+  },
+  dev_tools: {
+    weight: 0.15,
+    keywords: ['git', 'github', 'gitlab', 'docker', 'kubernetes', 'ci/cd', 'jenkins', 'testing', 'unit testing', 'integration testing', 'agile', 'scrum', 'api', 'rest', 'graphql']
+  },
+  databases: {
+    weight: 0.1,
+    keywords: ['mysql', 'postgresql', 'mongodb', 'redis', 'sqlite', 'firebase', 'sql', 'nosql', 'database design', 'orm']
+  }
+};
+
+const NON_CS_INDICATORS = [
+  'medical', 'doctor', 'physician', 'nurse', 'healthcare', 'hospital',
+  'law', 'lawyer', 'attorney', 'legal', 'court', 'litigation',
+  'teacher', 'educator', 'instructor', 'professor', 'school',
+  'retail', 'sales associate', 'cashier', 'store manager',
+  'chef', 'cook', 'kitchen', 'restaurant', 'food service',
+  'accountant', 'bookkeeper', 'financial analyst', 'audit'
+];
+
+// Calculate technical match score
+const calculateTechnicalMatch = (resumeText, jobDesc) => {
+  const resumeLower = resumeText.toLowerCase();
+  const jobDescLower = jobDesc.toLowerCase();
+  
+  let totalScore = 0;
+  let maxPossibleScore = 0;
+  
+  for (const [category, config] of Object.entries(CS_TECHNICAL_SKILLS)) {
+    const requiredSkills = config.keywords.filter(skill => 
+      jobDescLower.includes(skill.toLowerCase())
+    );
+    
+    if (requiredSkills.length === 0) continue;
+    
+    const candidateSkills = config.keywords.filter(skill => 
+      resumeLower.includes(skill.toLowerCase())
+    );
+    
+    const matchingSkills = requiredSkills.filter(skill => 
+      candidateSkills.includes(skill)
+    );
+    
+    const categoryScore = (matchingSkills.length / requiredSkills.length) * config.weight;
+    totalScore += categoryScore;
+    maxPossibleScore += config.weight;
+  }
+  
+  return maxPossibleScore > 0 ? (totalScore / maxPossibleScore) : 0;
+};
+
+// Get similarity score using Gemini API
+const getSimilarityScore = async (resumeText, jobDesc) => {
+  try {
+    // Pre-screening for non-CS roles
+    const jobDescLower = jobDesc.toLowerCase();
+    
+    const hasNonCSIndicators = NON_CS_INDICATORS.some(indicator => 
+      jobDescLower.includes(indicator.toLowerCase())
+    );
+
+    const hasCSIndicators = Object.values(CS_TECHNICAL_SKILLS)
+      .flatMap(category => category.keywords)
+      .some(keyword => jobDescLower.includes(keyword.toLowerCase()));
+
+    if (hasNonCSIndicators && !hasCSIndicators) {
+      console.log("Non-CS role detected, returning 0 similarity");
+      return 0;
+    }
+
+    // Get technical match score as baseline
+    const technicalMatchScore = calculateTechnicalMatch(resumeText, jobDesc);
+    
+    const maxLength = 4000;
+    const truncatedResume = resumeText.length > maxLength
+      ? resumeText.substring(0, maxLength) + "..."
+      : resumeText;
+    const truncatedJobDesc = jobDesc.length > maxLength
+      ? jobDesc.substring(0, maxLength) + "..."
+      : jobDesc;
+
+    const prompt = `You are an expert technical recruiter specializing in Computer Science and Software Engineering internships.
+
+CRITICAL: First verify this is a CS/Software Engineering internship role.
+
+CS/SOFTWARE ENGINEERING ROLES include:
+- Software Engineer/Developer Intern (Frontend, Backend, Full-Stack)
+- Computer Science Intern, Programming Intern
+- Web Developer Intern, Mobile Developer Intern
+- Data Engineer/Scientist Intern, ML/AI Engineer Intern
+- DevOps Engineer Intern, QA/Test Engineer Intern
+
+NON-CS ROLES (return 0.0):
+- Medical, Legal, Education, Retail, Food Service, Marketing, Sales, HR
+
+If NOT a CS/Software Engineering role, return: 0.0
+
+For CS/SOFTWARE ENGINEERING roles, evaluate match quality:
+
+EVALUATION CRITERIA:
+1. Programming Languages Match (30%)
+2. CS Fundamentals (25%) 
+3. Relevant Projects (20%)
+4. Development Tools/Practices (15%)
+5. Educational Foundation (10%)
+
+SCORING GUIDE:
+- 0.0-0.2: Minimal CS background
+- 0.2-0.4: Some CS knowledge, missing key requirements
+- 0.4-0.6: Decent foundation, moderate gaps
+- 0.6-0.8: Strong candidate, minor improvements needed
+- 0.8-1.0: Excellent match, highly qualified
+
+Resume:
+${truncatedResume}
+
+Job Description:
+${truncatedJobDesc}
+
+Technical baseline score: ${technicalMatchScore.toFixed(2)}
+
+Return ONLY a decimal between 0.0-1.0:`;
+
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const scoreText = response.text().trim();
+    const aiScore = parseFloat(scoreText);
+
+    if (isNaN(aiScore) || aiScore < 0 || aiScore > 1) {
+      console.warn("Invalid AI score, using technical match score");
+      return Math.max(0, Math.min(1, technicalMatchScore));
+    }
+
+    // Blend AI score with technical match for consistency
+    const finalScore = (aiScore * 0.7) + (technicalMatchScore * 0.3);
+    return Math.max(0, Math.min(1, finalScore));
+
+  } catch (err) {
+    console.error("Error in getSimilarityScore:", err.message);
+    return calculateTechnicalMatch(resumeText, jobDesc);
+  }
+};
+
+// Extract technologies using Gemini API
+const extractTechnologiesFromResume = async (resumeText) => {
+  try {
+    const prompt = `Analyze this resume and extract ONLY technical skills relevant to Computer Science/Software Engineering.
+
+Focus on:
+- Programming languages (Python, Java, JavaScript, C++, etc.)
+- Web frameworks (React, Angular, Vue, Django, Spring, etc.)
+- Development tools (Git, Docker, Jenkins, etc.)
+- Databases (MySQL, MongoDB, PostgreSQL, etc.)
+- CS concepts (Data Structures, Algorithms, OOP, etc.)
+
+Resume text:
+${resumeText.substring(0, 3000)}
+
+Return JSON array with format:
+[
+  {"name": "Python", "category": "Programming Languages", "confidenceLevel": 8},
+  {"name": "React", "category": "Web Frameworks", "confidenceLevel": 6}
+]
+
+Categories: "Programming Languages", "Web Frameworks", "Development Tools", "Databases", "CS Concepts", "Other Technical"
+
+Only include technical skills relevant to software development. Return only the JSON array.`;
+
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const content = response.text().trim();
+    
+    const jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const technologies = JSON.parse(jsonMatch[0]);
+      return technologies.filter(tech => 
+        tech.name && 
+        tech.category && 
+        tech.confidenceLevel >= 1 && 
+        tech.confidenceLevel <= 10
+      );
+    }
+    
+    return [];
+  } catch (error) {
+    console.error("Technology extraction error:", error);
+    // Return fallback technologies if API fails
+    return [
+      { name: 'JavaScript', category: 'Programming Languages', confidenceLevel: 5 },
+      { name: 'Python', category: 'Programming Languages', confidenceLevel: 5 },
+      { name: 'Git', category: 'Development Tools', confidenceLevel: 5 }
+    ];
+  }
+};
+
+// Get structured recommendations using Gemini API
+const getStructuredRecommendations = async (resumeText, jobDesc) => {
+  try {
+    const maxLength = 4500;
+    const truncatedResume = resumeText.length > maxLength
+      ? resumeText.substring(0, maxLength) + "..."
+      : resumeText;
+    const truncatedJobDesc = jobDesc.length > maxLength
+      ? jobDesc.substring(0, maxLength) + "..."
+      : jobDesc;
+
+    const prompt = `You are a senior technical recruiter specializing in Computer Science internships.
+
+VERIFICATION: Confirm this is a CS/Software Engineering internship.
+
+If this is NOT a CS/Software Engineering internship, respond: NON_CS_ROLE
+
+For CS/SOFTWARE ENGINEERING internships, provide analysis in this exact JSON format:
+
+{
+  "strengths": [
+    "Specific CS/programming strengths from their background",
+    "Technical projects or coursework demonstrating coding ability", 
+    "Programming languages matching job requirements",
+    "Relevant CS education or technical experience"
+  ],
+  "contentWeaknesses": [
+    "Missing specific programming languages from job posting",
+    "Lack of CS fundamentals (data structures, algorithms)",
+    "Missing technical projects with quantified impact",
+    "Insufficient software development methodology knowledge"
+  ],
+  "structureWeaknesses": [
+    "Technical skills section not optimized for CS recruiting",
+    "Missing GitHub portfolio and technical project links", 
+    "Resume not formatted for technical ATS systems",
+    "Project descriptions lack technical depth"
+  ],
+  "contentRecommendations": [
+    "Learn specific technologies from job posting",
+    "Build 2-3 substantial coding projects with GitHub repos",
+    "Add CS coursework: Data Structures, Algorithms, Software Engineering",
+    "Include quantified technical achievements with metrics"
+  ],
+  "structureRecommendations": [
+    "Create technical resume sections with clear categorization",
+    "Add essential links: GitHub profile, LinkedIn, portfolio",
+    "Format for technical recruiting: ATS-friendly, CS keywords",
+    "Structure project descriptions with tech stack and outcomes"
+  ]
+}
+
+Resume:
+${truncatedResume}
+
+Job Description:
+${truncatedJobDesc}`;
+
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const responseText = response.text().trim();
+
+    if (responseText === "NON_CS_ROLE" || responseText.includes("NON_CS_ROLE")) {
+      return {
+        isNonTechRole: true,
+        message: "This position is not a Computer Science or Software Engineering internship. Please provide a CS/Software Engineering job description for accurate analysis."
+      };
+    }
+
+    try {
+      // Clean and parse JSON response
+      let cleanText = responseText.replace(/```json\s*|```\s*/g, '').trim();
+      const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanText = jsonMatch[0];
+      }
+      const structuredData = JSON.parse(cleanText);
+      
+      return {
+        isNonTechRole: false,
+        strengths: Array.isArray(structuredData.strengths) ? structuredData.strengths : [],
+        contentWeaknesses: Array.isArray(structuredData.contentWeaknesses) ? structuredData.contentWeaknesses : [],
+        structureWeaknesses: Array.isArray(structuredData.structureWeaknesses) ? structuredData.structureWeaknesses : [],
+        contentRecommendations: Array.isArray(structuredData.contentRecommendations) ? structuredData.contentRecommendations : [],
+        structureRecommendations: Array.isArray(structuredData.structureRecommendations) ? structuredData.structureRecommendations : []
+      };
+    } catch (parseError) {
+      console.error("JSON parsing failed:", parseError.message);
+      return getDefaultCSRecommendations();
+    }
+
+  } catch (err) {
+    console.error("Structured recommendations error:", err.message);
+    return getDefaultCSRecommendations();
+  }
+};
+
+// Default recommendations fallback
+const getDefaultCSRecommendations = () => ({
+  isNonTechRole: false,
+  strengths: [
+    "Shows foundational computer science education",
+    "Demonstrates programming aptitude and problem-solving mindset",
+    "Has academic exposure to CS concepts"
+  ],
+  contentWeaknesses: [
+    "Missing core programming languages (Python, Java, JavaScript)",
+    "Lacks demonstrated CS fundamentals (data structures, algorithms)",
+    "No visible coding projects with GitHub repositories"
+  ],
+  structureWeaknesses: [
+    "Technical skills section not organized for CS recruiting",
+    "Missing essential technical links (GitHub, portfolio)",
+    "Resume format not optimized for software engineering roles"
+  ],
+  contentRecommendations: [
+    "Master fundamental programming languages",
+    "Build substantial coding projects with measurable impact",
+    "Study CS fundamentals and implement common algorithms"
+  ],
+  structureRecommendations: [
+    "Use CS-focused resume template with clear technical sections",
+    "Add technical links prominently (GitHub, LinkedIn, portfolio)",
+    "Format for technical ATS with CS keywords and clean layout"
+  ]
+});
+
+// Main analysis function using real Gemini API
+const analyzeResumeMatch = async (resumeText, jobDesc) => {
+  try {
+    console.log("Starting CS internship analysis with Gemini API...");
+
+    const [similarity, structuredAnalysis] = await Promise.all([
+      getSimilarityScore(resumeText, jobDesc).catch((err) => {
+        console.error("Similarity calculation failed:", err.message);
+        return calculateTechnicalMatch(resumeText, jobDesc);
+      }),
+      getStructuredRecommendations(resumeText, jobDesc).catch((err) => {
+        console.error("Structured analysis failed:", err.message);
+        return getDefaultCSRecommendations();
+      })
+    ]);
+
+    console.log("Similarity score:", similarity.toFixed(3));
+    console.log("Analysis completed for CS role:", !structuredAnalysis.isNonTechRole);
+
+    if (structuredAnalysis.isNonTechRole) {
+      return {
+        similarityScore: 0,
+        matchPercentage: 0,
+        isNonTechRole: true,
+        message: structuredAnalysis.message,
+        timestamp: new Date().toISOString(),
+        warning: "Non-CS role detected"
+      };
+    }
+
+    const matchPercentage = Math.round(similarity * 100);
+
+    return {
+      similarityScore: Number(similarity.toFixed(3)),
+      matchPercentage: Math.max(0, Math.min(100, matchPercentage)),
+      isNonTechRole: false,
+      strengths: structuredAnalysis.strengths || [],
+      contentWeaknesses: structuredAnalysis.contentWeaknesses || [],
+      structureWeaknesses: structuredAnalysis.structureWeaknesses || [],
+      contentRecommendations: structuredAnalysis.contentRecommendations || [],
+      structureRecommendations: structuredAnalysis.structureRecommendations || [],
+      timestamp: new Date().toISOString()
+    };
+  } catch (err) {
+    console.error("Error in analyzeResumeMatch:", err.message);
+    return {
+      similarityScore: 0,
+      matchPercentage: 0,
+      isNonTechRole: false,
+      ...getDefaultCSRecommendations(),
+      timestamp: new Date().toISOString(),
+      error: err.message
+    };
+  }
+};
+
+// Enhanced CV analysis function
 async function performCVAnalysis(cvText, jobDescriptions) {
   const analysis = [];
-  let totalNonTechRoles = 0;
-  let totalProcessed = 0;
-
+  
+  // Extract technologies using Gemini API
+  const extractedTechnologies = await extractTechnologiesFromResume(cvText);
+  
   for (let i = 0; i < jobDescriptions.length; i++) {
     const rawJobDesc = jobDescriptions[i];
-    totalProcessed++;
     
     try {
       const validation = validateJobDescription(rawJobDesc);
       
-      if (!validation.isSoftware) {
-        console.log("Non-software role detected, skipping detailed analysis");
-      }
-    } catch (validationError) {
-      console.error("Job description validation failed:", validationError.message);
+      const jobDescForDisplay = convertMarkdownToHTML(rawJobDesc);
+      const jobDescForAnalysis = stripHTMLToText(rawJobDesc);
+
+      // Use real Gemini API analysis
+      const analysisResult = await analyzeResumeMatch(cvText, jobDescForAnalysis);
+      
+      const resultData = {
+        matchPercentage: analysisResult.matchPercentage,
+        jobDescription: jobDescForDisplay,
+        hasError: !!analysisResult.error,
+        isNonTechRole: analysisResult.isNonTechRole || false,
+        rawSimilarity: analysisResult.similarityScore,
+        timestamp: analysisResult.timestamp,
+        strengths: analysisResult.strengths || [],
+        contentWeaknesses: analysisResult.contentWeaknesses || [],
+        structureWeaknesses: analysisResult.structureWeaknesses || [],
+        contentRecommendations: analysisResult.contentRecommendations || [],
+        structureRecommendations: analysisResult.structureRecommendations || [],
+        message: analysisResult.message || null,
+        extractedTechnologies: extractedTechnologies
+      };
+
+      analysis.push(resultData);
+      
+    } catch (error) {
+      console.error(`Analysis error for JD ${i + 1}:`, error.message);
       analysis.push({
         matchPercentage: 0,
         isNonTechRole: true,
         hasError: true,
-        message: "Job description validation failed: " + validationError.message,
-        jobDescription: convertMarkdownToHTML(rawJobDesc)
+        message: "Analysis failed: " + error.message,
+        jobDescription: convertMarkdownToHTML(rawJobDesc),
+        extractedTechnologies: []
       });
-      continue;
     }
-    
-    const jobDescForDisplay = convertMarkdownToHTML(rawJobDesc);
-    const jobDescForAnalysis = stripHTMLToText(rawJobDesc);
-
-    let analysisResult = null;
-    let hasError = false;
-
-    try {
-      analysisResult = await analyzeResumeMatch(cvText, jobDescForAnalysis);
-      
-      if (analysisResult.isNonTechRole || analysisResult.warning?.includes("Non-software")) {
-        totalNonTechRoles++;
-      }
-      
-      if (analysisResult.error) {
-        hasError = true;
-        console.error(`Analysis error for JD ${i + 1}:`, analysisResult.error);
-      }
-      
-    } catch (e) {
-      console.error(`Critical analysis error for JD ${i + 1}:`, e.message);
-      hasError = true;
-      
-      try {
-        const fallbackSimilarity = await getSimilarityScore(cvText, jobDescForAnalysis);
-        
-        analysisResult = {
-          similarityScore: fallbackSimilarity,
-          matchPercentage: Math.round(fallbackSimilarity * 100),
-          isNonTechRole: fallbackSimilarity === 0,
-          strengths: ["Basic technical assessment completed"],
-          contentWeaknesses: ["Unable to perform detailed content analysis - please try again"],
-          structureWeaknesses: ["Unable to perform detailed structure analysis - please try again"],
-          contentRecommendations: ["Ensure resume contains relevant software engineering experience and skills"],
-          structureRecommendations: ["Use standard resume format with clear technical skills section"],
-          timestamp: new Date().toISOString(),
-          error: "Fallback analysis used due to processing error"
-        };
-        
-        if (fallbackSimilarity === 0) {
-          totalNonTechRoles++;
-        }
-        
-      } catch (fallbackError) {
-        console.error(`Fallback analysis failed for JD ${i + 1}:`, fallbackError.message);
-        analysisResult = {
-          similarityScore: 0,
-          matchPercentage: 0,
-          isNonTechRole: true,
-          message: "Analysis failed - this may not be a software engineering internship role",
-          strengths: ["Unable to analyze"],
-          contentWeaknesses: ["Analysis failed - please verify job description is for software engineering internship"],
-          structureWeaknesses: ["Analysis failed - please verify resume format and content"],
-          contentRecommendations: ["Please ensure job description is for software engineering internship position"],
-          structureRecommendations: ["Please verify resume is properly formatted and contains technical content"],
-          timestamp: new Date().toISOString(),
-          error: "Complete analysis failure"
-        };
-        totalNonTechRoles++;
-      }
-    }
-
-    let matchPercentage = analysisResult.matchPercentage;
-    const similarity = analysisResult.similarityScore;
-
-    if (analysisResult.isNonTechRole || similarity === 0) {
-      matchPercentage = 0;
-    } else {
-      if (similarity < 0.2) {
-        matchPercentage = Math.round(similarity * 25);
-      } else if (similarity < 0.4) {
-        matchPercentage = Math.round(5 + (similarity - 0.2) * 50);
-      } else if (similarity < 0.6) {
-        matchPercentage = Math.round(15 + (similarity - 0.4) * 87.5);
-      } else if (similarity < 0.8) {
-        matchPercentage = Math.round(32 + (similarity - 0.6) * 140);
-      } else if (similarity < 0.9) {
-        matchPercentage = Math.round(60 + (similarity - 0.8) * 200);
-      } else {
-        matchPercentage = Math.round(80 + (similarity - 0.9) * 200);
-      }
-    }
-
-    matchPercentage = Math.max(0, Math.min(100, matchPercentage));
-
-    const resultData = {
-      matchPercentage,
-      jobDescription: jobDescForDisplay,
-      hasError,
-      isNonTechRole: analysisResult.isNonTechRole || false,
-      rawSimilarity: similarity,
-      timestamp: analysisResult.timestamp
-    };
-
-    if (analysisResult && !analysisResult.isNonTechRole) {
-      resultData.strengths = analysisResult.strengths || [];
-      resultData.contentWeaknesses = analysisResult.contentWeaknesses || [];
-      resultData.structureWeaknesses = analysisResult.structureWeaknesses || [];
-      resultData.contentRecommendations = analysisResult.contentRecommendations || [];
-      resultData.structureRecommendations = analysisResult.structureRecommendations || [];
-      
-      resultData.analysisQuality = {
-        strengthsCount: resultData.strengths.length,
-        weaknessesCount: resultData.contentWeaknesses.length + resultData.structureWeaknesses.length,
-        recommendationsCount: resultData.contentRecommendations.length + resultData.structureRecommendations.length,
-        isComprehensive: (resultData.strengths.length >= 3 && 
-                        resultData.contentRecommendations.length >= 5 && 
-                        resultData.structureRecommendations.length >= 5)
-      };
-      
-    } else if (analysisResult.isNonTechRole) {
-      resultData.message = analysisResult.message || "This job description is not for a software engineering internship position.";
-    }
-
-    if (analysisResult.error) {
-      resultData.errorDetails = analysisResult.error;
-    }
-
-    analysis.push(resultData);
   }
 
-  return analysis;
+  return { analysis, extractedTechnologies };
 }
 
+// Main controller function - analyzeResume
 export const analyzeResume = async (req, res) => {
   try {
-    console.log("=== Enhanced Software Engineering Internship Analysis Started ===");
-    console.log("Received resume:", req.file?.originalname);
-    console.log("Received job descriptions count:", JSON.parse(req.body.jobDescriptions || "[]").length);
+    console.log('=== ANALYZE RESUME WITH REAL GEMINI API ===');
+    console.log('User ID:', req.user?.id);
+    console.log('Use Profile CV:', req.body.useProfileCV);
 
-    const resumeFile = req.file;
-    const rawJobDescriptions = JSON.parse(req.body.jobDescriptions || "[]");
+    const { jobDescriptions: jobDescriptionsString } = req.body;
+    const useProfileCV = req.body.useProfileCV === 'true';
 
-    if (!resumeFile || rawJobDescriptions.length === 0) {
-      return res.status(400).json({ 
-        message: "Resume file and job descriptions are required for software engineering internship analysis.",
-        requirements: "Please upload a PDF resume and provide detailed internship job descriptions."
-      });
-    }
-
-    let resumeText;
+    // Parse job descriptions
+    let jobDescriptions;
     try {
-      const pdfData = await pdfParse(resumeFile.buffer);
-      resumeText = pdfData.text;
-      
-      if (!resumeText || resumeText.trim().length < 50) {
-        throw new Error("Resume text extraction failed or content too short");
-      }
-
-      validateResumeContent(resumeText);
-      console.log("Resume validation successful, length:", resumeText.length);
-
+      jobDescriptions = JSON.parse(jobDescriptionsString || '[]');
     } catch (parseError) {
-      console.error("PDF parsing error:", parseError);
-      return res.status(400).json({ 
-        message: "Failed to extract text from PDF. Please ensure the file is a valid PDF with readable text.",
-        details: "The PDF may be scanned/image-based, corrupted, or password-protected."
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid job descriptions format',
+        error: parseError.message
       });
     }
 
-    console.log("Extracting technologies from resume...");
-    const extractedTechnologies = await extractTechnologiesFromResume(resumeText);
-    console.log(`Extracted ${extractedTechnologies.length} technologies:`, extractedTechnologies.map(t => t.name));
-
-    const resumeHash = createResumeHash(resumeText);
-
-    const analysis = [];
-    let totalNonTechRoles = 0;
-    let totalProcessed = 0;
-
-    for (let i = 0; i < rawJobDescriptions.length; i++) {
-      const rawJobDesc = rawJobDescriptions[i];
-      totalProcessed++;
-      
-      console.log(`\n--- Processing Job Description ${i + 1}/${rawJobDescriptions.length} ---`);
-      
-      try {
-        const validation = validateJobDescription(rawJobDesc);
-        console.log("Job validation:", validation);
-        
-        if (!validation.isSoftware) {
-          console.log("Non-software role detected, skipping detailed analysis");
-        }
-      } catch (validationError) {
-        console.error("Job description validation failed:", validationError.message);
-        analysis.push({
-          matchPercentage: 0,
-          isNonTechRole: true,
-          hasError: true,
-          message: "Job description validation failed: " + validationError.message,
-          jobDescription: convertMarkdownToHTML(rawJobDesc)
-        });
-        continue;
-      }
-      
-      const jobDescForDisplay = convertMarkdownToHTML(rawJobDesc);
-      const jobDescForAnalysis = stripHTMLToText(rawJobDesc);
-
-      let analysisResult = null;
-      let hasError = false;
-
-      console.log(`Analyzing with enhanced software engineering internship focus...`);
-
-      try {
-        analysisResult = await analyzeResumeMatch(resumeText, jobDescForAnalysis);
-        
-        console.log(`Analysis completed - Score: ${analysisResult.similarityScore}, Match: ${analysisResult.matchPercentage}%`);
-        
-        if (analysisResult.isNonTechRole || analysisResult.warning?.includes("Non-software")) {
-          totalNonTechRoles++;
-          console.log("Non-software engineering role confirmed by AI analysis");
-        }
-        
-        if (analysisResult.error) {
-          hasError = true;
-          console.error(`Analysis error for JD ${i + 1}:`, analysisResult.error);
-        }
-        
-      } catch (e) {
-        console.error(`Critical analysis error for JD ${i + 1}:`, e.message);
-        hasError = true;
-        
-        try {
-          const fallbackSimilarity = await getSimilarityScore(resumeText, jobDescForAnalysis);
-          
-          analysisResult = {
-            similarityScore: fallbackSimilarity,
-            matchPercentage: Math.round(fallbackSimilarity * 100),
-            isNonTechRole: fallbackSimilarity === 0,
-            strengths: ["Basic technical assessment completed"],
-            contentWeaknesses: ["Unable to perform detailed content analysis - please try again"],
-            structureWeaknesses: ["Unable to perform detailed structure analysis - please try again"],
-            contentRecommendations: ["Ensure resume contains relevant software engineering experience and skills"],
-            structureRecommendations: ["Use standard resume format with clear technical skills section"],
-            timestamp: new Date().toISOString(),
-            error: "Fallback analysis used due to processing error"
-          };
-          
-          if (fallbackSimilarity === 0) {
-            totalNonTechRoles++;
-          }
-          
-        } catch (fallbackError) {
-          console.error(`Fallback analysis failed for JD ${i + 1}:`, fallbackError.message);
-          analysisResult = {
-            similarityScore: 0,
-            matchPercentage: 0,
-            isNonTechRole: true,
-            message: "Analysis failed - this may not be a software engineering internship role",
-            strengths: ["Unable to analyze"],
-            contentWeaknesses: ["Analysis failed - please verify job description is for software engineering internship"],
-            structureWeaknesses: ["Analysis failed - please verify resume format and content"],
-            contentRecommendations: ["Please ensure job description is for software engineering internship position"],
-            structureRecommendations: ["Please verify resume is properly formatted and contains technical content"],
-            timestamp: new Date().toISOString(),
-            error: "Complete analysis failure"
-          };
-          totalNonTechRoles++;
-        }
-      }
-
-      let matchPercentage = analysisResult.matchPercentage;
-      const similarity = analysisResult.similarityScore;
-
-      if (analysisResult.isNonTechRole || similarity === 0) {
-        matchPercentage = 0;
-      } else {
-        if (similarity < 0.2) {
-          matchPercentage = Math.round(similarity * 25);
-        } else if (similarity < 0.4) {
-          matchPercentage = Math.round(5 + (similarity - 0.2) * 50);
-        } else if (similarity < 0.6) {
-          matchPercentage = Math.round(15 + (similarity - 0.4) * 87.5);
-        } else if (similarity < 0.8) {
-          matchPercentage = Math.round(32 + (similarity - 0.6) * 140);
-        } else if (similarity < 0.9) {
-          matchPercentage = Math.round(60 + (similarity - 0.8) * 200);
-        } else {
-          matchPercentage = Math.round(80 + (similarity - 0.9) * 200);
-        }
-      }
-
-      matchPercentage = Math.max(0, Math.min(100, matchPercentage));
-
-      const resultData = {
-        matchPercentage,
-        jobDescription: jobDescForDisplay,
-        hasError,
-        isNonTechRole: analysisResult.isNonTechRole || false,
-        rawSimilarity: similarity,
-        timestamp: analysisResult.timestamp
-      };
-
-      if (analysisResult && !analysisResult.isNonTechRole) {
-        resultData.strengths = analysisResult.strengths || [];
-        resultData.contentWeaknesses = analysisResult.contentWeaknesses || [];
-        resultData.structureWeaknesses = analysisResult.structureWeaknesses || [];
-        resultData.contentRecommendations = analysisResult.contentRecommendations || [];
-        resultData.structureRecommendations = analysisResult.structureRecommendations || [];
-        
-        resultData.analysisQuality = {
-          strengthsCount: resultData.strengths.length,
-          weaknessesCount: resultData.contentWeaknesses.length + resultData.structureWeaknesses.length,
-          recommendationsCount: resultData.contentRecommendations.length + resultData.structureRecommendations.length,
-          isComprehensive: (resultData.strengths.length >= 3 && 
-                          resultData.contentRecommendations.length >= 5 && 
-                          resultData.structureRecommendations.length >= 5)
-        };
-        
-      } else if (analysisResult.isNonTechRole) {
-        resultData.message = analysisResult.message || "This job description is not for a software engineering internship position.";
-      }
-
-      if (analysisResult.error) {
-        resultData.errorDetails = analysisResult.error;
-      }
-
-      analysis.push(resultData);
-      console.log(`Completed processing JD ${i + 1} - Match: ${matchPercentage}%, NonTech: ${resultData.isNonTechRole}`);
-    }
-
-    console.log(`\n=== Analysis Summary ===`);
-    console.log(`Total processed: ${totalProcessed}`);
-    console.log(`Non-tech roles: ${totalNonTechRoles}`);
-    console.log(`Software engineering roles: ${totalProcessed - totalNonTechRoles}`);
-
-    try {
-      const existingAnalysis = await CVAnalysis.findOne({
-        userId: req.user.id,
-        resumeHash: resumeHash
+    if (!Array.isArray(jobDescriptions) || jobDescriptions.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one job description is required'
       });
-
-      const analysisData = {
-        userId: req.user.id,
-        resumeText: resumeText.substring(0, 15000),
-        resumeHash: resumeHash,
-        jobDescriptions: rawJobDescriptions.map(jd => convertMarkdownToHTML(jd)),
-        results: analysis.map(a => ({
-          matchPercentage: a.matchPercentage,
-          isNonTechRole: a.isNonTechRole || false,
-          strengths: a.strengths || [],
-          contentWeaknesses: a.contentWeaknesses || [],
-          structureWeaknesses: a.structureWeaknesses || [],
-          contentRecommendations: a.contentRecommendations || [],
-          structureRecommendations: a.structureRecommendations || [],
-          message: a.message || null,
-          hasError: a.hasError || false,
-          timestamp: a.timestamp || new Date().toISOString(),
-          analysisQuality: a.analysisQuality || null
-        })),
-        extractedTechnologies: extractedTechnologies,
-        isSaved: false,
-        analysisMetadata: {
-          totalProcessed,
-          nonTechRoleCount: totalNonTechRoles,
-          softwareRoleCount: totalProcessed - totalNonTechRoles,
-          avgMatchScore: analysis.filter(a => !a.isNonTechRole)
-            .reduce((sum, a) => sum + a.matchPercentage, 0) / Math.max(1, totalProcessed - totalNonTechRoles),
-          technologiesExtracted: extractedTechnologies.length,
-          processingDate: new Date().toISOString(),
-          geminiModel: "gemini-2.5-flash"
-        }
-      };
-
-      if (existingAnalysis) {
-        console.log("Updating existing CV analysis record with enhanced data");
-        await CVAnalysis.findByIdAndUpdate(existingAnalysis._id, {
-          ...analysisData,
-          updatedAt: new Date()
-        });
-      } else {
-        console.log("Creating new comprehensive CV analysis record");
-        await CVAnalysis.create(analysisData);
-      }
-    } catch (saveError) {
-      console.error("Enhanced database save/update error:", saveError);
     }
 
-    const responseData = {
-      analysis: analysis.map(a => ({
-        matchPercentage: a.matchPercentage,
-        isNonTechRole: a.isNonTechRole || false,
-        strengths: a.strengths || [],
-        contentWeaknesses: a.contentWeaknesses || [],
-        structureWeaknesses: a.structureWeaknesses || [],
-        contentRecommendations: a.contentRecommendations || [],
-        structureRecommendations: a.structureRecommendations || [],
-        message: a.message || null,
-        hasError: a.hasError || false,
-        timestamp: a.timestamp,
-        analysisQuality: a.analysisQuality
-      })),
-      resumeText: resumeText,
-      extractedTechnologies: extractedTechnologies,
-      resumeHash: resumeHash,
+    let resumeText = '';
+    let resumeFileName = '';
+    let resumeHash = '';
+
+    if (useProfileCV) {
+      console.log('📄 Using profile CV');
+      
+      const user = await userModel.findById(req.user.id);
+      if (!user || !user.currentCV || !user.currentCV.text) {
+        return res.status(400).json({
+          success: false,
+          message: 'No CV found in your profile. Please upload a CV first.'
+        });
+      }
+
+      resumeText = user.currentCV.text;
+      resumeFileName = user.currentCV.fileName || 'Profile CV';
+      resumeHash = user.currentCV.hash || `profile_cv_${user._id}_${Date.now()}`;
+
+    } else {
+      console.log('📁 Using uploaded file');
+      
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'Resume file is required when not using profile CV'
+        });
+      }
+
+      try {
+        // Parse PDF file
+        const pdfData = await pdfParse(req.file.buffer);
+        resumeText = pdfData.text.trim();
+        
+        if (!resumeText || resumeText.length < 100) {
+          return res.status(400).json({
+            success: false,
+            message: 'Could not extract readable text from PDF. Please ensure the file contains selectable text.'
+          });
+        }
+        
+      } catch (pdfError) {
+        console.error('PDF parsing error:', pdfError);
+        return res.status(400).json({
+          success: false,
+          message: 'Failed to parse PDF file. Please ensure it is a valid PDF with readable text.'
+        });
+      }
+
+      resumeFileName = req.file.originalname;
+      resumeHash = crypto.createHash('sha256')
+        .update(req.file.buffer)
+        .digest('hex')
+        .substring(0, 16);
+    }
+
+    // Validate resume content
+    validateResumeContent(resumeText);
+
+    console.log('🔍 Starting real Gemini API analysis...');
+    
+    // Perform actual analysis using Gemini API
+    const { analysis: analysisResults, extractedTechnologies } = await performCVAnalysis(resumeText, jobDescriptions);
+
+    console.log('✅ Real Gemini analysis completed');
+    console.log('Results summary:', analysisResults.map((r, i) => `Job ${i + 1}: ${r.matchPercentage}%`));
+    console.log('Technologies extracted:', extractedTechnologies.length);
+
+    // Return real analysis results
+    res.json({
+      success: true,
+      message: 'Resume analysis completed successfully using Gemini API',
+      resumeHash,
+      resumeText: useProfileCV ? 'Profile CV content' : `Uploaded: ${resumeFileName}`,
+      extractedTechnologies,
+      analysis: analysisResults,
       metadata: {
-        resumeAnalyzed: true,
-        totalJobDescriptions: rawJobDescriptions.length,
-        nonTechRoleCount: totalNonTechRoles,
-        softwareEngineeringRoleCount: totalProcessed - totalNonTechRoles,
-        avgMatchScore: analysis.filter(a => !a.isNonTechRole && a.matchPercentage > 0)
-          .reduce((sum, a) => sum + a.matchPercentage, 0) / Math.max(1, analysis.filter(a => !a.isNonTechRole && a.matchPercentage > 0).length),
-        technologiesExtracted: extractedTechnologies.length,
-        isExistingResume: !!await CVAnalysis.findOne({
-          userId: req.user.id,
-          resumeHash: resumeHash
-        }),
-        processingTime: new Date().toISOString(),
-        analysisVersion: "3.0-gemini-2.5-flash"
-      },
-      recommendations: {
-        overallFeedback: totalNonTechRoles === totalProcessed 
-          ? "All provided job descriptions appear to be for non-software engineering roles. Please provide software engineering internship job descriptions for accurate analysis."
-          : totalNonTechRoles > 0 
-            ? `${totalNonTechRoles} out of ${totalProcessed} job descriptions were identified as non-software engineering roles. Focus on software engineering internship positions for best results.`
-            : "All job descriptions appear to be for software engineering roles. Analysis completed successfully.",
-        nextSteps: totalNonTechRoles < totalProcessed 
-          ? [
-              "Review detailed recommendations for each software engineering role",
-              "Prioritize implementing content recommendations (technical skills, projects)",
-              "Apply structure recommendations for better ATS compatibility",
-              "Consider generating a SWOT analysis for comprehensive career planning"
-            ]
-          : [
-              "Please provide job descriptions specifically for software engineering internships",
-              "Ensure job postings mention programming languages, development frameworks, or technical skills",
-              "Look for internship positions at tech companies or software development roles"
-            ]
+        useProfileCV,
+        resumeFileName,
+        analysisDate: new Date().toISOString(),
+        jobDescriptionCount: jobDescriptions.length,
+        technologiesFound: extractedTechnologies.length,
+        apiUsed: 'Gemini 2.5 Flash',
+        realAnalysis: true
       }
-    };
+    });
 
-    console.log("=== Enhanced Analysis Completed Successfully ===\n");
-
-    res.json(responseData);
-
-  } catch (err) {
-    console.error("Critical error in enhanced analyzeResume:", err);
-    res.status(500).json({ 
-      message: "Failed to analyze resume for software engineering internships. Please try again with a valid PDF and detailed job descriptions.",
-      error: process.env.NODE_ENV === 'development' ? err.message : undefined,
-      requirements: {
-        resume: "Valid PDF with readable text content",
-        jobDescriptions: "Detailed software engineering internship job postings",
-        format: "Each job description should be at least 50 characters and contain technical requirements"
-      }
+  } catch (error) {
+    console.error('❌ Analyze resume error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to analyze resume',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
+// Additional controller functions
 export const analyzeWithProfileCV = async (req, res) => {
   try {
     const { jobDescriptions } = req.body;
@@ -606,7 +705,7 @@ export const analyzeWithProfileCV = async (req, res) => {
       });
     }
     
-    const analysisResults = await performCVAnalysis(cvText, jobDescriptions);
+    const { analysis: analysisResults } = await performCVAnalysis(cvText, jobDescriptions);
     
     const newAnalysis = new CVAnalysis({
       userId: req.user.id,
@@ -730,28 +829,67 @@ export const getSavedAnalysis = async (req, res) => {
 export const saveAnalysis = async (req, res) => {
   try {
     console.log('🔍 Saving/Updating CV analysis...');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
     
-    let { resumeText, resumeHash, jobDescriptions, results, shouldSave = true } = req.body;
+    let { resumeText, resumeHash, jobDescriptions, results, shouldSave = true, extractedTechnologies } = req.body;
     
-    if (!resumeHash && (resumeText || jobDescriptions || results)) {
-      if (!resumeText || !jobDescriptions || !results) {
-        return res.status(400).json({
+    // Handle case where we're just toggling save status with resumeHash only
+    if (resumeHash && !resumeText && !jobDescriptions && !results) {
+      console.log('🔄 Toggling save status for existing analysis with hash:', resumeHash);
+      
+      let analysis = await CVAnalysis.findOne({
+        userId: req.user.id,
+        resumeHash: resumeHash
+      });
+
+      if (!analysis) {
+        return res.status(404).json({ 
           success: false,
-          message: 'Missing required fields for saving analysis',
-          required: ['resumeText', 'resumeHash', 'jobDescriptions', 'results']
+          message: "CV analysis not found. Please analyze your resume first.",
+          resumeHash: resumeHash
         });
       }
+
+      analysis.isSaved = shouldSave;
+      analysis.updatedAt = new Date();
+      await analysis.save();
       
-      resumeHash = resumeHash || createResumeHash(resumeText);
-    } else if (resumeHash && !resumeText && !jobDescriptions && !results) {
-      
-    } else if (!resumeHash) {
-      return res.status(400).json({ 
-        success: false,
-        message: "Resume hash is required to save/unsave analysis.",
-        required: ["resumeHash"]
+      console.log(`✅ ${shouldSave ? 'Saved' : 'Unsaved'} existing analysis ${analysis._id}`);
+
+      return res.json({
+        success: true,
+        message: shouldSave 
+          ? "CV analysis saved successfully." 
+          : "CV analysis unsaved successfully.",
+        saved: shouldSave,
+        data: {
+          id: analysis._id,
+          isSaved: analysis.isSaved
+        }
       });
     }
+
+    // Handle full analysis save (new analysis or update with data)
+    if (!resumeText || !jobDescriptions || !results) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields for saving analysis',
+        required: ['resumeText', 'jobDescriptions', 'results'],
+        received: {
+          resumeText: !!resumeText,
+          jobDescriptions: !!jobDescriptions,
+          results: !!results,
+          resumeHash: !!resumeHash
+        }
+      });
+    }
+    
+    // Generate resume hash if not provided
+    if (!resumeHash) {
+      resumeHash = createResumeHash(resumeText);
+    }
+
+    console.log('🔍 Looking for existing analysis with hash:', resumeHash);
 
     let analysis = await CVAnalysis.findOne({
       userId: req.user.id,
@@ -759,26 +897,42 @@ export const saveAnalysis = async (req, res) => {
     });
 
     if (analysis) {
-      if (jobDescriptions && results) {
-        analysis.jobDescriptions = jobDescriptions;
-        analysis.results = results;
-        if (resumeText) {
-          analysis.resumeText = resumeText.substring(0, 15000);
-        }
-      }
+      console.log('📝 Updating existing analysis:', analysis._id);
+      
+      // Update existing analysis
+      analysis.jobDescriptions = jobDescriptions;
+      analysis.results = results;
+      analysis.resumeText = resumeText.substring(0, 15000);
       analysis.isSaved = shouldSave;
       analysis.updatedAt = new Date();
       
+      if (extractedTechnologies && Array.isArray(extractedTechnologies)) {
+        analysis.extractedTechnologies = extractedTechnologies;
+      }
+      
+      // Update metadata
+      if (!analysis.analysisMetadata) {
+        analysis.analysisMetadata = {};
+      }
+      analysis.analysisMetadata.geminiModel = "gemini-2.5-flash";
+      analysis.analysisMetadata.processingDate = new Date().toISOString();
+      
       await analysis.save();
-      console.log(`${shouldSave ? 'Saved' : 'Updated'} existing analysis ${analysis._id}`);
-    } else if (resumeText && jobDescriptions && results) {
+      console.log('✅ Updated existing analysis successfully');
+      
+    } else {
+      console.log('🆕 Creating new analysis');
+      
+      // Create new analysis
       analysis = new CVAnalysis({
         userId: req.user.id,
         resumeText: resumeText.substring(0, 15000),
         resumeHash,
         jobDescriptions,
         results,
+        extractedTechnologies: extractedTechnologies || [],
         isSaved: shouldSave,
+        usedProfileCV: false, // Default to false unless specified
         analysisMetadata: {
           geminiModel: "gemini-2.5-flash",
           processingDate: new Date().toISOString()
@@ -787,14 +941,9 @@ export const saveAnalysis = async (req, res) => {
       
       await analysis.save();
       console.log('✅ New analysis created and saved successfully');
-    } else {
-      return res.status(404).json({ 
-        success: false,
-        message: "CV analysis not found. Please analyze your resume first.",
-        resumeHash: resumeHash
-      });
     }
 
+    // Validate and format results
     const validatedResults = (analysis.results || []).map((result, index) => {
       return {
         matchPercentage: typeof result.matchPercentage === 'number' ? Math.max(0, Math.min(100, result.matchPercentage)) : 0,
@@ -811,19 +960,25 @@ export const saveAnalysis = async (req, res) => {
       };
     });
 
+    const softwareRoles = validatedResults.filter(r => !r.isNonTechRole && r.matchPercentage > 0);
+    const avgMatchScore = softwareRoles.length > 0 
+      ? Math.round(softwareRoles.reduce((sum, r) => sum + r.matchPercentage, 0) / softwareRoles.length)
+      : 0;
+
     res.json({
       success: true,
       message: shouldSave 
         ? "CV analysis saved successfully." 
-        : "CV analysis unsaved successfully.",
+        : "CV analysis updated successfully.",
       saved: shouldSave,
       data: {
         id: analysis._id,
-        isSaved: analysis.isSaved
+        isSaved: analysis.isSaved,
+        resumeHash: analysis.resumeHash
       },
       analysis: {
         id: analysis._id,
-        resumeText: analysis.resumeText,
+        resumeText: analysis.resumeText ? 'CV content saved' : 'No content',
         isSaved: analysis.isSaved,
         analysisCount: validatedResults.length,
         updatedAt: analysis.updatedAt,
@@ -835,8 +990,7 @@ export const saveAnalysis = async (req, res) => {
         totalAnalyses: validatedResults.length,
         softwareRoles: validatedResults.filter(r => !r.isNonTechRole).length,
         nonTechRoles: validatedResults.filter(r => r.isNonTechRole).length,
-        avgMatchScore: validatedResults.filter(r => !r.isNonTechRole && r.matchPercentage > 0)
-          .reduce((sum, r) => sum + r.matchPercentage, 0) / Math.max(1, validatedResults.filter(r => !r.isNonTechRole && r.matchPercentage > 0).length) || 0,
+        avgMatchScore: avgMatchScore,
         technologiesExtracted: (analysis.extractedTechnologies || []).length
       }
     });
@@ -846,7 +1000,8 @@ export const saveAnalysis = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to save analysis',
-      error: error.message
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
@@ -1151,4 +1306,79 @@ export const getTechnologyStats = async (req, res) => {
       error: error.message
     });
   }
+};
+
+// Additional helper method for finding user analysis
+export const findUserAnalysis = async (userId, resumeHash) => {
+  try {
+    return await CVAnalysis.findOne({
+      userId: userId,
+      resumeHash: resumeHash
+    });
+  } catch (error) {
+    console.error('Error finding user analysis:', error);
+    return null;
+  }
+};
+
+// Method to handle saving analysis without full data (for quick save/unsave)
+export const toggleSaveStatus = async (req, res) => {
+  try {
+    const { resumeHash, shouldSave = true } = req.body;
+    
+    if (!resumeHash) {
+      return res.status(400).json({
+        success: false,
+        message: 'Resume hash is required to toggle save status'
+      });
+    }
+
+    const analysis = await CVAnalysis.findOne({
+      userId: req.user.id,
+      resumeHash: resumeHash
+    });
+
+    if (!analysis) {
+      return res.status(404).json({
+        success: false,
+        message: 'Analysis not found. Please analyze your resume first.'
+      });
+    }
+
+    analysis.isSaved = shouldSave;
+    analysis.updatedAt = new Date();
+    await analysis.save();
+
+    res.json({
+      success: true,
+      message: shouldSave ? 'Analysis saved successfully' : 'Analysis unsaved successfully',
+      data: {
+        id: analysis._id,
+        isSaved: analysis.isSaved,
+        resumeHash: analysis.resumeHash
+      }
+    });
+
+  } catch (error) {
+    console.error('Error toggling save status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update save status',
+      error: error.message
+    });
+  }
+};
+
+// Export utility functions for external use
+export {
+  calculateTechnicalMatch,
+  getSimilarityScore,
+  extractTechnologiesFromResume,
+  getStructuredRecommendations,
+  analyzeResumeMatch,
+  createResumeHash,
+  convertMarkdownToHTML,
+  stripHTMLToText,
+  validateResumeContent,
+  validateJobDescription
 };

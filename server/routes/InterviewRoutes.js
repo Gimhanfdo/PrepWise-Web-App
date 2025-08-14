@@ -6,26 +6,72 @@ import axios from 'axios';
 import { spawn } from 'child_process';
 import userAuth from '../middleware/userAuth.js';
 import { 
-  createInterview, 
   startInterview, 
-  submitAnswer, 
   getNextQuestion, 
+  submitAnswer, 
   completeInterview, 
-  getInterviewFeedback,
-  getUserInterviews,
-  getInterview,
-  analyzeResponse  // Added new import
+  getInterviewFeedback, 
+  getUserInterviews, 
+  getInterview, 
+  analyzeResponse,
+  getUserCV,  
+  createInterviewWithProfileCV,
+  createInterview  // Add this import
 } from '../controllers/interviewController.js';
 
 const interviewRouter = express.Router();
 
-// AssemblyAI configuration
 const assemblyAIConfig = {
   baseUrl: "https://api.assemblyai.com",
   headers: {
     authorization: process.env.ASSEMBLYAI_API_KEY || "09e162bb0a7a4478bfb5092b53b53b58",
   }
 };
+
+// Configure multer for audio file uploads with disk storage for transcription
+const diskStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = 'uploads/audio';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, `audio_${Date.now()}_${Math.random().toString(36).substring(7)}.webm`);
+  }
+});
+
+// Disk storage upload for transcription
+const uploadToDisk = multer({
+  storage: diskStorage,
+  limits: {
+    fileSize: 25 * 1024 * 1024, // 25MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['audio/webm', 'audio/wav', 'audio/mp3', 'audio/m4a'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid audio format'), false);
+    }
+  }
+});
+
+// Memory storage upload for other audio processing
+const uploadToMemory = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('audio/') || file.mimetype === 'application/octet-stream') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only audio files are allowed'), false);
+    }
+  }
+});
 
 // AssemblyAI transcription function
 const transcribeWithAssemblyAI = async (audioPath) => {
@@ -91,105 +137,11 @@ const transcribeWithAssemblyAI = async (audioPath) => {
   }
 };
 
-// Local Whisper (Development only)
-const transcribeWithLocalWhisper = async (audioPath) => {
-  return new Promise((resolve, reject) => {
-    const whisper = spawn('whisper', [
-      audioPath,
-      '--model', 'base',
-      '--output_format', 'json',
-      '--output_dir', path.dirname(audioPath),
-      '--language', 'en'
-    ]);
-
-    let output = '';
-    let error = '';
-
-    whisper.stdout.on('data', (data) => {
-      output += data.toString();
-    });
-
-    whisper.stderr.on('data', (data) => {
-      error += data.toString();
-    });
-
-    whisper.on('close', (code) => {
-      if (code === 0) {
-        try {
-          const jsonPath = audioPath.replace(path.extname(audioPath), '.json');
-          if (fs.existsSync(jsonPath)) {
-            const transcription = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-            fs.unlinkSync(jsonPath);
-            resolve({
-              text: transcription.text,
-              duration: null
-            });
-          } else {
-            reject(new Error('Transcription file not found'));
-          }
-        } catch (parseError) {
-          reject(parseError);
-        }
-      } else {
-        reject(new Error(`Whisper process failed: ${error}`));
-      }
-    });
-
-    whisper.on('error', (err) => {
-      reject(err);
-    });
-  });
-};
-
-// Configure multer for audio file uploads with disk storage for transcription
-const diskStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = 'uploads/audio';
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, `audio_${Date.now()}_${Math.random().toString(36).substring(7)}.webm`);
-  }
-});
-
-// Disk storage upload for transcription
-const uploadToDisk = multer({
-  storage: diskStorage,
-  limits: {
-    fileSize: 25 * 1024 * 1024, // 25MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = ['audio/webm', 'audio/wav', 'audio/mp3', 'audio/m4a'];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Invalid audio format'), false);
-    }
-  }
-});
-
-// Memory storage upload for other audio processing
-const uploadToMemory = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('audio/') || file.mimetype === 'application/octet-stream') {
-      cb(null, true);
-    } else {
-      cb(new Error('Only audio files are allowed'), false);
-    }
-  }
-});
-
 // Transcription endpoint
 export const transcribeAudio = async (req, res) => {
   try {
     console.log('Transcription request received');
+    console.log('User in transcribe:', req.user); // Debug log
     
     if (!req.file) {
       return res.status(400).json({
@@ -285,7 +237,7 @@ const mockTranscribeAudio = async (req, res) => {
     }
 
     // Mock transcription - in production, integrate with speech-to-text service
-    const mockTranscription = "Audio transcription is currently simulated. In production, this would use a speech-to-text service to convert the audio to text.";
+    const mockTranscription = "This is a mock transcription. The candidate provided a thoughtful response discussing their technical experience and problem-solving approach.";
     
     res.json({
       success: true,
@@ -306,12 +258,21 @@ const mockTranscribeAudio = async (req, res) => {
 // All interview routes require authentication
 interviewRouter.use(userAuth);
 
+// PUBLIC ROUTES (no auth required) - Move these BEFORE userAuth middleware if needed
+// Currently all routes require auth as per your design
+
+// CV route (used by frontend during setup)
+interviewRouter.get('/cv', getUserCV);
+
+// INTERVIEW CREATION ROUTES (THESE WERE MISSING!)
+interviewRouter.post('/create', createInterview);  // THIS WAS MISSING!
+interviewRouter.post('/create-with-profile-cv', createInterviewWithProfileCV);
+
 // Transcription routes
 interviewRouter.post('/transcribe', uploadToDisk.single('audio'), transcribeAudio);
 interviewRouter.post('/transcribe-mock', uploadToMemory.single('audio'), mockTranscribeAudio);
 
 // Interview CRUD operations
-interviewRouter.post('/create', createInterview);
 interviewRouter.get('/:interviewId', getInterview);
 interviewRouter.put('/:interviewId/start', startInterview);
 interviewRouter.post('/:interviewId/answer', uploadToDisk.single('audio'), submitAnswer);

@@ -62,7 +62,7 @@ userRouter.put('/upgrade-premium', upgradeToPremium);
 userRouter.put('/downgrade-basic', downgradeToBasic);
 
 // CV Analysis routes
-userRouter.get('/saved-analyses', getSavedAnalysis); // Uses singular method name
+userRouter.get('/saved-analyses', getSavedAnalysis); 
 userRouter.delete('/analysis/:id', deleteAnalysis);
 
 // Skills Assessment routes  
