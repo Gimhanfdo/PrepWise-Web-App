@@ -529,7 +529,7 @@ const SkillsAssessment = ({
 };
 
 // API Configuration
-const API_BASE_URL = import.meta.env?.VITE_API_URL || 'http://localhost:4000';
+const API_BASE_URL = import.meta.env?.VITE_BACKEND_URL || 'http://localhost:4000';
 
 const API_ENDPOINTS = {
   analyzeResume: `${API_BASE_URL}/api/analyze/analyze-resume`,
