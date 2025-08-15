@@ -1,4 +1,4 @@
-import interviewModel from '../models/interviewModel.js';
+import interviewModel from '../models/InterviewModel.js';
 import userModel from '../models/userModel.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
