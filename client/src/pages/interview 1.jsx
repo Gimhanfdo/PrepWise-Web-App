@@ -58,84 +58,17 @@ const MockInterviewSystem = () => {
   const audioChunksRef = useRef([]);
   const fileInputRef = useRef(null);
 
-  // Updated language configurations with starter codes like in the first example
   const supportedLanguages = [
-    { 
-      value: 'javascript', 
-      label: 'JavaScript', 
-      template: `function findMax(numbers) {
-    // Your code here
-    // Hint: Use a loop to compare numbers
-    
-    return maxNumber;
-}
-
-// Test
-const testArray = [3, 7, 2, 9, 1];
-console.log(findMax(testArray)); // Should return 9`
-    },
-    { 
-      value: 'python', 
-      label: 'Python', 
-      template: `def find_max(numbers):
-    # Your code here
-    # Hint: Use a loop to compare numbers
-    pass
-
-# Test
-test_array = [3, 7, 2, 9, 1]
-print(find_max(test_array))  # Should return 9`
-    },
-    { 
-      value: 'java', 
-      label: 'Java', 
-      template: `public class Solution {
-    public static int findMax(int[] numbers) {
-        // Your code here
-        return 0;
-    }
-    
-    public static void main(String[] args) {
-        int[] test = {3, 7, 2, 9, 1};
-        System.out.println(findMax(test)); // Should return 9
-    }
-}`
-    },
-    { 
-      value: 'cpp', 
-      label: 'C++', 
-      template: `#include <iostream>
-#include <vector>
-using namespace std;
-
-int findMax(vector<int>& numbers) {
-    // Your code here
-    return 0;
-}
-
-int main() {
-    vector<int> test = {3, 7, 2, 9, 1};
-    cout << findMax(test) << endl; // Should return 9
-    return 0;
-}`
-    },
-    { 
-      value: 'go', 
-      label: 'Go', 
-      template: `package main
-
-import "fmt"
-
-func findMax(numbers []int) int {
-    // Your code here
-    return 0
-}
-
-func main() {
-    test := []int{3, 7, 2, 9, 1}
-    fmt.Println(findMax(test)) // Should return 9
-}`
-    }
+    { value: 'javascript', label: 'JavaScript', template: 'function solution() {\n    // Your code here\n    return result;\n}' },
+    { value: 'python', label: 'Python', template: 'def solution():\n    # Your code here\n    return result' },
+    { value: 'java', label: 'Java', template: 'public class Solution {\n    public static void main(String[] args) {\n        // Your code here\n    }\n}' },
+    { value: 'cpp', label: 'C++', template: '#include <iostream>\nusing namespace std;\n\nint main() {\n    // Your code here\n    return 0;\n}' },
+    { value: 'c', label: 'C', template: '#include <stdio.h>\n\nint main() {\n    // Your code here\n    return 0;\n}' },
+    { value: 'csharp', label: 'C#', template: 'using System;\n\nclass Program {\n    static void Main() {\n        // Your code here\n    }\n}' },
+    { value: 'typescript', label: 'TypeScript', template: 'function solution(): any {\n    // Your code here\n    return result;\n}' },
+    { value: 'go', label: 'Go', template: 'package main\n\nimport "fmt"\n\nfunc main() {\n    // Your code here\n}' },
+    { value: 'rust', label: 'Rust', template: 'fn main() {\n    // Your code here\n}' },
+    { value: 'php', label: 'PHP', template: '<?php\n// Your code here\n?>' }
   ];
 
   const addDebugLog = useCallback((message, type = 'info') => {
@@ -305,45 +238,6 @@ func main() {
     };
   }, [currentQuestion, isValidAnswer]);
 
-  // Updated code execution function similar to the first example
-  const executeCode = () => {
-    setIsRunningCode(true);
-    setCodeOutput('Running...');
-    
-    // Simulate code execution (in a real app, this would send to a backend)
-    setTimeout(() => {
-      if (language === 'javascript') {
-        try {
-          // Simple simulation - in real app, this would be done securely on backend
-          if (code.includes('function findMax') && code.includes('return')) {
-            setCodeOutput('9\n// Code executed successfully!');
-          } else {
-            setCodeOutput('Please implement the findMax function');
-          }
-        } catch (error) {
-          setCodeOutput('Error: ' + error.message);
-        }
-      } else {
-        const languageNames = {
-          python: 'Python',
-          java: 'Java',
-          cpp: 'C++',
-          go: 'Go'
-        };
-        setCodeOutput(`Output for ${languageNames[language] || language}:\n9\n// Code executed successfully!`);
-      }
-      setIsRunningCode(false);
-    }, 1500);
-  };
-
-  // Updated language change handler
-  const handleLanguageChange = useCallback((newLanguage) => {
-    setLanguage(newLanguage);
-    const langTemplate = supportedLanguages.find(l => l.value === newLanguage)?.template || '';
-    setCode(currentQuestion?.starterCode?.[newLanguage] || langTemplate);
-    setCodeOutput('');
-  }, [currentQuestion, supportedLanguages]);
-
   const handleJobDescriptionChange = useCallback((e) => {
     setInterviewData(prev => ({ ...prev, jobDescription: e.target.value }));
   }, []);
@@ -360,13 +254,13 @@ func main() {
     setTranscription(e.target.value);
   }, []);
 
-  const resetCode = () => {
-    const langTemplate = supportedLanguages.find(l => l.value === language)?.template || '';
-    setCode(currentQuestion?.starterCode?.[language] || langTemplate);
+  const handleLanguageChange = useCallback((e) => {
+    const newLanguage = e.target.value;
+    setLanguage(newLanguage);
+    const langTemplate = supportedLanguages.find(l => l.value === newLanguage)?.template || '';
+    setCode(currentQuestion?.starterCode?.[newLanguage] || langTemplate);
     setCodeOutput('');
-  };
-
-  // ... [Keep all your existing useEffect hooks and other functions exactly as they are] ...
+  }, [currentQuestion, supportedLanguages]);
 
   useEffect(() => {
     checkAuthentication();
@@ -765,6 +659,54 @@ Note: The actual CV text extraction would require server-side processing of the 
     } catch (err) {
       addDebugLog(`Playback failed: ${err.message}`, 'error');
       setAudioError('Failed to play recording');
+    }
+  };
+
+  const executeCode = () => {
+    try {
+      setIsRunningCode(true);
+      setCodeOutput('Running code...\n');
+      addDebugLog('Executing code...');
+      
+      if (language === 'javascript') {
+        const originalLog = console.log;
+        let output = '';
+        
+        console.log = (...args) => {
+          output += args.join(' ') + '\n';
+        };
+        
+        try {
+          const result = new Function('console', `
+            ${code}
+            ${code.includes('console.log') ? '' : 'console.log("Code executed successfully");'}
+          `)(console);
+          
+          if (result !== undefined) {
+            output += 'Return value: ' + result + '\n';
+          }
+        } catch (error) {
+          output += 'Error: ' + error.message + '\n';
+        }
+        
+        console.log = originalLog;
+        setCodeOutput(output || 'Code executed successfully (no output)');
+        addDebugLog(`JavaScript executed: ${output.substring(0, 100)}`);
+      } else if (language === 'python') {
+        const simulatedOutput = `Simulating Python execution:\n${code}\n\n[In a real environment, this would execute Python code]\nCode appears valid for Python syntax.`;
+        setCodeOutput(simulatedOutput);
+        addDebugLog(`Python simulation completed`);
+      } else {
+        const simulatedOutput = `Code execution for ${language} is simulated in this demo.\nYour code would be executed on the server with proper ${language} compiler/interpreter.\n\nCode submitted:\n${code.substring(0, 200)}${code.length > 200 ? '...' : ''}`;
+        setCodeOutput(simulatedOutput);
+        addDebugLog(`Simulated execution for ${language}`);
+      }
+    } catch (error) {
+      const errorMsg = `Execution Error: ${error.message}`;
+      setCodeOutput(errorMsg);
+      addDebugLog(`Code execution error: ${error.message}`, 'error');
+    } finally {
+      setIsRunningCode(false);
     }
   };
 
@@ -1259,7 +1201,6 @@ Note: The actual CV text extraction would require server-side processing of the 
     };
   };
 
-  
   const startTimer = () => {
     timerRef.current = setInterval(() => {
       setTimer(prev => prev + 1);
@@ -1273,43 +1214,38 @@ Note: The actual CV text extraction would require server-side processing of the 
   };
 
   const resetInterview = useCallback(() => {
-      setCurrentStep('setup');
-      setInterview(null);
-      setQuestions([]);
-      setCurrentQuestion(null);
-      setQuestionIndex(0);
-      setResponses([]);
-      setFeedback(null);
-      setQuestionFeedbacks({});
-      setInterviewData(prev => ({ ...prev, jobDescription: '' }));
-      setCode('');
-      setCodeOutput('');
-      setShowCodeEditor(false);
-      setAudioBlob(null);
-      setRecordingTime(0);
-      setTimer(0);
-      setTextAnswer('');
-      setTranscription('');
-      setTranscriptionError('');
-      setAnswerMode('audio');
-      setUploadedFile(null);
-      if (profileCV) {
-        setCvMode('profile');
-        setInterviewData(prev => ({ ...prev, resumeText: profileCV.text }));
-      } else {
-        setCvMode('upload');
-        setInterviewData(prev => ({ ...prev, resumeText: '' }));
-      }
-    }, [profileCV]);
-
-
-  // ... [Keep all other existing functions like startInterview, skipQuestion, submitAnswer, etc.] ...
+    setCurrentStep('setup');
+    setInterview(null);
+    setQuestions([]);
+    setCurrentQuestion(null);
+    setQuestionIndex(0);
+    setResponses([]);
+    setFeedback(null);
+    setQuestionFeedbacks({});
+    setInterviewData(prev => ({ ...prev, jobDescription: '' }));
+    setCode('');
+    setCodeOutput('');
+    setShowCodeEditor(false);
+    setAudioBlob(null);
+    setRecordingTime(0);
+    setTimer(0);
+    setTextAnswer('');
+    setTranscription('');
+    setTranscriptionError('');
+    setAnswerMode('audio');
+    setUploadedFile(null);
+    if (profileCV) {
+      setCvMode('profile');
+      setInterviewData(prev => ({ ...prev, resumeText: profileCV.text }));
+    } else {
+      setCvMode('upload');
+      setInterviewData(prev => ({ ...prev, resumeText: '' }));
+    }
+  }, [profileCV]);
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
+      stopTimer();
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
       }
@@ -1468,470 +1404,6 @@ Note: The actual CV text extraction would require server-side processing of the 
     </div>
   ), [cvMode, profileCV, interviewData.resumeText, cvLoading, cvError, uploadedFile, handleCvModeChange, loadProfileCV]);
 
-  // Updated Code Editor Component - This is the key change
-  const CodeEditorComponent = useMemo(() => {
-    if (!showCodeEditor) return null;
-    
-    return (
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-        {/* Header */}
-        <div className="bg-gray-800 text-white p-4">
-          <h2 className="text-xl font-bold mb-2">Code Editor - Interview Question</h2>
-          <p className="text-gray-300">{currentQuestion?.question}</p>
-        </div>
-
-        {/* Language Selector */}
-        <div className="bg-gray-100 p-4 border-b">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Select Programming Language:
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {supportedLanguages.map((lang) => (
-              <button
-                key={lang.value}
-                onClick={() => handleLanguageChange(lang.value)}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  language === lang.value
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                {lang.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
-          {/* Code Editor */}
-          <div className="border-r border-gray-200">
-            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-800">
-                  Code ({supportedLanguages.find(l => l.value === language)?.label})
-                </h3>
-                <div className="flex gap-2">
-                  <button
-                    onClick={resetCode}
-                    className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
-                  >
-                    Reset
-                  </button>
-                  <button
-                    onClick={executeCode}
-                    disabled={isRunningCode}
-                    className="px-4 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 transition-colors"
-                  >
-                    {isRunningCode ? 'Running...' : 'Run Code'}
-                  </button>
-                </div>
-              </div>
-            </div>
-            
-            <div className="relative">
-              <textarea
-                value={code}
-                onChange={handleCodeChange}
-                className="w-full h-96 p-4 font-mono text-sm bg-gray-900 text-green-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
-                placeholder="Write your code here..."
-                style={{
-                  fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
-                  fontSize: '14px',
-                  lineHeight: '1.5',
-                  tabSize: 4
-                }}
-                spellCheck={false}
-              />
-              
-              {/* Line numbers */}
-              <div className="absolute left-0 top-0 p-4 text-gray-500 font-mono text-sm pointer-events-none select-none">
-                {code.split('\n').map((_, index) => (
-                  <div key={index} style={{ lineHeight: '1.5', fontSize: '14px' }}>
-                    {index + 1}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Output Panel */}
-          <div>
-            <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-800">Output</h3>
-            </div>
-            
-            <div className="h-96 p-4 bg-black text-green-400 font-mono text-sm overflow-auto">
-              {codeOutput ? (
-                <pre className="whitespace-pre-wrap">{codeOutput}</pre>
-              ) : (
-                <div className="text-gray-500">
-                  Click "Run Code" to see output here...
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Instructions */}
-        <div className="bg-blue-50 p-4 border-t border-gray-200">
-          <h4 className="font-semibold text-blue-900 mb-2">Instructions:</h4>
-          <ul className="text-blue-800 text-sm space-y-1">
-            <li>• Write clean, readable code with proper structure</li>
-            <li>• Add comments to explain your approach</li>
-            <li>• Test your solution and consider edge cases</li>
-            <li>• Make sure your code compiles and runs correctly</li>
-          </ul>
-        </div>
-
-        {/* Submit Button */}
-        <div className="p-4 bg-gray-50 border-t">
-          <button 
-            onClick={() => {
-              // This would be handled by your existing submit logic
-              console.log('Code submitted:', code);
-            }}
-            className="w-full py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Submit Code Solution
-          </button>
-        </div>
-      </div>
-    );
-  }, [showCodeEditor, currentQuestion, language, supportedLanguages, code, codeOutput, isRunningCode, handleLanguageChange, handleCodeChange, executeCode, resetCode]);
-
-  // Your existing render logic with the updated code editor section
-  const InterviewPhase = useMemo(() => {
-    const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
-    
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-        <div className="bg-white border-b border-gray-200 shadow-sm">
-          <div className="max-w-7xl mx-auto px-6 py-3">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
-                  <Brain className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-gray-900">Mock Interview</h1>
-                  <p className="text-xs text-gray-600">Question {questionIndex + 1} of {questions.length}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 text-gray-600">
-                  <Clock className="w-4 h-4" />
-                  <span className="font-mono text-sm">
-                    {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
-                  </span>
-                </div>
-                <div className="w-24">
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-gradient-to-r from-blue-600 to-indigo-600 h-2 rounded-full transition-all duration-500"
-                      style={{ width: `${((questionIndex + 1) / questions.length) * 100}%` }}
-                    ></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          {/* Show the new code editor for coding questions, otherwise show regular interface */}
-          {isCodingQuestion && showCodeEditor ? (
-            CodeEditorComponent
-          ) : (
-            <div className="grid gap-6 grid-cols-1 max-w-4xl mx-auto">
-              <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-                <div className="flex items-start gap-3 mb-4">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
-                    isCodingQuestion ? 'bg-gradient-to-r from-purple-500 to-pink-500' :
-                    currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-gradient-to-r from-indigo-500 to-blue-500' :
-                    currentQuestion?.type === 'behavioral' ? 'bg-gradient-to-r from-green-500 to-teal-500' :
-                    'bg-gradient-to-r from-blue-500 to-cyan-500'
-                  }`}>
-                    {isCodingQuestion ? <Code className="w-6 h-6 text-white" /> : <MessageCircle className="w-6 h-6 text-white" />}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        isCodingQuestion ? 'bg-purple-100 text-purple-800' :
-                        currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-indigo-100 text-indigo-800' :
-                        currentQuestion?.type === 'behavioral' ? 'bg-green-100 text-green-800' :
-                        'bg-blue-100 text-blue-800'
-                      }`}>
-                        {currentQuestion?.type?.replace('_', ' ').toUpperCase()}
-                      </span>
-                      <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                        ⏱️ {currentQuestion?.expectedDuration || 120}s
-                      </span>
-                    </div>
-                    <h2 className="text-lg font-bold text-gray-900 leading-relaxed">
-                      {currentQuestion?.question}
-                    </h2>
-                  </div>
-                </div>
-
-                {isCodingQuestion && (
-                  <div className="mb-4">
-                    <button
-                      onClick={() => setShowCodeEditor(!showCodeEditor)}
-                      className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-4 py-2 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-sm"
-                    >
-                      <Terminal className="w-4 h-4" />
-                      {showCodeEditor ? 'Hide Code Editor' : 'Open Code Editor'}
-                    </button>
-                  </div>
-                )}
-
-                {/* Your existing answer mode selection and audio/text input logic */}
-                {!isCodingQuestion && (
-                  <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-3">Response Method:</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        onClick={() => setAnswerMode('audio')}
-                        className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 ${
-                          answerMode === 'audio' 
-                            ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-lg' 
-                            : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                          <Headphones className="w-4 h-4 text-blue-600" />
-                        </div>
-                        <div className="text-left">
-                          <div className="text-sm font-medium">Audio</div>
-                          <div className="text-xs text-gray-500">Speak answer</div>
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => setAnswerMode('text')}
-                        className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 ${
-                          answerMode === 'text' 
-                            ? 'bg-green-50 border-green-500 text-green-700 shadow-lg' 
-                            : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                        }`}
-                      >
-                        <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                          <Type className="w-4 h-4 text-green-600" />
-                        </div>
-                        <div className="text-left">
-                          <div className="text-sm font-medium">Text</div>
-                          <div className="text-xs text-gray-500">Type answer</div>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Audio recording interface */}
-                {!isCodingQuestion && answerMode === 'audio' && (
-                  <div className="space-y-4">
-                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-100">
-                      <div className="flex items-center justify-center gap-4 py-6">
-                        <button
-                          onClick={isRecording ? stopRecording : startRecording}
-                          disabled={loading}
-                          className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${
-                            isRecording 
-                              ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-red-200' 
-                              : 'bg-blue-500 hover:bg-blue-600 text-white hover:shadow-blue-200'
-                          }`}
-                        >
-                          {isRecording ? <MicOff className="w-8 h-8" /> : <Mic className="w-8 h-8" />}
-                        </button>
-                        
-                        {audioBlob && (
-                          <button
-                            onClick={playRecording}
-                            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg ${
-                              isPlaying ? 'bg-orange-500 hover:bg-orange-600' : 'bg-gray-500 hover:bg-gray-600'
-                            } text-white`}
-                          >
-                            {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="text-center space-y-2">
-                        <p className="text-gray-700 text-sm font-medium">
-                          {isRecording ? (
-                            <span className="flex items-center justify-center gap-2">
-                              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                              Recording... {recordingTime}s
-                            </span>
-                          ) : (
-                            'Click microphone to record'
-                          )}
-                        </p>
-                        
-                        {audioBlob && (
-                          <div className="bg-green-100 border border-green-200 rounded-lg p-2">
-                            <p className="text-green-800 text-sm font-medium flex items-center justify-center gap-2">
-                              <CheckCircle className="w-4 h-4" />
-                              Recorded ({Math.round(audioBlob.size / 1024)}KB)
-                            </p>
-                          </div>
-                        )}
-                        
-                        {isTranscribing && (
-                          <div className="bg-blue-100 border border-blue-200 rounded-lg p-2">
-                            <p className="text-blue-800 text-sm flex items-center justify-center gap-2">
-                              <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-600 border-t-transparent"></div>
-                              Transcribing...
-                            </p>
-                          </div>
-                        )}
-                        
-                        {audioError && (
-                          <div className="bg-red-100 border border-red-200 rounded-lg p-2">
-                            <p className="text-red-800 text-xs">⚠️ {audioError}</p>
-                          </div>
-                        )}
-                        
-                        {transcriptionError && (
-                          <div className="bg-yellow-100 border border-yellow-200 rounded-lg p-3">
-                            <p className="text-yellow-800 text-xs mb-2">⚠️ {transcriptionError}</p>
-                            <button 
-                              onClick={() => setAnswerMode('text')} 
-                              className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded-lg text-xs transition-colors"
-                            >
-                              Switch to Text
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {transcription && (
-                      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                        <h4 className="text-sm font-semibold text-blue-900 mb-2 flex items-center gap-2">
-                          <Volume2 className="w-4 h-4" />
-                          Transcription
-                        </h4>
-                        <div className="bg-white rounded-lg p-3 border border-blue-100">
-                          <p className="text-gray-700 text-sm leading-relaxed">{transcription}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {transcriptionError && audioBlob && answerMode === 'audio' && (
-                      <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
-                        <h4 className="text-sm font-semibold text-yellow-800 mb-2">Manual Transcription</h4>
-                        <p className="text-yellow-700 mb-2 text-xs">Type what you said:</p>
-                        <textarea
-                          value={transcription}
-                          onChange={handleTranscriptionChange}
-                          className="w-full h-24 px-3 py-2 border border-yellow-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 resize-none text-sm"
-                          placeholder="Type your audio response here..."
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Text input interface */}
-                {!isCodingQuestion && answerMode === 'text' && (
-                  <div className="space-y-3">
-                    <div className="bg-green-50 rounded-xl p-4 border border-green-100">
-                      <label className="block text-sm font-medium text-green-800 mb-2">Your Written Response:</label>
-                      <textarea
-                        value={textAnswer}
-                        onChange={handleTextAnswerChange}
-                        className="w-full h-32 px-3 py-2 border border-green-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none transition-colors text-sm"
-                        placeholder="Type your comprehensive answer here..."
-                      />
-                      <div className="mt-2 flex justify-between text-xs text-green-600">
-                        <span>Characters: {textAnswer.length}</span>
-                        <span>Words: {textAnswer.split(' ').filter(word => word.length > 0).length}</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Control buttons */}
-                <div className="flex justify-center gap-3 mt-6">
-                  <button
-                    onClick={() => {/* your skip logic */}}
-                    disabled={loading}
-                    className="bg-gray-500 hover:bg-gray-600 disabled:bg-gray-300 text-white font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center gap-2 text-sm"
-                  >
-                    {loading ? (
-                      <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
-                    ) : (
-                      <>
-                        <SkipForward className="w-4 h-4" />
-                        Skip
-                      </>
-                    )}
-                  </button>
-                  
-                  {((isCodingQuestion && code.trim()) || (!isCodingQuestion && ((answerMode === 'audio' && transcription) || (answerMode === 'text' && textAnswer.trim())))) && (
-                    <button
-                      onClick={() => {/* your submit logic */}}
-                      disabled={loading}
-                      className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-gray-300 disabled:to-gray-300 text-white font-semibold py-2 px-6 rounded-lg transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:transform-none text-sm"
-                    >
-                      {loading ? (
-                        <>
-                          <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
-                          Processing...
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle className="w-4 h-4" />
-                          Submit & Continue
-                          <ChevronRight className="w-4 h-4" />
-                        </>
-                      )}
-                    </button>
-                  )}
-                </div>
-
-                {error && (
-                  <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl mt-4">
-                    <AlertCircle className="w-4 h-4 text-red-500" />
-                    <span className="text-red-700 text-sm">{error}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {debugMode && (
-            <div className="bg-gray-900 rounded-xl shadow-lg p-4 border border-gray-700 mt-6">
-              <div className="flex justify-between items-center mb-3">
-                <h3 className="text-sm font-semibold text-green-400">Debug Console</h3>
-                <button 
-                  onClick={() => setDebugLogs([])}
-                  className="text-xs bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded transition-colors"
-                >
-                  Clear
-                </button>
-              </div>
-              <div className="max-h-32 overflow-y-auto text-xs font-mono space-y-1">
-                {debugLogs.slice(-10).map((log, index) => (
-                  <div key={index} className={`${
-                    log.type === 'error' ? 'text-red-400' : 
-                    log.type === 'warn' ? 'text-yellow-400' : 
-                    'text-green-400'
-                  }`}>
-                    <span className="text-gray-500">[{log.timestamp}]</span> {log.message}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <audio ref={audioPlaybackRef} className="hidden" />
-      </div>
-    );
-  }, [questionIndex, questions.length, timer, currentQuestion, answerMode, isRecording, loading, audioBlob, isPlaying, recordingTime, audioError, isTranscribing, transcriptionError, transcription, textAnswer, error, debugMode, debugLogs, showCodeEditor, language, code, codeOutput, isRunningCode, supportedLanguages, responses, handleTranscriptionChange, handleTextAnswerChange, handleCodeChange, CodeEditorComponent]);
-
-  // Keep all your existing setup and feedback phases exactly as they are
   const SetupPhase = useMemo(() => (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
       <div className="container mx-auto px-6 py-8">
@@ -2090,18 +1562,741 @@ Note: The actual CV text extraction would require server-side processing of the 
     </div>
   ), [user, interviewData, debugMode, debugLogs, audioPermission, audioError, error, loading, isSetupValid, createInterview, handleJobDescriptionChange, CVSection]);
 
-  // Keep your existing feedback phase
+  const InterviewPhase = useMemo(() => {
+    const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
+    
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+        <div className="bg-white border-b border-gray-200 shadow-sm">
+          <div className="max-w-7xl mx-auto px-6 py-3">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+                  <Brain className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-lg font-semibold text-gray-900">Mock Interview</h1>
+                  <p className="text-xs text-gray-600">Question {questionIndex + 1} of {questions.length}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Clock className="w-4 h-4" />
+                  <span className="font-mono text-sm">
+                    {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
+                  </span>
+                </div>
+                <div className="w-24">
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-gradient-to-r from-blue-600 to-indigo-600 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${((questionIndex + 1) / questions.length) * 100}%` }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto px-6 py-6">
+          <div className={`grid gap-6 ${showCodeEditor && isCodingQuestion ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 max-w-4xl mx-auto'}`}>
+            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+              <div className="flex items-start gap-3 mb-4">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
+                  isCodingQuestion ? 'bg-gradient-to-r from-purple-500 to-pink-500' :
+                  currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-gradient-to-r from-indigo-500 to-blue-500' :
+                  currentQuestion?.type === 'behavioral' ? 'bg-gradient-to-r from-green-500 to-teal-500' :
+                  'bg-gradient-to-r from-blue-500 to-cyan-500'
+                }`}>
+                  {isCodingQuestion ? <Code className="w-6 h-6 text-white" /> : <MessageCircle className="w-6 h-6 text-white" />}
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                      isCodingQuestion ? 'bg-purple-100 text-purple-800' :
+                      currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-indigo-100 text-indigo-800' :
+                      currentQuestion?.type === 'behavioral' ? 'bg-green-100 text-green-800' :
+                      'bg-blue-100 text-blue-800'
+                    }`}>
+                      {currentQuestion?.type?.replace('_', ' ').toUpperCase()}
+                    </span>
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                      ⏱️ {currentQuestion?.expectedDuration || 120}s
+                    </span>
+                  </div>
+                  <h2 className="text-lg font-bold text-gray-900 leading-relaxed">
+                    {currentQuestion?.question}
+                  </h2>
+                </div>
+              </div>
+
+              {!isCodingQuestion && (
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-3">Response Method:</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => setAnswerMode('audio')}
+                      className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 ${
+                        answerMode === 'audio' 
+                          ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-lg' 
+                          : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <Headphones className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-sm font-medium">Audio</div>
+                        <div className="text-xs text-gray-500">Speak answer</div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setAnswerMode('text')}
+                      className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 ${
+                        answerMode === 'text' 
+                          ? 'bg-green-50 border-green-500 text-green-700 shadow-lg' 
+                          : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                        <Type className="w-4 h-4 text-green-600" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-sm font-medium">Text</div>
+                        <div className="text-xs text-gray-500">Type answer</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {isCodingQuestion && (
+                <div className="mb-4">
+                  <button
+                    onClick={() => setShowCodeEditor(!showCodeEditor)}
+                    className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-4 py-2 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-sm"
+                  >
+                    <Terminal className="w-4 h-4" />
+                    {showCodeEditor ? 'Hide Code Editor' : 'Open Code Editor'}
+                  </button>
+                </div>
+              )}
+
+              {!isCodingQuestion && answerMode === 'audio' && (
+                <div className="space-y-4">
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-100">
+                    <div className="flex items-center justify-center gap-4 py-6">
+                      <button
+                        onClick={isRecording ? stopRecording : startRecording}
+                        disabled={loading}
+                        className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${
+                          isRecording 
+                            ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-red-200' 
+                            : 'bg-blue-500 hover:bg-blue-600 text-white hover:shadow-blue-200'
+                        }`}
+                      >
+                        {isRecording ? <MicOff className="w-8 h-8" /> : <Mic className="w-8 h-8" />}
+                      </button>
+                      
+                      {audioBlob && (
+                        <button
+                          onClick={playRecording}
+                          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg ${
+                            isPlaying ? 'bg-orange-500 hover:bg-orange-600' : 'bg-gray-500 hover:bg-gray-600'
+                          } text-white`}
+                        >
+                          {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="text-center space-y-2">
+                      <p className="text-gray-700 text-sm font-medium">
+                        {isRecording ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                            Recording... {recordingTime}s
+                          </span>
+                        ) : (
+                          'Click microphone to record'
+                        )}
+                      </p>
+                      
+                      {audioBlob && (
+                        <div className="bg-green-100 border border-green-200 rounded-lg p-2">
+                          <p className="text-green-800 text-sm font-medium flex items-center justify-center gap-2">
+                            <CheckCircle className="w-4 h-4" />
+                            Recorded ({Math.round(audioBlob.size / 1024)}KB)
+                          </p>
+                        </div>
+                      )}
+                      
+                      {isTranscribing && (
+                        <div className="bg-blue-100 border border-blue-200 rounded-lg p-2">
+                          <p className="text-blue-800 text-sm flex items-center justify-center gap-2">
+                            <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-600 border-t-transparent"></div>
+                            Transcribing...
+                          </p>
+                        </div>
+                      )}
+                      
+                      {audioError && (
+                        <div className="bg-red-100 border border-red-200 rounded-lg p-2">
+                          <p className="text-red-800 text-xs">⚠️ {audioError}</p>
+                        </div>
+                      )}
+                      
+                      {transcriptionError && (
+                        <div className="bg-yellow-100 border border-yellow-200 rounded-lg p-3">
+                          <p className="text-yellow-800 text-xs mb-2">⚠️ {transcriptionError}</p>
+                          <button 
+                            onClick={() => setAnswerMode('text')} 
+                            className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded-lg text-xs transition-colors"
+                          >
+                            Switch to Text
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {transcription && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                      <h4 className="text-sm font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                        <Volume2 className="w-4 h-4" />
+                        Transcription
+                      </h4>
+                      <div className="bg-white rounded-lg p-3 border border-blue-100">
+                        <p className="text-gray-700 text-sm leading-relaxed">{transcription}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {transcriptionError && audioBlob && answerMode === 'audio' && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+                      <h4 className="text-sm font-semibold text-yellow-800 mb-2">Manual Transcription</h4>
+                      <p className="text-yellow-700 mb-2 text-xs">Type what you said:</p>
+                      <textarea
+                        value={transcription}
+                        onChange={handleTranscriptionChange}
+                        className="w-full h-24 px-3 py-2 border border-yellow-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 resize-none text-sm"
+                        placeholder="Type your audio response here..."
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!isCodingQuestion && answerMode === 'text' && (
+                <div className="space-y-3">
+                  <div className="bg-green-50 rounded-xl p-4 border border-green-100">
+                    <label className="block text-sm font-medium text-green-800 mb-2">Your Written Response:</label>
+                    <textarea
+                      value={textAnswer}
+                      onChange={handleTextAnswerChange}
+                      className="w-full h-32 px-3 py-2 border border-green-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none transition-colors text-sm"
+                      placeholder="Type your comprehensive answer here..."
+                    />
+                    <div className="mt-2 flex justify-between text-xs text-green-600">
+                      <span>Characters: {textAnswer.length}</span>
+                      <span>Words: {textAnswer.split(' ').filter(word => word.length > 0).length}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-center gap-3 mt-6">
+                <button
+                  onClick={skipQuestion}
+                  disabled={loading}
+                  className="bg-gray-500 hover:bg-gray-600 disabled:bg-gray-300 text-white font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center gap-2 text-sm"
+                >
+                  {loading ? (
+                    <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                  ) : (
+                    <>
+                      <SkipForward className="w-4 h-4" />
+                      Skip
+                    </>
+                  )}
+                </button>
+                
+                {((isCodingQuestion && code.trim()) || (!isCodingQuestion && ((answerMode === 'audio' && transcription) || (answerMode === 'text' && textAnswer.trim())))) && (
+                  <button
+                    onClick={submitAnswer}
+                    disabled={loading}
+                    className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-gray-300 disabled:to-gray-300 text-white font-semibold py-2 px-6 rounded-lg transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:transform-none text-sm"
+                  >
+                    {loading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        Submit & Continue
+                        <ChevronRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {error && (
+                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl mt-4">
+                  <AlertCircle className="w-4 h-4 text-red-500" />
+                  <span className="text-red-700 text-sm">{error}</span>
+                </div>
+              )}
+            </div>
+
+            {showCodeEditor && isCodingQuestion && (
+              <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                    <Code className="w-5 h-5 text-purple-600" />
+                    Code Editor
+                  </h3>
+                  <div className="flex items-center gap-3">
+                    <select
+                      value={language}
+                      onChange={handleLanguageChange}
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    >
+                      {supportedLanguages.map(lang => (
+                        <option key={lang.value} value={lang.value}>
+                          {lang.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={executeCode}
+                      disabled={isRunningCode}
+                      className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium"
+                    >
+                      {isRunningCode ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                          Running
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4" />
+                          Run Code
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Your Code:</label>
+                    <div className="relative">
+                      <textarea
+                        value={code}
+                        onChange={handleCodeChange}
+                        className="w-full h-64 px-4 py-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-gray-50 transition-colors"
+                        placeholder={`Write your ${language} code here...`}
+                        style={{ fontFamily: 'Consolas, Monaco, "Courier New", monospace' }}
+                        spellCheck="false"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                      />
+                      <div className="absolute bottom-3 right-3 text-xs text-gray-400">
+                        Lines: {code.split('\n').length}
+                      </div>
+                    </div>
+                  </div>
+
+                  {codeOutput && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Output:</label>
+                      <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm whitespace-pre-wrap max-h-32 overflow-y-auto border">
+                        {codeOutput}
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
+                    <div className="flex items-start gap-2">
+                      <Star className="w-4 h-4 text-blue-600 mt-0.5" />
+                      <div>
+                        <p className="text-xs text-blue-800 font-medium mb-1">💡 Tips:</p>
+                        <ul className="text-xs text-blue-700 space-y-0.5">
+                          <li>• Write clean, readable code</li>
+                          <li>• Add comments to explain your approach</li>
+                          <li>• Consider edge cases</li>
+                        </ul>
+                      </div>
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-blue-200 text-xs text-blue-600">
+                      <p>Characters: {code.length} | Lines: {code.split('\n').length}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {debugMode && (
+              <div className="bg-gray-900 rounded-xl shadow-lg p-4 border border-gray-700">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="text-sm font-semibold text-green-400">Debug Console</h3>
+                  <button 
+                    onClick={() => setDebugLogs([])}
+                    className="text-xs bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className="max-h-32 overflow-y-auto text-xs font-mono space-y-1">
+                  {debugLogs.slice(-10).map((log, index) => (
+                    <div key={index} className={`${
+                      log.type === 'error' ? 'text-red-400' : 
+                      log.type === 'warn' ? 'text-yellow-400' : 
+                      'text-green-400'
+                    }`}>
+                      <span className="text-gray-500">[{log.timestamp}]</span> {log.message}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <audio ref={audioPlaybackRef} className="hidden" />
+      </div>
+    );
+  }, [questionIndex, questions.length, timer, currentQuestion, answerMode, isRecording, loading, audioBlob, isPlaying, recordingTime, audioError, isTranscribing, transcriptionError, transcription, textAnswer, error, debugMode, debugLogs, showCodeEditor, language, code, codeOutput, isRunningCode, supportedLanguages, responses, handleTranscriptionChange, handleTextAnswerChange, handleCodeChange, handleLanguageChange]);
+
   const FeedbackPhase = useMemo(() => (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-blue-50 to-indigo-50">
-      {/* Your existing feedback phase code */}
       <div className="container mx-auto px-6 py-8">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900 mb-3">Interview Complete!</h1>
-          <p className="text-lg text-gray-600">Thank you for completing the mock interview.</p>
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full mb-4 shadow-lg">
+              <Trophy className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-3">Interview Complete!</h1>
+            <p className="text-lg text-gray-600">
+              Here's your comprehensive performance analysis.
+            </p>
+          </div>
+
+          {feedback && (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+              <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
+                <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Trophy className="w-6 h-6 text-white" />
+                </div>
+                <div className="text-3xl font-bold text-blue-600 mb-2">{feedback.score || 0}%</div>
+                <div className="text-gray-600 font-medium text-sm">Overall Score</div>
+                <div className={`mt-2 px-3 py-1 rounded-full text-xs font-medium ${
+                  (feedback.score || 0) >= 80 ? 'bg-green-100 text-green-800' :
+                  (feedback.score || 0) >= 60 ? 'bg-yellow-100 text-yellow-800' :
+                  'bg-red-100 text-red-800'
+                }`}>
+                  {(feedback.score || 0) >= 80 ? 'Excellent' : 
+                   (feedback.score || 0) >= 60 ? 'Good' : 'Needs Work'}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
+                <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Code className="w-6 h-6 text-white" />
+                </div>
+                <div className="text-3xl font-bold text-purple-600 mb-2">{feedback.feedback?.technicalSkills?.score || 0}%</div>
+                <div className="text-gray-600 font-medium text-sm">Technical Skills</div>
+                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-1000"
+                    style={{ width: `${feedback.feedback?.technicalSkills?.score || 0}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
+                <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-teal-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <MessageCircle className="w-6 h-6 text-white" />
+                </div>
+                <div className="text-3xl font-bold text-green-600 mb-2">{feedback.feedback?.communicationSkills?.score || 0}%</div>
+                <div className="text-gray-600 font-medium text-sm">Communication</div>
+                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-gradient-to-r from-green-500 to-teal-500 h-2 rounded-full transition-all duration-1000"
+                    style={{ width: `${feedback.feedback?.communicationSkills?.score || 0}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
+                <div className="w-12 h-12 bg-gradient-to-r from-orange-500 to-red-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Brain className="w-6 h-6 text-white" />
+                </div>
+                <div className="text-3xl font-bold text-orange-600 mb-2">{feedback.feedback?.problemSolving?.score || 0}%</div>
+                <div className="text-gray-600 font-medium text-sm">Problem Solving</div>
+                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-gradient-to-r from-orange-500 to-red-500 h-2 rounded-full transition-all duration-1000"
+                    style={{ width: `${feedback.feedback?.problemSolving?.score || 0}%` }}
+                  ></div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-blue-600" />
+                Performance Analysis
+              </h2>
+              
+              {feedback?.feedback && (
+                <div className="space-y-6">
+                  <div className="border-l-4 border-purple-500 pl-4">
+                    <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                      <Code className="w-4 h-4 text-purple-600" />
+                      Technical Skills
+                    </h3>
+                    <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.technicalSkills?.feedback}</p>
+                    <div className="bg-purple-50 rounded-lg p-2">
+                      <div className="text-sm font-medium text-purple-800">Score: {feedback.feedback.technicalSkills?.score}%</div>
+                    </div>
+                  </div>
+
+                  <div className="border-l-4 border-green-500 pl-4">
+                    <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                      <MessageCircle className="w-4 h-4 text-green-600" />
+                      Communication Skills
+                    </h3>
+                    <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.communicationSkills?.feedback}</p>
+                    <div className="bg-green-50 rounded-lg p-2">
+                      <div className="text-sm font-medium text-green-800">Score: {feedback.feedback.communicationSkills?.score}%</div>
+                    </div>
+                  </div>
+
+                  <div className="border-l-4 border-orange-500 pl-4">
+                    <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                      <Brain className="w-4 h-4 text-orange-600" />
+                      Problem Solving
+                    </h3>
+                    <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.problemSolving?.feedback}</p>
+                    <div className="bg-orange-50 rounded-lg p-2">
+                      <div className="text-sm font-medium text-orange-800">Score: {feedback.feedback.problemSolving?.score}%</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <Target className="w-5 h-5 text-indigo-600" />
+                Recommendations
+              </h2>
+              
+              {feedback?.feedback?.recommendations && feedback.feedback.recommendations.length > 0 && (
+                <div className="space-y-3">
+                  {feedback.feedback.recommendations.map((rec, index) => (
+                    <div key={index} className="flex items-start gap-3 p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+                      <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <span className="text-indigo-600 font-bold text-xs">{index + 1}</span>
+                      </div>
+                      <p className="text-gray-700 leading-relaxed text-sm">{rec}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
+                <h4 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                  <Star className="w-4 h-4" />
+                  Next Steps
+                </h4>
+                <ul className="space-y-1 text-sm text-blue-800">
+                  <li className="flex items-center gap-2">
+                    <ChevronRight className="w-3 h-3" />
+                    Review improvement areas
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <ChevronRight className="w-3 h-3" />
+                    Practice similar questions
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <ChevronRight className="w-3 h-3" />
+                    Work on technical skills
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {Object.keys(questionFeedbacks).length > 0 && (
+            <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-purple-600" />
+                Question Analysis
+              </h2>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {responses.map((response, index) => {
+                  const feedback = questionFeedbacks[response.questionId];
+                  if (!feedback) return null;
+                  
+                  return (
+                    <div key={index} className="border border-gray-200 rounded-xl p-4 hover:shadow-lg transition-shadow">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-sm ${
+                            feedback.score >= 80 ? 'bg-green-500' :
+                            feedback.score >= 60 ? 'bg-yellow-500' :
+                            'bg-red-500'
+                          }`}>
+                            {index + 1}
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-gray-900 text-sm">Question {index + 1}</h4>
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              questions[index]?.type === 'coding' ? 'bg-purple-100 text-purple-700' :
+                              questions[index]?.type === 'behavioral' ? 'bg-green-100 text-green-700' :
+                              'bg-blue-100 text-blue-700'
+                            }`}>
+                              {questions[index]?.type}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className={`text-lg font-bold ${
+                            feedback.score >= 80 ? 'text-green-600' :
+                            feedback.score >= 60 ? 'text-yellow-600' :
+                            'text-red-600'
+                          }`}>
+                            {response.skipped ? 'SKIP' : `${feedback.score}%`}
+                          </div>
+                          <div className="text-xs text-gray-500">{response.responseTime}s</div>
+                        </div>
+                      </div>
+                      
+                      <p className="text-gray-600 text-xs mb-3 leading-relaxed">{questions[index]?.question}</p>
+                      
+                      <div className="space-y-2">
+                        {feedback.strengths && feedback.strengths.length > 0 && (
+                          <div>
+                            <h5 className="text-xs font-semibold text-green-700 mb-1 flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" />
+                              Strengths
+                            </h5>
+                            <ul className="text-xs text-green-600 space-y-0.5">
+                              {feedback.strengths.map((strength, idx) => (
+                                <li key={idx} className="flex items-start gap-1">
+                                  <div className="w-1 h-1 bg-green-500 rounded-full mt-1.5 flex-shrink-0"></div>
+                                  {strength}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        
+                        {feedback.improvements && feedback.improvements.length > 0 && (
+                          <div>
+                            <h5 className="text-xs font-semibold text-orange-700 mb-1 flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" />
+                              Improvements
+                            </h5>
+                            <ul className="text-xs text-orange-600 space-y-0.5">
+                              {feedback.improvements.map((improvement, idx) => (
+                                <li key={idx} className="flex items-start gap-1">
+                                  <div className="w-1 h-1 bg-orange-500 rounded-full mt-1.5 flex-shrink-0"></div>
+                                  {improvement}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {response.code && (
+                          <div className="mt-2 p-2 bg-gray-50 rounded-lg border">
+                            <h5 className="text-xs font-semibold text-gray-700 mb-1">Code:</h5>
+                            <pre className="text-xs text-gray-600 font-mono whitespace-pre-wrap overflow-x-auto max-h-20 overflow-y-auto">
+                              {response.code}
+                            </pre>
+                          </div>
+                        )}
+
+                        {(response.transcription || response.textResponse) && !response.skipped && (
+                          <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-100">
+                            <h5 className="text-xs font-semibold text-blue-700 mb-1">
+                              {response.transcription ? 'Audio:' : 'Text:'}
+                            </h5>
+                            <p className="text-xs text-blue-600 leading-relaxed">
+                              {response.transcription || response.textResponse}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {responses && responses.length > 0 && (
+            <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-blue-600" />
+                Interview Summary
+              </h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                  <div className="text-xl font-bold text-blue-600">{responses.length}</div>
+                  <div className="text-xs text-blue-700">Questions</div>
+                </div>
+                <div className="text-center p-3 bg-green-50 rounded-lg">
+                  <div className="text-xl font-bold text-green-600">
+                    {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
+                  </div>
+                  <div className="text-xs text-green-700">Total Time</div>
+                </div>
+                <div className="text-center p-3 bg-purple-50 rounded-lg">
+                  <div className="text-xl font-bold text-purple-600">
+                    {responses.filter(r => r.code).length}
+                  </div>
+                  <div className="text-xs text-purple-700">Coding</div>
+                </div>
+                <div className="text-center p-3 bg-orange-50 rounded-lg">
+                  <div className="text-xl font-bold text-orange-600">
+                    {responses.filter(r => r.skipped).length}
+                  </div>
+                  <div className="text-xs text-orange-700">Skipped</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-center gap-4">
+            <button
+              onClick={resetInterview}
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Start New Interview
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105"
+            >
+              <Download className="w-4 h-4" />
+              Download Report
+            </button>
+          </div>
         </div>
       </div>
     </div>
-  ), []);
+  ), [feedback, responses, questions, questionFeedbacks, timer, resetInterview]);
 
   if (user === null && !error) {
     return (

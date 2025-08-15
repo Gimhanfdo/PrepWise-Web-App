@@ -328,7 +328,6 @@ export const submitAnswer = async (req, res) => {
         responseText,
         code,
         responseTime,
-        question.expectedDuration,
         interview.resumeText,
         interview.jobDescription
       );
@@ -381,9 +380,84 @@ export const submitAnswer = async (req, res) => {
   }
 };
 
+export const skipQuestion = async (req, res) => {
+  try {
+    const { interviewId } = req.params;
+    const userId = req.user?.userId || req.user?.id || req.user?._id;
+
+    const interview = await interviewModel.findOne({ _id: interviewId, userId });
+    if (!interview) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Interview not found' 
+      });
+    }
+
+    const currentQuestionIndex = interview.responses.length;
+    if (currentQuestionIndex >= interview.questions.length) {
+      return res.status(400).json({
+        success: false,
+        error: 'No more questions to skip'
+      });
+    }
+
+    const question = interview.questions[currentQuestionIndex];
+    
+    const skipResponse = {
+      questionId: question.questionId,
+      question: question.question,
+      questionType: question.type,
+      transcription: null,
+      textResponse: 'Question skipped',
+      code: null,
+      responseTime: 0,
+      recordingDuration: null,
+      submittedAt: new Date(),
+      skipped: true,
+      feedback: {
+        score: 0,
+        strengths: [],
+        improvements: ['Question was skipped - consider attempting similar questions in practice'],
+        detailedAnalysis: 'Question was skipped by the candidate.',
+        communicationClarity: 0,
+        technicalAccuracy: 0,
+        responseTime: '0 seconds'
+      }
+    };
+
+    interview.responses.push(skipResponse);
+    interview.currentQuestionIndex = interview.responses.length;
+    interview.updatedAt = new Date();
+
+    if (interview.status === 'created') {
+      interview.status = 'in_progress';
+      interview.startedAt = new Date();
+    }
+
+    await interview.save();
+
+    res.json({
+      success: true,
+      message: 'Question skipped successfully',
+      progress: {
+        current: interview.responses.length,
+        total: interview.questions.length,
+        completed: interview.responses.length >= interview.questions.length
+      }
+    });
+  } catch (error) {
+    console.error('Skip question error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to skip question',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 export const analyzeResponse = async (req, res) => {
   try {
-    const { question, questionType, responseText, responseTime, code, expectedDuration } = req.body;
+    const { question, questionType, responseText, responseTime, code } = req.body;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
     if (!userId) {
@@ -406,7 +480,6 @@ export const analyzeResponse = async (req, res) => {
       responseText,
       code,
       responseTime,
-      expectedDuration,
       '',
       ''
     );
@@ -933,60 +1006,205 @@ function generateInternLevelStarterCode(questionHint, candidateLanguages) {
 
   if (primaryLang === 'javascript' || candidateLanguages.includes('javascript')) {
     if (questionHint.includes('max') || questionHint.includes('largest')) {
-      starterCode.javascript = `function findMax(numbers) {\n    // Your code here\n    // Hint: Use a loop to compare numbers\n    \n    return maxNumber;\n}\n\n// Test\nconst testArray = [3, 7, 2, 9, 1];\nconsole.log(findMax(testArray)); // Should return 9`;
+      starterCode.javascript = `function findMax(numbers) {
+    // Your code here
+    // Hint: Use a loop to compare numbers
+    
+    return maxNumber;
+}
+
+// Test
+const testArray = [3, 7, 2, 9, 1];
+console.log(findMax(testArray)); // Should return 9`;
     } else if (questionHint.includes('palindrome')) {
-      starterCode.javascript = `function isPalindrome(str) {\n    // Your code here\n    // Hint: Compare the string with its reverse\n    \n    return true; // or false\n}\n\n// Test\nconsole.log(isPalindrome("racecar")); // Should return true\nconsole.log(isPalindrome("hello")); // Should return false`;
+      starterCode.javascript = `function isPalindrome(str) {
+    // Your code here
+    // Hint: Compare the string with its reverse
+    
+    return true; // or false
+}
+
+// Test
+console.log(isPalindrome("racecar")); // Should return true
+console.log(isPalindrome("hello")); // Should return false`;
     } else if (questionHint.includes('character') || questionHint.includes('count')) {
-      starterCode.javascript = `function countCharacters(str) {\n    // Your code here\n    // Hint: Use an object to store character counts\n    const counts = {};\n    \n    return counts;\n}\n\n// Test\nconsole.log(countCharacters("hello")); // Should return {h:1, e:1, l:2, o:1}`;
+      starterCode.javascript = `function countCharacters(str) {
+    // Your code here
+    // Hint: Use an object to store character counts
+    const counts = {};
+    
+    return counts;
+}
+
+// Test
+console.log(countCharacters("hello")); // Should return {h:1, e:1, l:2, o:1}`;
     } else {
-      starterCode.javascript = `function solution(input) {\n    // Your code here\n    \n    return result;\n}\n\n// Test case\nconsole.log(solution(testInput));`;
+      starterCode.javascript = `function solution(input) {
+    // Your code here
+    
+    return result;
+}
+
+// Test case
+console.log(solution(testInput));`;
     }
   }
 
   if (primaryLang === 'python' || candidateLanguages.includes('python')) {
     if (questionHint.includes('max') || questionHint.includes('largest')) {
-      starterCode.python = `def find_max(numbers):\n    # Your code here\n    # Hint: Use a loop to compare numbers\n    pass\n\n# Test\ntest_array = [3, 7, 2, 9, 1]\nprint(find_max(test_array))  # Should return 9`;
+      starterCode.python = `def find_max(numbers):
+    # Your code here
+    # Hint: Use a loop to compare numbers
+    pass
+
+# Test
+test_array = [3, 7, 2, 9, 1]
+print(find_max(test_array))  # Should return 9`;
     } else if (questionHint.includes('palindrome')) {
-      starterCode.python = `def is_palindrome(s):\n    # Your code here\n    # Hint: Compare the string with its reverse\n    pass\n\n# Test\nprint(is_palindrome("racecar"))  # Should return True\nprint(is_palindrome("hello"))    # Should return False`;
+      starterCode.python = `def is_palindrome(s):
+    # Your code here
+    # Hint: Compare the string with its reverse
+    pass
+
+# Test
+print(is_palindrome("racecar"))  # Should return True
+print(is_palindrome("hello"))    # Should return False`;
     } else if (questionHint.includes('character') || questionHint.includes('count')) {
-      starterCode.python = `def count_characters(s):\n    # Your code here\n    # Hint: Use a dictionary to store character counts\n    counts = {}\n    return counts\n\n# Test\nprint(count_characters("hello"))  # Should return {'h':1, 'e':1, 'l':2, 'o':1}`;
+      starterCode.python = `def count_characters(s):
+    # Your code here
+    # Hint: Use a dictionary to store character counts
+    counts = {}
+    return counts
+
+# Test
+print(count_characters("hello"))  # Should return {'h':1, 'e':1, 'l':2, 'o':1}`;
     } else {
-      starterCode.python = `def solution(input_data):\n    # Your code here\n    pass\n\n# Test case\nprint(solution(test_input))`;
+      starterCode.python = `def solution(input_data):
+    # Your code here
+    pass
+
+# Test case
+print(solution(test_input))`;
     }
   }
 
   if (primaryLang === 'java' || candidateLanguages.includes('java')) {
     if (questionHint.includes('max') || questionHint.includes('largest')) {
-      starterCode.java = `public class Solution {\n    public static int findMax(int[] numbers) {\n        // Your code here\n        return 0;\n    }\n    \n    public static void main(String[] args) {\n        int[] test = {3, 7, 2, 9, 1};\n        System.out.println(findMax(test)); // Should return 9\n    }\n}`;
+      starterCode.java = `public class Solution {
+    public static int findMax(int[] numbers) {
+        // Your code here
+        return 0;
+    }
+    
+    public static void main(String[] args) {
+        int[] test = {3, 7, 2, 9, 1};
+        System.out.println(findMax(test)); // Should return 9
+    }
+}`;
     } else if (questionHint.includes('palindrome')) {
-      starterCode.java = `public class Solution {\n    public static boolean isPalindrome(String str) {\n        // Your code here\n        return false;\n    }\n    \n    public static void main(String[] args) {\n        System.out.println(isPalindrome("racecar")); // Should return true\n        System.out.println(isPalindrome("hello"));   // Should return false\n    }\n}`;
+      starterCode.java = `public class Solution {
+    public static boolean isPalindrome(String str) {
+        // Your code here
+        return false;
+    }
+    
+    public static void main(String[] args) {
+        System.out.println(isPalindrome("racecar")); // Should return true
+        System.out.println(isPalindrome("hello"));   // Should return false
+    }
+}`;
     } else {
-      starterCode.java = `public class Solution {\n    public static int solution(int[] input) {\n        // Your code here\n        return 0;\n    }\n    \n    public static void main(String[] args) {\n        int[] test = {1, 2, 3, 4, 5};\n        System.out.println(solution(test));\n    }\n}`;
+      starterCode.java = `public class Solution {
+    public static int solution(int[] input) {
+        // Your code here
+        return 0;
+    }
+    
+    public static void main(String[] args) {
+        int[] test = {1, 2, 3, 4, 5};
+        System.out.println(solution(test));
+    }
+}`;
     }
   }
 
   if (primaryLang === 'c++' || candidateLanguages.includes('c++')) {
     if (questionHint.includes('max') || questionHint.includes('largest')) {
-      starterCode.cpp = `#include <iostream>\n#include <vector>\nusing namespace std;\n\nint findMax(vector<int>& numbers) {\n    // Your code here\n    return 0;\n}\n\nint main() {\n    vector<int> test = {3, 7, 2, 9, 1};\n    cout << findMax(test) << endl; // Should return 9\n    return 0;\n}`;
+      starterCode.cpp = `#include <iostream>
+#include <vector>
+using namespace std;
+
+int findMax(vector<int>& numbers) {
+    // Your code here
+    return 0;
+}
+
+int main() {
+    vector<int> test = {3, 7, 2, 9, 1};
+    cout << findMax(test) << endl; // Should return 9
+    return 0;
+}`;
     } else {
-      starterCode.cpp = `#include <iostream>\n#include <vector>\nusing namespace std;\n\nint solution(vector<int>& input) {\n    // Your code here\n    return 0;\n}\n\nint main() {\n    vector<int> test = {1, 2, 3, 4, 5};\n    cout << solution(test) << endl;\n    return 0;\n}`;
+      starterCode.cpp = `#include <iostream>
+#include <vector>
+using namespace std;
+
+int solution(vector<int>& input) {
+    // Your code here
+    return 0;
+}
+
+int main() {
+    vector<int> test = {1, 2, 3, 4, 5};
+    cout << solution(test) << endl;
+    return 0;
+}`;
     }
   }
 
   if (primaryLang === 'go' || candidateLanguages.includes('go')) {
-    starterCode.go = `package main\n\nimport "fmt"\n\nfunc solution(input []int) int {\n    // Your code here\n    return 0\n}\n\nfunc main() {\n    test := []int{1, 2, 3, 4, 5}\n    fmt.Println(solution(test))\n}`;
+    starterCode.go = `package main
+
+import "fmt"
+
+func solution(input []int) int {
+    // Your code here
+    return 0
+}
+
+func main() {
+    test := []int{1, 2, 3, 4, 5}
+    fmt.Println(solution(test))
+}`;
   }
 
   if (primaryLang === 'rust' || candidateLanguages.includes('rust')) {
-    starterCode.rust = `fn solution(input: Vec<i32>) -> i32 {\n    // Your code here\n    0\n}\n\nfn main() {\n    let test = vec![1, 2, 3, 4, 5];\n    println!("{}", solution(test));\n}`;
+    starterCode.rust = `fn solution(input: Vec<i32>) -> i32 {
+    // Your code here
+    0
+}
+
+fn main() {
+    let test = vec![1, 2, 3, 4, 5];
+    println!("{}", solution(test));
+}`;
   }
 
   if (primaryLang === 'php' || candidateLanguages.includes('php')) {
-    starterCode.php = `<?php\nfunction solution($input) {\n    // Your code here\n    return 0;\n}\n\n$test = [1, 2, 3, 4, 5];\necho solution($test);\n?>`;
+    starterCode.php = `<?php
+function solution($input) {
+    // Your code here
+    return 0;
+}
+
+$test = [1, 2, 3, 4, 5];
+echo solution($test);
+?>`;
   }
 
   if (Object.keys(starterCode).length === 0) {
-    starterCode[primaryLang] = `// Your ${primaryLang} solution here\n// This is an intern-level problem`;
+    starterCode[primaryLang] = `// Your ${primaryLang} solution here
+// This is an intern-level problem`;
   }
 
   return starterCode;
@@ -1040,51 +1258,46 @@ function cleanAndExtractJSON(text) {
   return cleaned;
 }
 
-async function generateDetailedFeedback(question, questionType, responseText, code, responseTime, expectedDuration, resumeText, jobDescription) {
+async function generateDetailedFeedback(question, questionType, responseText, code, responseTime, resumeText, jobDescription) {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
-    const prompt = `You are evaluating a SOFTWARE ENGINEERING INTERN candidate's response. Provide specific, detailed, and constructive feedback.
+    const prompt = `You are evaluating a SOFTWARE ENGINEERING INTERN candidate's response. Provide specific, accurate feedback that directly relates to their answer and the specific question asked.
 
-INTERVIEW CONTEXT:
-- Question: "${question}"
-- Question Type: ${questionType}
-- Response: "${responseText}"
-${code ? `\nCode Provided:\n${code}` : ''}
-- Response Time: ${responseTime || 'Unknown'} seconds
-- Expected Duration: ${expectedDuration || 180} seconds
+QUESTION ASKED: "${question}"
+QUESTION TYPE: ${questionType}
+CANDIDATE'S RESPONSE: "${responseText}"
+${code ? `CODE PROVIDED:\n${code}\n` : 'NO CODE PROVIDED'}
 
-EVALUATION CRITERIA - STRICT GRADING:
-- Technical accuracy and understanding
-- Communication clarity and structure
-- Problem-solving approach
-- Code quality (if applicable) - NO POINTS FOR EMPTY/PLACEHOLDER CODE
-- Time management - NO POINTS FOR POOR RESPONSES REGARDLESS OF TIME
+IMPORTANT ANALYSIS RULES:
+1. Focus ONLY on what the candidate actually said in their response
+2. Evaluate technical accuracy specifically related to the question asked
+3. Don't give generic feedback - be specific to their actual answer
+4. For coding questions: analyze the actual code logic and implementation
+5. For behavioral questions: assess the specific example or situation they described
+6. For technical questions: evaluate their understanding of the specific concept asked about
 
-CRITICAL RULES:
-1. If response is meaningless/rubbish (like "yes", "no", single words, irrelevant text), score must be 0-15
-2. If code is empty, contains only comments, or is just placeholder text, codeQuality must be 1-2
-3. Poor responses get NO credit for communication or time management
-4. Only award points where genuine effort and understanding is shown
+RESPONSE TIME: ${responseTime} seconds (mention this briefly, don't analyze time management extensively)
 
-SCORING GUIDELINES (STRICT):
-- 85-100: Excellent intern response with clear understanding
-- 70-84: Good intern response with minor gaps
-- 55-69: Acceptable intern response with some understanding
-- 40-54: Poor response with major issues
-- 0-39: Rubbish/meaningless response
+SCORING CRITERIA (be strict but fair):
+- 90-100: Excellent answer with deep understanding and clear explanation
+- 80-89: Good answer with solid understanding and good explanation  
+- 70-79: Acceptable answer with basic understanding
+- 60-69: Weak answer with gaps in understanding
+- 50-59: Poor answer with significant issues
+- Below 50: Very poor or irrelevant answer
+
+Analyze their SPECIFIC response and provide targeted feedback. Don't use generic templates.
 
 Return ONLY valid JSON:
 {
   "score": 75,
-  "strengths": ["specific strength based on actual response", "another specific strength"],
-  "improvements": ["specific improvement with actionable advice", "another specific improvement"],
-  "detailedAnalysis": "Detailed paragraph analyzing the response content, technical accuracy, and communication",
-  "communicationClarity": 8,
-  "technicalAccuracy": 7,
-  "structuredResponse": 9,
-  "codeQuality": ${questionType === 'coding' ? '8' : 'null'},
-  "timeEfficiency": ${responseTime ? Math.min(10, Math.max(1, Math.round((expectedDuration / responseTime) * 5))) : 'null'}
+  "strengths": ["specific strength based on their actual answer", "another specific strength"],
+  "improvements": ["specific improvement based on what they got wrong", "specific area for growth"],
+  "detailedAnalysis": "Detailed analysis of their specific response, what they got right, what they missed, and how their answer relates to the question asked",
+  "communicationClarity": 7,
+  "technicalAccuracy": 6,
+  "responseTime": "${responseTime} seconds"
 }`;
 
     const result = await model.generateContent(prompt);
@@ -1094,266 +1307,164 @@ Return ONLY valid JSON:
     const cleanedText = analysisText.replace(/```json\s*|```\s*/g, '').trim();
     const aiAnalysis = JSON.parse(cleanedText);
     
-    return validateAndEnhanceFeedback(aiAnalysis, questionType, responseText, code, responseTime);
+    return validateFeedback(aiAnalysis, responseText, code, questionType, responseTime);
 
   } catch (error) {
     console.error('AI feedback generation failed:', error);
-    return generateDetailedRuleBasedFeedback(question, questionType, responseText, code, responseTime);
+    return generateImprovedFallbackFeedback(question, questionType, responseText, code, responseTime);
   }
 }
 
-function generateDetailedRuleBasedFeedback(question, questionType, responseText, code, responseTime) {
-  const feedback = {
-    score: 0,
-    strengths: [],
-    improvements: [],
-    detailedAnalysis: '',
-    communicationClarity: 1,
-    technicalAccuracy: 1,
-    structuredResponse: 1,
-    codeQuality: questionType === 'coding' ? 1 : null,
-    timeEfficiency: null
-  };
-
+function validateFeedback(aiAnalysis, responseText, code, questionType, responseTime) {
   const wordCount = responseText.trim().split(/\s+/).length;
-  const responseLength = responseText.trim().length;
-  const meaninglessResponses = ['yes', 'no', 'ok', 'sure', 'maybe', 'i dont know', 'idk', 'not sure'];
-  const isRubbish = responseLength < 10 || meaninglessResponses.includes(responseText.trim().toLowerCase()) || wordCount < 3;
-  
-  if (isRubbish) {
-    feedback.score = Math.random() > 0.5 ? 5 : 10;
-    feedback.improvements = [
-      'Provide meaningful responses that demonstrate your understanding',
-      'Expand your answers with explanations and examples',
-      'Show your thought process and reasoning'
-    ];
-    feedback.detailedAnalysis = `Response is too brief (${wordCount} words, ${responseLength} characters) and lacks substance. For internship interviews, candidates must provide detailed explanations to demonstrate understanding.`;
-    feedback.strengths = ['Attempted to respond to the question'];
-    return feedback;
-  }
-  
-  if (wordCount >= 20 && responseLength >= 50) {
-    feedback.score += 30;
-    feedback.strengths.push('Provided a comprehensive response with good detail');
-    feedback.communicationClarity += 3;
-    feedback.structuredResponse += 3;
-  } else if (wordCount >= 10 && responseLength >= 25) {
-    feedback.score += 15;
-    feedback.strengths.push('Provided a meaningful response');
-    feedback.communicationClarity += 2;
-    feedback.structuredResponse += 2;
-  } else {
-    feedback.improvements.push('Provide more detailed explanations to demonstrate your understanding');
-    feedback.communicationClarity += 1;
-  }
-
-  if (questionType === 'coding') {
-    const hasCode = code && code.trim().length > 0;
-    const isEmptyCode = !hasCode || code.trim().length < 20 || 
-                       code.includes('// Your code here') || 
-                       code.includes('# Your code here') ||
-                       code.includes('pass') && code.split('\n').length < 4;
-    
-    if (hasCode && !isEmptyCode) {
-      feedback.score += 40;
-      feedback.technicalAccuracy += 4;
-      feedback.codeQuality += 5;
-      feedback.strengths.push('Provided a meaningful code implementation');
-      
-      if (code.includes('function') || code.includes('def') || code.includes('class') || code.includes('public')) {
-        feedback.score += 10;
-        feedback.codeQuality += 2;
-        feedback.strengths.push('Used proper function/class structure');
-      }
-      
-      if (code.includes('//') || code.includes('#') || code.includes('/*')) {
-        const commentLines = (code.match(/(\/\/|#|\/\*)/g) || []).length;
-        const totalLines = code.split('\n').length;
-        if (commentLines < totalLines - 2) {
-          feedback.score += 5;
-          feedback.codeQuality += 1;
-          feedback.strengths.push('Added helpful comments');
-        }
-      }
-
-      if (code.includes('return') && !code.includes('return 0;') && !code.includes('return null')) {
-        feedback.score += 10;
-        feedback.strengths.push('Implemented proper return logic');
-      }
-      
-      if (code.includes('for') || code.includes('while') || code.includes('.map') || code.includes('.forEach')) {
-        feedback.score += 5;
-        feedback.technicalAccuracy += 1;
-        feedback.strengths.push('Demonstrated understanding of iteration');
-      }
-      
-    } else if (hasCode && isEmptyCode) {
-      feedback.improvements.push('Provide actual implementation instead of placeholder code');
-      feedback.codeQuality = 1;
-      feedback.score = Math.max(feedback.score, 10);
-    } else {
-      feedback.improvements.push('Code implementation is required for coding questions');
-      feedback.codeQuality = 1;
-      feedback.score = Math.max(feedback.score - 30, 5);
-    }
-  }
-
-  if (questionType === 'behavioral') {
-    const hasLearningMentality = responseText.toLowerCase().includes('learn') || 
-                                responseText.toLowerCase().includes('challenge') ||
-                                responseText.toLowerCase().includes('grow') ||
-                                responseText.toLowerCase().includes('improve');
-    
-    if (hasLearningMentality) {
-      feedback.score += 15;
-      feedback.strengths.push('Demonstrated learning mindset and growth orientation');
-    }
-    
-    const hasSpecificExample = responseText.toLowerCase().includes('project') || 
-                              responseText.toLowerCase().includes('experience') ||
-                              responseText.toLowerCase().includes('when i') ||
-                              responseText.toLowerCase().includes('for example');
-    
-    if (hasSpecificExample) {
-      feedback.score += 15;
-      feedback.strengths.push('Provided specific examples from personal experience');
-    }
-
-    const hasTeamwork = responseText.toLowerCase().includes('team') || 
-                       responseText.toLowerCase().includes('collaborate') ||
-                       responseText.toLowerCase().includes('others') ||
-                       responseText.toLowerCase().includes('group');
-    
-    if (hasTeamwork) {
-      feedback.score += 8;
-      feedback.strengths.push('Showed understanding of teamwork and collaboration');
-    }
-  }
-
-  if (questionType === 'technical') {
-    const techWords = ['algorithm', 'function', 'variable', 'loop', 'array', 'object', 'database', 'api', 'framework', 'library', 'method', 'class', 'interface'];
-    const foundTechWords = techWords.filter(word => responseText.toLowerCase().includes(word));
-    
-    if (foundTechWords.length >= 3) {
-      feedback.score += 25;
-      feedback.technicalAccuracy += 4;
-      feedback.strengths.push('Used appropriate technical terminology throughout response');
-    } else if (foundTechWords.length > 0) {
-      feedback.score += 15;
-      feedback.technicalAccuracy += 2;
-      feedback.strengths.push('Demonstrated basic technical vocabulary');
-    } else {
-      feedback.improvements.push('Use more technical terminology to show understanding of concepts');
-    }
-
-    if (responseText.includes('example') || responseText.includes('for instance') || responseText.includes('such as')) {
-      feedback.score += 10;
-      feedback.strengths.push('Provided examples to illustrate concepts');
-    }
-    
-    const hasComparison = responseText.toLowerCase().includes('difference') || 
-                         responseText.toLowerCase().includes('compared to') ||
-                         responseText.toLowerCase().includes('versus') ||
-                         responseText.toLowerCase().includes('unlike');
-    
-    if (hasComparison) {
-      feedback.score += 8;
-      feedback.strengths.push('Made comparisons to clarify understanding');
-    }
-  }
-
-  if (responseTime && responseTime > 0 && !isRubbish) {
-    const expectedTime = expectedDuration || 180;
-    if (responseTime <= expectedTime) {
-      feedback.timeEfficiency = Math.min(10, Math.round((expectedTime / responseTime) * 6));
-      if (feedback.timeEfficiency >= 7) {
-        feedback.score += Math.min(15, Math.round((expectedTime / responseTime) * 3));
-        feedback.strengths.push('Responded efficiently within time frame');
-      }
-    } else {
-      feedback.timeEfficiency = Math.max(1, Math.round((expectedTime / responseTime) * 4));
-      if (feedback.timeEfficiency < 4) {
-        feedback.improvements.push('Work on managing time more effectively during responses');
-      }
-    }
-  }
-
-  if (feedback.strengths.length === 0) {
-    feedback.strengths.push('Made an attempt to answer the question');
-  }
-
-  if (feedback.improvements.length === 0) {
-    feedback.improvements.push('Continue practicing to build confidence in technical communication');
-  }
-
-  feedback.score = Math.min(95, Math.max(isRubbish ? 5 : 15, feedback.score));
-  feedback.communicationClarity = Math.min(10, Math.max(1, feedback.communicationClarity));
-  feedback.technicalAccuracy = Math.min(10, Math.max(1, feedback.technicalAccuracy));
-  feedback.structuredResponse = Math.min(10, Math.max(1, feedback.structuredResponse));
-  if (feedback.codeQuality !== null) {
-    feedback.codeQuality = Math.min(10, Math.max(1, feedback.codeQuality));
-  }
-
-  feedback.detailedAnalysis = `Response contains ${wordCount} words and ${responseLength} characters. ${questionType === 'coding' && code ? `Code implementation provided with ${code.split('\n').length} lines. ` : ''}${questionType === 'coding' && !code ? 'No code implementation provided. ' : ''}The response ${wordCount >= 15 ? 'shows good effort in explanation' : 'lacks sufficient detail and depth'}. ${feedback.timeEfficiency ? `Time management was ${feedback.timeEfficiency >= 7 ? 'excellent' : feedback.timeEfficiency >= 5 ? 'adequate' : 'needs improvement'}.` : ''} ${isRubbish ? 'This response does not meet the minimum standards expected for an internship interview.' : ''}`;
-
-  return feedback;
-}
-
-function validateAndEnhanceFeedback(aiAnalysis, questionType, responseText, code, responseTime) {
-  const wordCount = responseText.trim().split(/\s+/).length;
-  const isRubbish = responseText.trim().length < 10 || wordCount < 3;
-  const isEmptyCode = questionType === 'coding' && (!code || code.trim().length < 20 || code.includes('// Your code here'));
+  const isVeryShort = responseText.trim().length < 15 || wordCount < 5;
+  const meaninglessResponses = ['yes', 'no', 'ok', 'sure', 'maybe', 'i dont know', 'idk', 'not sure', 'good'];
+  const isRubbish = meaninglessResponses.includes(responseText.trim().toLowerCase()) || isVeryShort;
   
   let adjustedScore = Math.min(100, Math.max(0, aiAnalysis.score || 50));
   
   if (isRubbish) {
-    adjustedScore = Math.min(adjustedScore, 15);
+    adjustedScore = Math.min(adjustedScore, 20);
   }
   
-  if (isEmptyCode) {
-    adjustedScore = Math.min(adjustedScore, 25);
+  if (questionType === 'coding' && (!code || code.trim().length < 30)) {
+    adjustedScore = Math.min(adjustedScore, 35);
   }
   
-  const feedback = {
+  return {
     score: adjustedScore,
-    strengths: Array.isArray(aiAnalysis.strengths) ? aiAnalysis.strengths.slice(0, 5) : ['Provided a response'],
-    improvements: Array.isArray(aiAnalysis.improvements) ? aiAnalysis.improvements.slice(0, 5) : ['Continue practicing'],
-    detailedAnalysis: aiAnalysis.detailedAnalysis || 'Response analyzed.',
-    communicationClarity: isRubbish ? Math.min(2, aiAnalysis.communicationClarity || 1) : Math.min(10, Math.max(0, aiAnalysis.communicationClarity || 5)),
-    technicalAccuracy: isRubbish ? Math.min(2, aiAnalysis.technicalAccuracy || 1) : Math.min(10, Math.max(0, aiAnalysis.technicalAccuracy || 5)),
-    structuredResponse: isRubbish ? Math.min(2, aiAnalysis.structuredResponse || 1) : Math.min(10, Math.max(0, aiAnalysis.structuredResponse || 5)),
-    codeQuality: questionType === 'coding' ? (isEmptyCode ? Math.min(2, aiAnalysis.codeQuality || 1) : Math.min(10, Math.max(0, aiAnalysis.codeQuality || 5))) : null,
-    timeEfficiency: isRubbish ? null : aiAnalysis.timeEfficiency || null
+    strengths: Array.isArray(aiAnalysis.strengths) ? aiAnalysis.strengths.slice(0, 4) : ['Provided a response'],
+    improvements: Array.isArray(aiAnalysis.improvements) ? aiAnalysis.improvements.slice(0, 4) : ['Work on providing more detailed explanations'],
+    detailedAnalysis: aiAnalysis.detailedAnalysis || `Response analyzed with ${wordCount} words. ${isRubbish ? 'Response lacks sufficient detail and substance.' : 'Shows effort in answering the question.'}`,
+    communicationClarity: isRubbish ? Math.min(3, aiAnalysis.communicationClarity || 1) : Math.min(10, Math.max(1, aiAnalysis.communicationClarity || 5)),
+    technicalAccuracy: isRubbish ? Math.min(3, aiAnalysis.technicalAccuracy || 1) : Math.min(10, Math.max(1, aiAnalysis.technicalAccuracy || 5)),
+    responseTime: `${responseTime} seconds`
   };
+}
+
+function generateImprovedFallbackFeedback(question, questionType, responseText, code, responseTime) {
+  const wordCount = responseText.trim().split(/\s+/).length;
+  const responseLength = responseText.trim().length;
+  const isVeryShort = responseLength < 15 || wordCount < 5;
+  const meaninglessResponses = ['yes', 'no', 'ok', 'sure', 'maybe', 'i dont know', 'idk', 'not sure', 'good'];
+  const isRubbish = meaninglessResponses.includes(responseText.trim().toLowerCase()) || isVeryShort;
+
+  let baseScore = 50;
+  let strengths = [];
+  let improvements = [];
+  let analysis = '';
+
+  if (isRubbish) {
+    baseScore = 15;
+    strengths = ['Attempted to respond to the question'];
+    improvements = [
+      'Provide much more detailed explanations',
+      'Show your understanding with specific examples',
+      'Elaborate on your thought process'
+    ];
+    analysis = `Response is too brief (${wordCount} words) and lacks the detail expected for an intern interview. The answer "${responseText.trim()}" does not demonstrate understanding of the question asked.`;
+  } else {
+    if (questionType === 'behavioral') {
+      const hasExample = responseText.toLowerCase().includes('when') || 
+                        responseText.toLowerCase().includes('time') ||
+                        responseText.toLowerCase().includes('project') ||
+                        responseText.toLowerCase().includes('experience');
+      
+      if (hasExample) {
+        baseScore += 20;
+        strengths.push('Provided specific examples from personal experience');
+      } else {
+        improvements.push('Include specific examples and situations in behavioral responses');
+      }
+
+      const showsLearning = responseText.toLowerCase().includes('learn') ||
+                           responseText.toLowerCase().includes('challenge') ||
+                           responseText.toLowerCase().includes('improve');
+      
+      if (showsLearning) {
+        baseScore += 15;
+        strengths.push('Demonstrated learning mindset and growth orientation');
+      }
+    }
+
+    if (questionType === 'technical') {
+      const techTerms = ['algorithm', 'function', 'variable', 'object', 'class', 'method', 'array', 'data', 'structure', 'database', 'api'];
+      const foundTerms = techTerms.filter(term => responseText.toLowerCase().includes(term));
+      
+      if (foundTerms.length >= 2) {
+        baseScore += 20;
+        strengths.push('Used appropriate technical terminology');
+      } else if (foundTerms.length > 0) {
+        baseScore += 10;
+        strengths.push('Showed basic technical vocabulary');
+      } else {
+        improvements.push('Use more technical terms relevant to the question');
+      }
+
+      if (responseText.includes('example') || responseText.includes('for instance')) {
+        baseScore += 10;
+        strengths.push('Provided examples to illustrate concepts');
+      }
+    }
+
+    if (questionType === 'coding') {
+      if (code && code.trim().length > 30) {
+        baseScore += 25;
+        strengths.push('Provided code implementation');
+        
+        if (code.includes('function') || code.includes('def') || code.includes('class')) {
+          baseScore += 10;
+          strengths.push('Used proper function structure');
+        }
+        
+        if (code.includes('return') && !code.includes('return null') && !code.includes('return 0;')) {
+          baseScore += 10;
+          strengths.push('Implemented return logic');
+        }
+      } else {
+        baseScore -= 20;
+        improvements.push('Provide actual code implementation, not just comments');
+      }
+    }
+
+    if (wordCount >= 30) {
+      baseScore += 15;
+      strengths.push('Provided comprehensive response with good detail');
+    } else if (wordCount >= 15) {
+      baseScore += 8;
+      strengths.push('Gave adequate detail in response');
+    }
+
+    analysis = `Response contains ${wordCount} words addressing the specific question: "${question}". `;
+    
+    if (questionType === 'coding' && code) {
+      analysis += `Code implementation provided with ${code.split('\n').length} lines. `;
+    }
+    
+    analysis += `The response shows ${baseScore >= 70 ? 'good' : baseScore >= 50 ? 'adequate' : 'basic'} understanding for an intern-level candidate.`;
+  }
+
+  if (strengths.length === 0) {
+    strengths = ['Made an attempt to answer the question'];
+  }
   
-  return feedback;
+  if (improvements.length === 0) {
+    improvements = ['Provide more detailed explanations', 'Show deeper understanding of the concepts'];
+  }
+
+  return {
+    score: Math.min(95, Math.max(5, baseScore)),
+    strengths,
+    improvements,
+    detailedAnalysis: analysis,
+    communicationClarity: isRubbish ? 2 : Math.min(8, Math.max(3, Math.round(wordCount / 5))),
+    technicalAccuracy: isRubbish ? 2 : Math.min(8, Math.max(3, questionType === 'technical' ? 6 : 5)),
+    responseTime: `${responseTime} seconds`
+  };
 }
 
 function generateBasicFeedback(responseText, questionType, responseTime) {
-  const wordCount = responseText.trim().split(/\s+/).length;
-  const isRubbish = responseText.trim().length < 10 || wordCount < 3;
-  const baseScore = isRubbish ? 8 : (wordCount >= 15 ? 65 : wordCount >= 10 ? 55 : 40);
-  
-  return {
-    score: baseScore,
-    strengths: isRubbish ? ['Attempted to respond'] : [
-      'Attempted to answer the question',
-      wordCount >= 15 ? 'Provided good detail in response' : 'Showed effort in responding'
-    ],
-    improvements: isRubbish ? [
-      'Provide meaningful responses that demonstrate understanding',
-      'Expand answers with explanations and examples'
-    ] : [
-      wordCount < 15 ? 'Provide more detailed explanations to demonstrate understanding' : 'Continue developing technical communication skills',
-      'Keep practicing and building confidence'
-    ],
-    detailedAnalysis: `Response contains ${wordCount} words. ${questionType === 'coding' ? 'For coding questions, ensure you include your implementation. ' : ''}This shows ${isRubbish ? 'insufficient' : wordCount >= 15 ? 'good' : 'basic'} effort for an intern-level response.`,
-    communicationClarity: isRubbish ? 1 : Math.max(4, Math.min(8, wordCount >= 20 ? 7 : 5)),
-    technicalAccuracy: isRubbish ? 1 : (questionType === 'technical' ? 6 : 5),
-    structuredResponse: isRubbish ? 1 : (wordCount >= 15 ? 7 : 5),
-    codeQuality: questionType === 'coding' ? (isRubbish ? 1 : 4) : null,
-    timeEfficiency: null
-  };
+  return generateImprovedFallbackFeedback('General question', questionType, responseText, null, responseTime);
 }
 
 async function generateOverallFeedback(responses, resumeText, jobDescription) {
@@ -1367,50 +1478,47 @@ async function generateOverallFeedback(responses, resumeText, jobDescription) {
     const technicalResponses = responses.filter(r => r.questionType === 'technical');
     const codingResponses = responses.filter(r => r.questionType === 'coding');
 
-    const behavioralAvg = behavioralResponses.length > 0 
-      ? behavioralResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / behavioralResponses.length 
-      : averageScore;
-    
-    const technicalAvg = technicalResponses.length > 0 
-      ? technicalResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / technicalResponses.length 
-      : averageScore;
-    
-    const codingAvg = codingResponses.length > 0 
-      ? codingResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / codingResponses.length 
-      : averageScore;
+    const responseSummary = responses.map((r, i) => 
+      `Q${i+1} (${r.questionType}): "${r.question}" - Score: ${r.feedback?.score || 0}/100`
+    ).join('\n');
 
-    const prompt = `Provide comprehensive overall feedback for a SOFTWARE ENGINEERING INTERN candidate.
+    const prompt = `Provide comprehensive overall interview feedback for a SOFTWARE ENGINEERING INTERN candidate based on their actual responses.
 
-PERFORMANCE SUMMARY:
-- Overall Average: ${averageScore.toFixed(1)}
-- Behavioral Questions Average: ${behavioralAvg.toFixed(1)} (${behavioralResponses.length} questions)
-- Technical Questions Average: ${technicalAvg.toFixed(1)} (${technicalResponses.length} questions)  
-- Coding Questions Average: ${codingAvg.toFixed(1)} (${codingResponses.length} questions)
-- Total Questions: ${responses.length}
+INTERVIEW PERFORMANCE SUMMARY:
+- Overall Average Score: ${averageScore.toFixed(1)}/100
+- Total Questions Answered: ${responses.length}
+- Behavioral Questions: ${behavioralResponses.length} (avg: ${behavioralResponses.length > 0 ? (behavioralResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / behavioralResponses.length).toFixed(1) : 'N/A'})
+- Technical Questions: ${technicalResponses.length} (avg: ${technicalResponses.length > 0 ? (technicalResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / technicalResponses.length).toFixed(1) : 'N/A'})
+- Coding Questions: ${codingResponses.length} (avg: ${codingResponses.length > 0 ? (codingResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / codingResponses.length).toFixed(1) : 'N/A'})
 
-INDIVIDUAL RESPONSE ANALYSIS:
-${responses.map((r, i) => `Q${i+1} (${r.questionType}): Score ${r.feedback?.score || 0}/100`).join('\n')}
+DETAILED QUESTION BREAKDOWN:
+${responseSummary}
 
-Provide detailed overall assessment focusing on:
-1. Technical competency for intern level
-2. Communication and explanation skills
-3. Problem-solving approach
-4. Areas of strength and growth
-5. Specific actionable recommendations
+JOB APPLIED FOR: Software Engineering Intern
+CANDIDATE'S BACKGROUND: Based on CV analysis
+
+Provide a comprehensive assessment covering:
+1. Overall technical readiness for an intern position
+2. Communication and explanation abilities
+3. Problem-solving approach demonstrated
+4. Key strengths shown across all responses
+5. Major areas needing improvement
+6. Specific actionable recommendations for growth
+7. General feedback on interview performance
 
 Return ONLY valid JSON:
 {
-  "score": ${Math.round(averageScore)},
-  "feedback": {
-    "strengths": ["strength1", "strength2", "strength3"],
-    "improvements": ["improvement1", "improvement2", "improvement3"],
-    "recommendations": ["rec1", "rec2", "rec3", "rec4"],
-    "categoryScores": {
-      "behavioralSkills": ${Math.round(behavioralAvg)},
-      "technicalKnowledge": ${Math.round(technicalAvg)},
-      "codingAbility": ${Math.round(codingAvg)}
-    },
-    "detailedAssessment": "Comprehensive paragraph about overall performance"
+  "overallScore": ${Math.round(averageScore)},
+  "readinessLevel": "Ready/Needs Development/Not Ready for intern position",
+  "keyStrengths": ["strength1", "strength2", "strength3"],
+  "majorImprovements": ["improvement1", "improvement2", "improvement3"],
+  "specificRecommendations": ["rec1", "rec2", "rec3", "rec4"],
+  "generalFeedback": "Comprehensive paragraph about overall interview performance, communication style, technical understanding, and readiness for internship",
+  "categoryBreakdown": {
+    "technicalKnowledge": ${Math.round(technicalResponses.length > 0 ? technicalResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / technicalResponses.length : averageScore)},
+    "codingAbility": ${Math.round(codingResponses.length > 0 ? codingResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / codingResponses.length : averageScore)},
+    "behavioralSkills": ${Math.round(behavioralResponses.length > 0 ? behavioralResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / behavioralResponses.length : averageScore)},
+    "communication": ${Math.round(responses.reduce((sum, r) => sum + (r.feedback?.communicationClarity || 5), 0) / responses.length)}
   }
 }`;
 
@@ -1419,7 +1527,24 @@ Return ONLY valid JSON:
     const feedbackText = response.text().trim();
     
     const cleanedText = feedbackText.replace(/```json\s*|```\s*/g, '').trim();
-    return JSON.parse(cleanedText);
+    const aiAnalysis = JSON.parse(cleanedText);
+    
+    return {
+      score: aiAnalysis.overallScore || Math.round(averageScore),
+      feedback: {
+        readinessLevel: aiAnalysis.readinessLevel || 'Under Assessment',
+        strengths: aiAnalysis.keyStrengths || ['Completed all interview questions'],
+        improvements: aiAnalysis.majorImprovements || ['Continue practicing technical skills'],
+        recommendations: aiAnalysis.specificRecommendations || ['Build more projects', 'Practice coding problems'],
+        generalFeedback: aiAnalysis.generalFeedback || `Candidate completed ${responses.length} questions with an average score of ${averageScore.toFixed(1)}%. Shows ${averageScore >= 70 ? 'good potential' : 'developing skills'} for an intern position.`,
+        categoryScores: aiAnalysis.categoryBreakdown || {
+          technicalKnowledge: Math.round(averageScore),
+          codingAbility: Math.round(averageScore),
+          behavioralSkills: Math.round(averageScore),
+          communication: Math.round(averageScore / 10)
+        }
+      }
+    };
 
   } catch (error) {
     console.error('Overall feedback generation failed:', error);
@@ -1446,32 +1571,37 @@ function generateFallbackOverallFeedback(responses) {
   const codingAvg = codingResponses.length > 0 
     ? codingResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / codingResponses.length 
     : averageScore;
+
+  const readinessLevel = averageScore >= 75 ? 'Ready' : averageScore >= 60 ? 'Needs Development' : 'Not Ready';
   
   return {
     score: Math.round(averageScore),
     feedback: {
+      readinessLevel: readinessLevel + ' for intern position',
       strengths: [
         'Completed all interview questions successfully',
-        'Demonstrated effort and engagement throughout the interview',
-        averageScore >= 70 ? 'Showed strong foundation for intern-level position' : 'Showed basic understanding with room for growth'
+        averageScore >= 70 ? 'Demonstrated solid foundational knowledge' : 'Showed willingness to engage with technical challenges',
+        behavioralAvg >= technicalAvg ? 'Strong communication and interpersonal skills' : 'Good technical problem-solving approach'
       ],
       improvements: [
-        averageScore < 60 ? 'Focus on building stronger technical fundamentals' : 'Continue practicing advanced technical concepts',
-        'Work on providing more detailed explanations in responses',
-        'Practice coding problems regularly to improve implementation speed'
+        averageScore < 60 ? 'Focus on building stronger technical fundamentals' : 'Continue developing advanced technical concepts',
+        'Practice explaining complex ideas more clearly',
+        codingAvg < 60 ? 'Improve coding implementation skills' : 'Work on code optimization and best practices'
       ],
       recommendations: [
         'Build personal projects to gain hands-on experience',
-        'Practice explaining technical concepts clearly and concisely',
-        'Study fundamental computer science concepts and algorithms',
-        'Join coding communities and participate in code reviews'
+        'Practice coding problems on platforms like LeetCode or HackerRank',
+        'Study computer science fundamentals (data structures, algorithms)',
+        'Join coding communities and participate in code reviews',
+        'Work on communication skills through technical presentations'
       ],
+      generalFeedback: `The candidate completed a ${responses.length}-question interview with an overall average score of ${averageScore.toFixed(1)}%. They demonstrated ${readinessLevel.toLowerCase()} for a software engineering internship position. ${averageScore >= 80 ? 'Excellent performance showing strong technical foundation and clear communication.' : averageScore >= 70 ? 'Good performance with solid understanding and room for growth.' : averageScore >= 60 ? 'Satisfactory performance showing basic understanding but requiring significant development.' : 'Performance indicates need for substantial improvement in technical skills before being ready for internship responsibilities.'} The candidate would benefit from focused practice in areas where they scored below 60%.`,
       categoryScores: {
-        behavioralSkills: Math.round(behavioralAvg),
         technicalKnowledge: Math.round(technicalAvg),
-        codingAbility: Math.round(codingAvg)
-      },
-      detailedAssessment: `Overall performance shows ${averageScore >= 80 ? 'excellent' : averageScore >= 70 ? 'good' : averageScore >= 60 ? 'satisfactory' : 'developing'} readiness for a software engineering internship. Completed ${responses.length} questions with an average score of ${averageScore.toFixed(1)}%. ${behavioralAvg >= technicalAvg ? 'Strong communication and behavioral responses' : 'Good technical foundation'} ${codingAvg >= 70 ? 'with solid coding abilities.' : 'with coding skills that can be developed further.'}`
+        codingAbility: Math.round(codingAvg),
+        behavioralSkills: Math.round(behavioralAvg),
+        communication: Math.round(responses.reduce((sum, r) => sum + (r.feedback?.communicationClarity || 5), 0) / responses.length)
+      }
     }
   };
 }
