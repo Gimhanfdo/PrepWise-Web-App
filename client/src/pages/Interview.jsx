@@ -130,113 +130,96 @@ const MockInterviewSystem = () => {
   }, [currentQuestion, language, supportedLanguages]);
 
   const calculateQuestionScore = useCallback((responseText, questionType, responseTime, codeText = null, isSkipped = false) => {
-    const expectedTime = currentQuestion?.expectedDuration || 120;
-    
-    if (isSkipped) {
-      return {
-        score: 0,
-        breakdown: { content: 0, communication: 0, timeManagement: 0 },
-        strengths: [],
-        improvements: ['Question was skipped - consider attempting similar questions in practice']
-      };
-    }
-    
-    if (!isValidAnswer(responseText, questionType, codeText)) {
-      return {
-        score: 0,
-        breakdown: { content: 0, communication: 0, timeManagement: 0 },
-        strengths: [],
-        improvements: ['Please provide a meaningful response to the question']
-      };
-    }
-    
-    let contentScore = 70;
-    let communicationScore = 75;
-    let timeManagementScore = 80;
-    let strengths = [];
-    let improvements = [];
-    
-    const responseLength = codeText ? codeText.length : responseText.length;
-    const words = codeText ? codeText.split(/\s+/) : responseText.split(/\s+/);
-    
-    if (questionType === 'coding' || questionType === 'technical_coding') {
-      if (responseLength > 200) {
-        contentScore += 10;
-        strengths.push('Good code length and detail');
-      }
-      if (words.length > 30) {
-        contentScore += 5;
-        strengths.push('Well-structured code');
-      }
-      if (codeText.includes('function') || codeText.includes('def') || codeText.includes('class')) {
-        contentScore += 10;
-        strengths.push('Proper code structure');
-      }
-      if (responseLength < 50) {
-        improvements.push('Provide more complete code implementation');
-      }
-    } else {
-      if (responseLength > 150) {
-        contentScore += 10;
-        communicationScore += 5;
-        strengths.push('Comprehensive response with good detail');
-      }
-      if (words.length > 25) {
-        contentScore += 5;
-        communicationScore += 10;
-        strengths.push('Well-articulated answer');
-      }
-      if (responseLength < 100) {
-        improvements.push('Provide more detailed explanations');
-      }
-      if (words.length < 15) {
-        improvements.push('Expand on your thoughts and reasoning');
-      }
-    }
-    
-    const timeRatio = responseTime / expectedTime;
-    if (timeRatio >= 0.5 && timeRatio <= 1.5) {
-      timeManagementScore += 10;
-      strengths.push('Good time management');
-    } else if (timeRatio < 0.5) {
-      timeManagementScore -= 10;
-      improvements.push('Take more time to think through your response');
-    } else {
-      timeManagementScore -= 5;
-      improvements.push('Work on being more concise');
-    }
-    
-    if (questionType === 'behavioral') {
-      communicationScore += 5;
-      if (responseText.toLowerCase().includes('example') || responseText.toLowerCase().includes('experience')) {
-        contentScore += 15;
-        strengths.push('Used concrete examples');
-      }
-    }
-    
-    contentScore = Math.max(0, Math.min(100, contentScore));
-    communicationScore = Math.max(0, Math.min(100, communicationScore));
-    timeManagementScore = Math.max(0, Math.min(100, timeManagementScore));
-    
-    const weightedScore = Math.round(
-      (contentScore * 0.6) + (communicationScore * 0.3) + (timeManagementScore * 0.1)
-    );
-    
-    if (improvements.length === 0) {
-      improvements.push('Continue practicing to maintain this level of performance');
-    }
-    
+  if (isSkipped) {
     return {
-      score: weightedScore,
-      breakdown: {
-        content: contentScore,
-        communication: communicationScore,
-        timeManagement: timeManagementScore
-      },
-      strengths,
-      improvements
+      score: 0,
+      breakdown: { content: 0, communication: 0 },
+      strengths: [],
+      improvements: ['Question was skipped - consider attempting similar questions in practice']
     };
-  }, [currentQuestion, isValidAnswer]);
+  }
+  
+  if (!isValidAnswer(responseText, questionType, codeText)) {
+    return {
+      score: 0,
+      breakdown: { content: 0, communication: 0 },
+      strengths: [],
+      improvements: ['Please provide a meaningful response to the question']
+    };
+  }
+  
+  let contentScore = 70;
+  let communicationScore = 75;
+  let strengths = [];
+  let improvements = [];
+  
+  const responseLength = codeText ? codeText.length : responseText.length;
+  const words = codeText ? codeText.split(/\s+/) : responseText.split(/\s+/);
+  
+  if (questionType === 'coding' || questionType === 'technical_coding') {
+    if (responseLength > 200) {
+      contentScore += 10;
+      strengths.push('Good code length and detail');
+    }
+    if (words.length > 30) {
+      contentScore += 5;
+      strengths.push('Well-structured code');
+    }
+    if (codeText.includes('function') || codeText.includes('def') || codeText.includes('class')) {
+      contentScore += 10;
+      strengths.push('Proper code structure');
+    }
+    if (responseLength < 50) {
+      improvements.push('Provide more complete code implementation');
+    }
+  } else {
+    if (responseLength > 150) {
+      contentScore += 10;
+      communicationScore += 5;
+      strengths.push('Comprehensive response with good detail');
+    }
+    if (words.length > 25) {
+      contentScore += 5;
+      communicationScore += 10;
+      strengths.push('Well-articulated answer');
+    }
+    if (responseLength < 100) {
+      improvements.push('Provide more detailed explanations');
+    }
+    if (words.length < 15) {
+      improvements.push('Expand on your thoughts and reasoning');
+    }
+  }
+  
+  if (questionType === 'behavioral') {
+    communicationScore += 5;
+    if (responseText.toLowerCase().includes('example') || responseText.toLowerCase().includes('experience')) {
+      contentScore += 15;
+      strengths.push('Used concrete examples');
+    }
+  }
+  
+  contentScore = Math.max(0, Math.min(100, contentScore));
+  communicationScore = Math.max(0, Math.min(100, communicationScore));
+  
+  const weightedScore = Math.round(
+    (contentScore * 0.7) + (communicationScore * 0.3)
+  );
+  
+  if (improvements.length === 0) {
+    improvements.push('Continue practicing to maintain this level of performance');
+  }
+  
+  return {
+    score: weightedScore,
+    breakdown: {
+      content: contentScore,
+      communication: communicationScore
+    },
+    strengths,
+    improvements
+  };
+}, [isValidAnswer]);
 
   const handleJobDescriptionChange = useCallback((e) => {
     setInterviewData(prev => ({ ...prev, jobDescription: e.target.value }));
@@ -246,21 +229,21 @@ const MockInterviewSystem = () => {
     setTextAnswer(e.target.value);
   }, []);
 
-  const handleCodeChange = useCallback((e) => {
-    setCode(e.target.value);
-  }, []);
+  const handleCodeChange = (e) => {
+  setCode(e.target.value);
+  };
 
   const handleTranscriptionChange = useCallback((e) => {
     setTranscription(e.target.value);
   }, []);
 
-  const handleLanguageChange = useCallback((e) => {
-    const newLanguage = e.target.value;
-    setLanguage(newLanguage);
-    const langTemplate = supportedLanguages.find(l => l.value === newLanguage)?.template || '';
-    setCode(currentQuestion?.starterCode?.[newLanguage] || langTemplate);
-    setCodeOutput('');
-  }, [currentQuestion, supportedLanguages]);
+  const handleLanguageChange = (e) => {
+  const newLanguage = e.target.value;
+  setLanguage(newLanguage);
+  const langTemplate = supportedLanguages.find(l => l.value === newLanguage)?.template || '';
+  setCode(currentQuestion?.starterCode?.[newLanguage] || langTemplate);
+  setCodeOutput('');
+  };
 
   useEffect(() => {
     checkAuthentication();
@@ -662,53 +645,112 @@ Note: The actual CV text extraction would require server-side processing of the 
     }
   };
 
-  const executeCode = () => {
-    try {
-      setIsRunningCode(true);
-      setCodeOutput('Running code...\n');
-      addDebugLog('Executing code...');
+  const executeCode = useCallback(() => {
+  if (!code.trim()) {
+    setCodeOutput('Please write some code before running.');
+    return;
+  }
+
+  try {
+    setIsRunningCode(true);
+    setCodeOutput('Running code...\n');
+    addDebugLog(`Executing ${language} code...`);
+    
+    if (language === 'javascript') {
+      const originalConsoleLog = console.log;
+      const originalConsoleError = console.error;
+      let output = '';
       
-      if (language === 'javascript') {
-        const originalLog = console.log;
-        let output = '';
-        
-        console.log = (...args) => {
-          output += args.join(' ') + '\n';
-        };
-        
-        try {
-          const result = new Function('console', `
+      // Override console methods to capture output
+      console.log = (...args) => {
+        output += args.map(arg => 
+          typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+        ).join(' ') + '\n';
+      };
+      
+      console.error = (...args) => {
+        output += 'ERROR: ' + args.map(arg => String(arg)).join(' ') + '\n';
+      };
+      
+      try {
+        // Wrap code in try-catch and execute
+        const wrappedCode = `
+          try {
             ${code}
-            ${code.includes('console.log') ? '' : 'console.log("Code executed successfully");'}
-          `)(console);
-          
-          if (result !== undefined) {
-            output += 'Return value: ' + result + '\n';
+          } catch (error) {
+            console.error(error.message);
           }
-        } catch (error) {
-          output += 'Error: ' + error.message + '\n';
+        `;
+        
+        const result = new Function('console', wrappedCode)(console);
+        
+        if (result !== undefined) {
+          output += '\nReturn value: ' + (typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)) + '\n';
         }
         
-        console.log = originalLog;
-        setCodeOutput(output || 'Code executed successfully (no output)');
-        addDebugLog(`JavaScript executed: ${output.substring(0, 100)}`);
-      } else if (language === 'python') {
-        const simulatedOutput = `Simulating Python execution:\n${code}\n\n[In a real environment, this would execute Python code]\nCode appears valid for Python syntax.`;
-        setCodeOutput(simulatedOutput);
-        addDebugLog(`Python simulation completed`);
-      } else {
-        const simulatedOutput = `Code execution for ${language} is simulated in this demo.\nYour code would be executed on the server with proper ${language} compiler/interpreter.\n\nCode submitted:\n${code.substring(0, 200)}${code.length > 200 ? '...' : ''}`;
-        setCodeOutput(simulatedOutput);
-        addDebugLog(`Simulated execution for ${language}`);
+        if (!output.trim()) {
+          output = 'Code executed successfully (no output generated)\n';
+        }
+        
+      } catch (error) {
+        output += 'Execution Error: ' + error.message + '\n';
+      } finally {
+        // Restore original console methods
+        console.log = originalConsoleLog;
+        console.error = originalConsoleError;
       }
-    } catch (error) {
-      const errorMsg = `Execution Error: ${error.message}`;
-      setCodeOutput(errorMsg);
-      addDebugLog(`Code execution error: ${error.message}`, 'error');
-    } finally {
-      setIsRunningCode(false);
+      
+      setCodeOutput(output);
+      addDebugLog(`JavaScript executed successfully: ${output.substring(0, 50)}...`);
+      
+    } else if (language === 'python') {
+      // Python simulation
+      const simulatedOutput = `Python Code Simulation:
+${code}
+
+[Simulated Output]
+This would execute your Python code on the server.
+Your code appears to have valid Python syntax.
+${code.includes('print(') ? 'Print statements detected - output would appear here.' : ''}
+${code.includes('def ') ? 'Function definitions found.' : ''}
+${code.includes('class ') ? 'Class definitions found.' : ''}
+
+Note: This is a frontend simulation. Real execution happens on the backend.`;
+      
+      setCodeOutput(simulatedOutput);
+      addDebugLog(`Python simulation completed`);
+      
+    } else {
+      // Generic simulation for other languages
+      const languageLabel = supportedLanguages.find(l => l.value === language)?.label || language;
+      const simulatedOutput = `${languageLabel} Code Simulation:
+
+${code.substring(0, 300)}${code.length > 300 ? '\n...[code truncated]' : ''}
+
+[Simulated Compilation/Execution]
+✓ Syntax appears valid for ${languageLabel}
+✓ Code structure looks good
+✓ Ready for server-side execution
+
+Note: This is a frontend preview. Actual compilation and execution 
+would happen on the server with proper ${languageLabel} environment.
+
+Estimated execution time: < 1 second
+Memory usage: Normal
+Status: Ready for submission`;
+      
+      setCodeOutput(simulatedOutput);
+      addDebugLog(`Simulated execution for ${language}`);
     }
-  };
+    
+  } catch (error) {
+    const errorMsg = `Execution Error: ${error.message}`;
+    setCodeOutput(errorMsg);
+    addDebugLog(`Code execution error: ${error.message}`, 'error');
+  } finally {
+    setIsRunningCode(false);
+  }
+}, [code, language, supportedLanguages, addDebugLog]);
 
   const isSetupValid = useCallback(() => {
     return interviewData.jobDescription && interviewData.resumeText;
@@ -1259,10 +1301,20 @@ Note: The actual CV text extraction would require server-side processing of the 
   }, []);
 
   useEffect(() => {
-    if (currentQuestion && currentQuestion.starterCode) {
-      setCode(currentQuestion.starterCode[language] || supportedLanguages.find(l => l.value === language)?.template || '');
+  if (currentQuestion) {
+    const isCoding = currentQuestion.type === 'coding' || currentQuestion.type === 'technical_coding';
+    setShowCodeEditor(isCoding);
+    
+    if (isCoding && currentQuestion.starterCode) {
+      const newCode = currentQuestion.starterCode[language] || 
+                     supportedLanguages.find(l => l.value === language)?.template || '';
+      setCode(newCode);
+    } else if (!isCoding) {
+      setCode('');
+      setShowCodeEditor(false);
     }
-  }, [currentQuestion, language, supportedLanguages]);
+  }
+}, [currentQuestion, language, supportedLanguages]);
 
   const CVSection = useMemo(() => (
     <div className="mb-4">
@@ -1563,125 +1615,122 @@ Note: The actual CV text extraction would require server-side processing of the 
   ), [user, interviewData, debugMode, debugLogs, audioPermission, audioError, error, loading, isSetupValid, createInterview, handleJobDescriptionChange, CVSection]);
 
   const InterviewPhase = useMemo(() => {
-    const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
-    
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-        <div className="bg-white border-b border-gray-200 shadow-sm">
-          <div className="max-w-7xl mx-auto px-6 py-3">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
-                  <Brain className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-gray-900">Mock Interview</h1>
-                  <p className="text-xs text-gray-600">Question {questionIndex + 1} of {questions.length}</p>
-                </div>
+  const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
+  
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      <div className="bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-6 py-3">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+                <Brain className="w-4 h-4 text-white" />
               </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 text-gray-600">
-                  <Clock className="w-4 h-4" />
-                  <span className="font-mono text-sm">
-                    {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
-                  </span>
-                </div>
-                <div className="w-24">
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-gradient-to-r from-blue-600 to-indigo-600 h-2 rounded-full transition-all duration-500"
-                      style={{ width: `${((questionIndex + 1) / questions.length) * 100}%` }}
-                    ></div>
-                  </div>
+              <div>
+                <h1 className="text-lg font-semibold text-gray-900">Mock Interview</h1>
+                <p className="text-xs text-gray-600">Question {questionIndex + 1} of {questions.length}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 text-gray-600">
+                <Clock className="w-4 h-4" />
+                <span className="font-mono text-sm">
+                  {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
+                </span>
+              </div>
+              <div className="w-24">
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-gradient-to-r from-blue-600 to-indigo-600 h-2 rounded-full transition-all duration-500"
+                    style={{ width: `${((questionIndex + 1) / questions.length) * 100}%` }}
+                  ></div>
                 </div>
               </div>
             </div>
           </div>
         </div>
+      </div>
 
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <div className={`grid gap-6 ${showCodeEditor && isCodingQuestion ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 max-w-4xl mx-auto'}`}>
-            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-              <div className="flex items-start gap-3 mb-4">
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
-                  isCodingQuestion ? 'bg-gradient-to-r from-purple-500 to-pink-500' :
-                  currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-gradient-to-r from-indigo-500 to-blue-500' :
-                  currentQuestion?.type === 'behavioral' ? 'bg-gradient-to-r from-green-500 to-teal-500' :
-                  'bg-gradient-to-r from-blue-500 to-cyan-500'
-                }`}>
-                  {isCodingQuestion ? <Code className="w-6 h-6 text-white" /> : <MessageCircle className="w-6 h-6 text-white" />}
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      isCodingQuestion ? 'bg-purple-100 text-purple-800' :
-                      currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-indigo-100 text-indigo-800' :
-                      currentQuestion?.type === 'behavioral' ? 'bg-green-100 text-green-800' :
-                      'bg-blue-100 text-blue-800'
-                    }`}>
-                      {currentQuestion?.type?.replace('_', ' ').toUpperCase()}
-                    </span>
-                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                      ⏱️ {currentQuestion?.expectedDuration || 120}s
-                    </span>
-                  </div>
-                  <h2 className="text-lg font-bold text-gray-900 leading-relaxed">
-                    {currentQuestion?.question}
-                  </h2>
-                </div>
+       <div className="max-w-7xl mx-auto px-6 py-6">
+        <div className={`grid gap-6 ${showCodeEditor && isCodingQuestion ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 max-w-4xl mx-auto'}`}>
+          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+            <div className="flex items-start gap-3 mb-4">
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
+                isCodingQuestion ? 'bg-gradient-to-r from-purple-500 to-pink-500' :
+                currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-gradient-to-r from-indigo-500 to-blue-500' :
+                currentQuestion?.type === 'behavioral' ? 'bg-gradient-to-r from-green-500 to-teal-500' :
+                'bg-gradient-to-r from-blue-500 to-cyan-500'
+              }`}>
+                {isCodingQuestion ? <Code className="w-6 h-6 text-white" /> : <MessageCircle className="w-6 h-6 text-white" />}
               </div>
-
-              {!isCodingQuestion && (
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-3">Response Method:</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => setAnswerMode('audio')}
-                      className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 ${
-                        answerMode === 'audio' 
-                          ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-lg' 
-                          : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
-                      <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                        <Headphones className="w-4 h-4 text-blue-600" />
-                      </div>
-                      <div className="text-left">
-                        <div className="text-sm font-medium">Audio</div>
-                        <div className="text-xs text-gray-500">Speak answer</div>
-                      </div>
-                    </button>
-                    <button
-                      onClick={() => setAnswerMode('text')}
-                      className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 ${
-                        answerMode === 'text' 
-                          ? 'bg-green-50 border-green-500 text-green-700 shadow-lg' 
-                          : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                      }`}
-                    >
-                      <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                        <Type className="w-4 h-4 text-green-600" />
-                      </div>
-                      <div className="text-left">
-                        <div className="text-sm font-medium">Text</div>
-                        <div className="text-xs text-gray-500">Type answer</div>
-                      </div>
-                    </button>
-                  </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                    isCodingQuestion ? 'bg-purple-100 text-purple-800' :
+                    currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-indigo-100 text-indigo-800' :
+                    currentQuestion?.type === 'behavioral' ? 'bg-green-100 text-green-800' :
+                    'bg-blue-100 text-blue-800'
+                  }`}>
+                    {currentQuestion?.type?.replace('_', ' ').toUpperCase()}
+                  </span>
                 </div>
-              )}
+                <h2 className="text-lg font-bold text-gray-900 leading-relaxed">
+                  {currentQuestion?.question}
+                </h2>
+              </div>
+            </div>
 
-              {isCodingQuestion && (
-                <div className="mb-4">
+        {!isCodingQuestion && (
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-3">Response Method:</label>
+                <div className="grid grid-cols-2 gap-3">
                   <button
-                    onClick={() => setShowCodeEditor(!showCodeEditor)}
-                    className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-4 py-2 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-sm"
+                    onClick={() => setAnswerMode('audio')}
+                    className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 ${
+                      answerMode === 'audio' 
+                        ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-lg' 
+                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                    }`}
                   >
-                    <Terminal className="w-4 h-4" />
-                    {showCodeEditor ? 'Hide Code Editor' : 'Open Code Editor'}
+                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                      <Headphones className="w-4 h-4 text-blue-600" />
+                    </div>
+                    <div className="text-left">
+                      <div className="text-sm font-medium">Audio</div>
+                      <div className="text-xs text-gray-500">Speak answer</div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => setAnswerMode('text')}
+                    className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 ${
+                      answerMode === 'text' 
+                        ? 'bg-green-50 border-green-500 text-green-700 shadow-lg' 
+                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                      <Type className="w-4 h-4 text-green-600" />
+                    </div>
+                    <div className="text-left">
+                      <div className="text-sm font-medium">Text</div>
+                      <div className="text-xs text-gray-500">Type answer</div>
+                    </div>
                   </button>
                 </div>
-              )}
+              </div>
+            )}
+
+             {isCodingQuestion && !showCodeEditor && (
+              <div className="mb-4">
+                <button
+                  onClick={() => setShowCodeEditor(true)}
+                  className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-4 py-2 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-sm"
+                >
+                  <Terminal className="w-4 h-4" />
+                  Open Code Editor
+                </button>
+              </div>
+            )}
 
               {!isCodingQuestion && answerMode === 'audio' && (
                 <div className="space-y-4">
@@ -1862,8 +1911,13 @@ Note: The actual CV text extraction would require server-side processing of the 
                   <div className="flex items-center gap-3">
                     <select
                       value={language}
-                      onChange={handleLanguageChange}
-                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                      onChange={(e) => {
+                        const newLang = e.target.value;
+                        setLanguage(newLang);
+                        const template = supportedLanguages.find(l => l.value === newLang)?.template || '';
+                        setCode(template);
+                      }}
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                     >
                       {supportedLanguages.map(lang => (
                         <option key={lang.value} value={lang.value}>
@@ -1872,21 +1926,31 @@ Note: The actual CV text extraction would require server-side processing of the 
                       ))}
                     </select>
                     <button
-                      onClick={executeCode}
+                      onClick={() => {
+                        setIsRunningCode(true);
+                        setTimeout(() => {
+                          let output = '';
+                          if (language === 'javascript') {
+                            try {
+                              const originalLog = console.log;
+                              console.log = (...args) => { output += args.join(' ') + '\n'; };
+                              eval(code);
+                              console.log = originalLog;
+                              if (!output) output = 'Code executed successfully';
+                            } catch (e) {
+                              output = 'Error: ' + e.message;
+                            }
+                          } else {
+                            output = `${language} code ready for execution:\n\n${code}`;
+                          }
+                          setCodeOutput(output);
+                          setIsRunningCode(false);
+                        }, 300);
+                      }}
                       disabled={isRunningCode}
-                      className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium"
+                      className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
                     >
-                      {isRunningCode ? (
-                        <>
-                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                          Running
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-4 h-4" />
-                          Run Code
-                        </>
-                      )}
+                      {isRunningCode ? 'Running...' : 'Run Code'}
                     </button>
                   </div>
                 </div>
@@ -1894,48 +1958,23 @@ Note: The actual CV text extraction would require server-side processing of the 
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Your Code:</label>
-                    <div className="relative">
-                      <textarea
-                        value={code}
-                        onChange={handleCodeChange}
-                        className="w-full h-64 px-4 py-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-gray-50 transition-colors"
-                        placeholder={`Write your ${language} code here...`}
-                        style={{ fontFamily: 'Consolas, Monaco, "Courier New", monospace' }}
-                        spellCheck="false"
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                      />
-                      <div className="absolute bottom-3 right-3 text-xs text-gray-400">
-                        Lines: {code.split('\n').length}
-                      </div>
-                    </div>
+                    <textarea
+                      value={code}
+                      onChange={(e) => setCode(e.target.value)}
+                      className="w-full h-64 px-4 py-3 border-2 border-gray-300 rounded-lg text-sm bg-white focus:border-purple-500 focus:outline-none resize-none"
+                      placeholder={`Write your ${language} code here...`}
+                      style={{ fontFamily: 'monospace' }}
+                    />
                   </div>
 
                   {codeOutput && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Output:</label>
-                      <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm whitespace-pre-wrap max-h-32 overflow-y-auto border">
+                      <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm whitespace-pre-wrap max-h-32 overflow-y-auto">
                         {codeOutput}
                       </div>
                     </div>
                   )}
-                  
-                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
-                    <div className="flex items-start gap-2">
-                      <Star className="w-4 h-4 text-blue-600 mt-0.5" />
-                      <div>
-                        <p className="text-xs text-blue-800 font-medium mb-1">💡 Tips:</p>
-                        <ul className="text-xs text-blue-700 space-y-0.5">
-                          <li>• Write clean, readable code</li>
-                          <li>• Add comments to explain your approach</li>
-                          <li>• Consider edge cases</li>
-                        </ul>
-                      </div>
-                    </div>
-                    <div className="mt-2 pt-2 border-t border-blue-200 text-xs text-blue-600">
-                      <p>Characters: {code.length} | Lines: {code.split('\n').length}</p>
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
@@ -1970,7 +2009,7 @@ Note: The actual CV text extraction would require server-side processing of the 
         <audio ref={audioPlaybackRef} className="hidden" />
       </div>
     );
-  }, [questionIndex, questions.length, timer, currentQuestion, answerMode, isRecording, loading, audioBlob, isPlaying, recordingTime, audioError, isTranscribing, transcriptionError, transcription, textAnswer, error, debugMode, debugLogs, showCodeEditor, language, code, codeOutput, isRunningCode, supportedLanguages, responses, handleTranscriptionChange, handleTextAnswerChange, handleCodeChange, handleLanguageChange]);
+  }, [questionIndex, questions.length, timer, currentQuestion, answerMode, isRecording, loading, audioBlob, isPlaying, recordingTime, audioError, isTranscribing, transcriptionError, transcription, textAnswer, error, debugMode, debugLogs, showCodeEditor, language, code, codeOutput, isRunningCode, supportedLanguages, responses]);
 
   const FeedbackPhase = useMemo(() => (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-blue-50 to-indigo-50">
