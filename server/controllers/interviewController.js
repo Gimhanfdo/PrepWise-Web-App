@@ -6,10 +6,8 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 export const getUserCV = async (req, res) => {
   try {
-    console.log('Getting user CV...');
     const userId = req.user.userId || req.user.id || req.user._id;
 
-    // Get actual user CV from database
     const user = await userModel.findById(userId);
     if (!user) {
       return res.status(404).json({
@@ -42,15 +40,13 @@ export const getUserCV = async (req, res) => {
 
 export const createInterview = async (req, res) => {
   try {
-    console.log('Creating interview...');
-    const { jobTitle, jobDescription, resumeText } = req.body;
+    const { jobDescription, resumeText } = req.body;
     const userId = req.user.userId || req.user.id || req.user._id;
 
-    // Validate required fields
-    if (!jobTitle || !jobDescription || !resumeText) {
+    if (!jobDescription || !resumeText) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: jobTitle, jobDescription, and resumeText are required'
+        error: 'Missing required fields: jobDescription and resumeText are required'
       });
     }
 
@@ -61,14 +57,10 @@ export const createInterview = async (req, res) => {
       });
     }
 
-    // Generate questions using actual resume text
-    console.log('Generating interview questions...');
-    const questions = await generateInterviewQuestions(resumeText, jobDescription, jobTitle);
-    console.log('Generated questions:', questions.length, 'questions');
+    const questions = await generateInterviewQuestions(resumeText, jobDescription);
 
     const interviewData = {
       userId: userId,
-      jobTitle: jobTitle.trim(),
       jobDescription: jobDescription.trim(),
       resumeText: resumeText.trim(),
       questions: questions,
@@ -85,8 +77,6 @@ export const createInterview = async (req, res) => {
     const interview = new interviewModel(interviewData);
     const savedInterview = await interview.save();
 
-    console.log('Interview created successfully with MongoDB ID:', savedInterview._id);
-
     res.status(201).json({
       success: true,
       message: 'Interview created successfully',
@@ -94,7 +84,6 @@ export const createInterview = async (req, res) => {
         id: savedInterview._id,
         _id: savedInterview._id,
         userId: savedInterview.userId,
-        jobTitle: savedInterview.jobTitle,
         jobDescription: savedInterview.jobDescription,
         resumeText: savedInterview.resumeText,
         questions: savedInterview.questions,
@@ -118,14 +107,13 @@ export const createInterview = async (req, res) => {
 
 export const createInterviewWithProfileCV = async (req, res) => {
   try {
-    console.log('Creating interview with profile CV...');
-    const { jobTitle, jobDescription } = req.body;
+    const { jobDescription } = req.body;
     const userId = req.user.userId || req.user.id || req.user._id;
 
-    if (!jobTitle || !jobDescription) {
+    if (!jobDescription) {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: jobTitle and jobDescription are required'
+        error: 'Missing required field: jobDescription is required'
       });
     }
 
@@ -136,7 +124,6 @@ export const createInterviewWithProfileCV = async (req, res) => {
       });
     }
 
-    // Get ACTUAL user CV from database - NOT MOCK DATA
     const user = await userModel.findById(userId);
     if (!user || !user.hasCV) {
       return res.status(400).json({
@@ -146,16 +133,10 @@ export const createInterviewWithProfileCV = async (req, res) => {
     }
 
     const actualCVText = user.getCVText();
-    console.log('Using actual user CV:', actualCVText.substring(0, 100) + '...');
-
-    // Generate questions using ACTUAL CV text
-    console.log('Generating interview questions with actual profile CV...');
-    const questions = await generateInterviewQuestions(actualCVText, jobDescription, jobTitle);
-    console.log('Generated questions:', questions.length, 'questions');
+    const questions = await generateInterviewQuestions(actualCVText, jobDescription);
 
     const interviewData = {
       userId: userId,
-      jobTitle: jobTitle.trim(),
       jobDescription: jobDescription.trim(),
       resumeText: actualCVText,
       questions: questions,
@@ -172,8 +153,6 @@ export const createInterviewWithProfileCV = async (req, res) => {
     const interview = new interviewModel(interviewData);
     const savedInterview = await interview.save();
 
-    console.log('Interview with actual profile CV created successfully');
-
     res.status(201).json({
       success: true,
       message: 'Interview created successfully with profile CV',
@@ -181,7 +160,6 @@ export const createInterviewWithProfileCV = async (req, res) => {
         id: savedInterview._id,
         _id: savedInterview._id,
         userId: savedInterview.userId,
-        jobTitle: savedInterview.jobTitle,
         jobDescription: savedInterview.jobDescription,
         resumeText: savedInterview.resumeText,
         questions: savedInterview.questions,
@@ -207,8 +185,6 @@ export const startInterview = async (req, res) => {
   try {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
-
-    console.log('Starting interview with ID:', interviewId);
 
     const interview = await interviewModel.findOne({ _id: interviewId, userId });
     if (!interview) {
@@ -237,8 +213,6 @@ export const startInterview = async (req, res) => {
     interview.updatedAt = new Date();
     await interview.save();
 
-    console.log('Interview started successfully with', interview.questions.length, 'questions');
-
     res.json({
       success: true,
       message: 'Interview started successfully',
@@ -247,7 +221,6 @@ export const startInterview = async (req, res) => {
       questions: interview.questions,
       interviewData: {
         id: interview._id,
-        jobTitle: interview.jobTitle,
         status: interview.status,
         currentQuestionIndex: 0
       }
@@ -324,15 +297,6 @@ export const submitAnswer = async (req, res) => {
     const { questionId, responseTime, answerMode, responseText, code } = req.body;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    console.log('Submitting answer:', {
-      interviewId,
-      questionId,
-      answerMode,
-      responseTextLength: responseText?.length,
-      hasCode: !!code,
-      responseTime
-    });
-
     if (!responseText || responseText.trim().length === 0) {
       return res.status(400).json({ 
         success: false,
@@ -356,47 +320,34 @@ export const submitAnswer = async (req, res) => {
       });
     }
 
-    // Analyze the response with proper intern-level expectations
     let analysis = null;
     try {
-      analysis = await generateComprehensiveFeedback(
+      analysis = await generateDetailedFeedback(
         question.question,
         question.type,
         responseText,
         code,
         responseTime,
-        question.expectedDuration
+        question.expectedDuration,
+        interview.resumeText,
+        interview.jobDescription
       );
-      console.log('Analysis completed:', {
-        score: analysis.score,
-        strengthsCount: analysis.strengths?.length,
-        improvementsCount: analysis.improvements?.length
-      });
     } catch (analysisError) {
       console.error('Analysis failed, using basic fallback:', analysisError.message);
       analysis = generateBasicFeedback(responseText, question.type, responseTime);
     }
 
-    // Create response object
     const response = {
       questionId,
       question: question.question,
+      questionType: question.type,
       transcription: answerMode === 'audio' ? responseText : null,
       textResponse: answerMode === 'text' ? responseText : null,
       code: code || null,
       responseTime: parseInt(responseTime) || 0,
       recordingDuration: answerMode === 'audio' ? parseInt(responseTime) : null,
       submittedAt: new Date(),
-      feedback: {
-        score: analysis.score,
-        strengths: analysis.strengths,
-        improvements: analysis.improvements,
-        detailedAnalysis: analysis.detailedAnalysis,
-        keywordMatches: [],
-        communicationClarity: analysis.communicationClarity,
-        technicalAccuracy: analysis.technicalAccuracy,
-        structuredResponse: analysis.structuredResponse
-      }
+      feedback: analysis
     };
 
     interview.responses.push(response);
@@ -449,13 +400,15 @@ export const analyzeResponse = async (req, res) => {
       });
     }
 
-    const feedback = await generateComprehensiveFeedback(
+    const feedback = await generateDetailedFeedback(
       question,
       questionType,
       responseText,
       code,
       responseTime,
-      expectedDuration
+      expectedDuration,
+      '',
+      ''
     );
 
     res.json({
@@ -478,8 +431,6 @@ export const completeInterview = async (req, res) => {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    console.log('Completing interview:', interviewId);
-
     const interview = await interviewModel.findOne({ _id: interviewId, userId });
     if (!interview) {
       return res.status(404).json({ 
@@ -492,18 +443,10 @@ export const completeInterview = async (req, res) => {
       return res.json({
         success: true,
         message: 'Interview already completed',
-        results: {
-          score: interview.overallFeedback?.score || 0,
-          feedback: interview.overallFeedback,
-          duration: interview.totalDuration,
-          questionsAnswered: interview.responses.length
-        }
+        results: calculateFinalResults(interview.responses, interview.totalDuration || 0)
       });
     }
 
-    console.log('Generating overall feedback for', interview.responses.length, 'responses...');
-
-    // Generate overall feedback with proper function
     let overallAnalysis;
     try {
       overallAnalysis = await generateOverallFeedback(
@@ -511,16 +454,11 @@ export const completeInterview = async (req, res) => {
         interview.resumeText,
         interview.jobDescription
       );
-      console.log('Overall feedback generated:', {
-        score: overallAnalysis.score,
-        hasRecommendations: !!overallAnalysis.feedback?.recommendations
-      });
     } catch (feedbackError) {
       console.error('Overall feedback generation failed:', feedbackError.message);
       overallAnalysis = generateFallbackOverallFeedback(interview.responses);
     }
 
-    // Update interview status
     interview.status = 'completed';
     interview.completedAt = new Date();
     
@@ -530,23 +468,11 @@ export const completeInterview = async (req, res) => {
       interview.totalDuration = 1800;
     }
     
+    const finalResults = calculateFinalResults(interview.responses, interview.totalDuration);
+    
     interview.overallFeedback = {
-      score: overallAnalysis.score,
-      technicalSkills: {
-        score: overallAnalysis.feedback.categoryScores?.technicalSkills || overallAnalysis.score,
-        feedback: 'Technical skills assessment based on responses'
-      },
-      communicationSkills: {
-        score: overallAnalysis.feedback.categoryScores?.communicationSkills || overallAnalysis.score,
-        feedback: 'Communication skills assessment based on responses'
-      },
-      problemSolving: {
-        score: overallAnalysis.feedback.categoryScores?.problemSolving || overallAnalysis.score,
-        feedback: 'Problem solving skills assessment based on responses'
-      },
-      recommendations: overallAnalysis.feedback.recommendations || [],
-      strengths: overallAnalysis.feedback.strengths || [],
-      areasForImprovement: overallAnalysis.feedback.improvements || []
+      ...overallAnalysis.feedback,
+      ...finalResults
     };
     
     interview.updatedAt = new Date();
@@ -556,9 +482,8 @@ export const completeInterview = async (req, res) => {
       success: true,
       message: 'Interview completed successfully',
       results: {
-        score: overallAnalysis.score,
+        ...finalResults,
         feedback: interview.overallFeedback,
-        duration: interview.totalDuration,
         questionsAnswered: interview.responses.length,
         totalQuestions: interview.questions.length
       }
@@ -578,7 +503,6 @@ export const getInterviewFeedback = async (req, res) => {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    // Don't populate userId to avoid schema error - just get the interview
     const interview = await interviewModel.findOne({ _id: interviewId, userId });
 
     if (!interview) {
@@ -588,12 +512,13 @@ export const getInterviewFeedback = async (req, res) => {
       });
     }
 
+    const finalResults = calculateFinalResults(interview.responses, interview.totalDuration || 0);
+
     res.json({
       success: true,
       feedback: {
-        score: interview.overallFeedback?.score || 0,
+        ...finalResults,
         feedback: interview.overallFeedback,
-        duration: interview.totalDuration,
         responses: interview.responses,
         recommendations: interview.overallFeedback?.recommendations || []
       }
@@ -616,7 +541,7 @@ export const getUserInterviews = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit)
-      .select('jobTitle status overallFeedback createdAt completedAt totalDuration');
+      .select('status overallFeedback createdAt completedAt totalDuration');
 
     const total = await interviewModel.countDocuments({ userId });
 
@@ -644,7 +569,6 @@ export const getInterview = async (req, res) => {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    // Don't populate to avoid schema error
     const interview = await interviewModel.findOne({ _id: interviewId, userId });
 
     if (!interview) {
@@ -667,8 +591,6 @@ export const getInterview = async (req, res) => {
   }
 };
 
-// HELPER FUNCTIONS
-
 function extractCVKeywords(resumeText) {
   const text = resumeText.toLowerCase();
   const keywords = {
@@ -684,46 +606,44 @@ function extractCVKeywords(resumeText) {
     internships: []
   };
   
-  // Programming languages
   const languages = [
     'javascript', 'python', 'java', 'typescript', 'html', 'css', 'sql', 'c++', 'c#', 
-    'php', 'ruby', 'go', 'swift', 'kotlin', 'dart', 'rust', 'scala', 'perl', 'r', 'c'
+    'php', 'ruby', 'go', 'swift', 'kotlin', 'dart', 'rust', 'scala', 'perl', 'r', 'c',
+    'matlab', 'shell', 'bash', 'powershell', 'lua', 'haskell', 'clojure', 'f#', 'vb.net'
   ];
   languages.forEach(lang => {
     if (text.includes(lang)) keywords.languages.push(lang);
   });
   
-  // Frameworks and libraries
   const frameworks = [
     'react', 'angular', 'vue', 'nodejs', 'node.js', 'express', 'django', 'flask', 
     'spring', 'laravel', 'bootstrap', 'jquery', 'next.js', 'nuxt.js', 'svelte',
     'ember.js', 'backbone.js', 'meteor', 'electron', 'react native', 'flutter',
-    '.net', 'tailwind'
+    '.net', 'tailwind', 'fastapi', 'nestjs', 'gatsby', 'redux', 'vuex'
   ];
   frameworks.forEach(fw => {
     if (text.includes(fw.toLowerCase())) keywords.frameworks.push(fw);
   });
   
-  // Databases
   const databases = [
     'mysql', 'postgresql', 'mongodb', 'sqlite', 'redis', 'firebase', 'dynamodb',
-    'cassandra', 'elasticsearch', 'oracle', 'sql server', 'mariadb'
+    'cassandra', 'elasticsearch', 'oracle', 'sql server', 'mariadb', 'couchdb',
+    'influxdb', 'neo4j', 'supabase'
   ];
   databases.forEach(db => {
     if (text.includes(db.toLowerCase())) keywords.databases.push(db);
   });
 
-  // Tools and technologies
   const tools = [
     'git', 'docker', 'kubernetes', 'aws', 'azure', 'gcp', 'jenkins', 'webpack',
     'babel', 'eslint', 'prettier', 'jest', 'cypress', 'selenium', 'postman', 'figma',
-    'visual studio', 'vscode', 'github', 'gitlab'
+    'visual studio', 'vscode', 'github', 'gitlab', 'bitbucket', 'jira', 'slack',
+    'linux', 'ubuntu', 'windows', 'macos', 'vim', 'emacs'
   ];
   tools.forEach(tool => {
     if (text.includes(tool.toLowerCase())) keywords.tools.push(tool);
   });
 
-  // Experience indicators
   const experienceIndicators = [
     'intern', 'internship', 'freelance', 'tutor', 'project', 'developed', 'built', 
     'created', 'implemented', 'designed', 'worked', 'experience'
@@ -732,12 +652,10 @@ function extractCVKeywords(resumeText) {
     if (text.includes(exp)) keywords.experience.push(exp);
   });
 
-  // Certifications
   if (text.includes('certif') || text.includes('course')) {
     keywords.certifications.push('has certifications');
   }
 
-  // Education level
   if (text.includes('university') || text.includes('college') || text.includes('degree')) {
     keywords.education.push('university student');
   }
@@ -763,15 +681,12 @@ function extractJobKeywords(jobDescription) {
   return keywords;
 }
 
-async function generateInterviewQuestions(resumeText, jobDescription, jobTitle) {
+async function generateInterviewQuestions(resumeText, jobDescription) {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
     const cvKeywords = extractCVKeywords(resumeText);
     const jobKeywords = extractJobKeywords(jobDescription);
-    
-    console.log('CV Keywords:', cvKeywords);
-    console.log('Job Keywords:', jobKeywords);
     
     const prompt = `You are interviewing a SOFTWARE ENGINEERING INTERN candidate. Generate exactly 10 interview questions based on their actual CV content and the Software Engineering Intern job requirements.
 
@@ -787,8 +702,6 @@ ${resumeText}
 
 JOB DESCRIPTION:
 ${jobDescription}
-
-POSITION: ${jobTitle} (SOFTWARE ENGINEERING INTERN)
 
 BASED ON CV ANALYSIS:
 - Languages mentioned: ${cvKeywords.languages.join(', ') || 'Basic programming'}
@@ -825,7 +738,6 @@ RETURN ONLY VALID JSON:
   }
 ]`;
 
-    console.log('Generating intern-specific questions...');
     const result = await model.generateContent(prompt);
     const response = await result.response;
     let questionsText = response.text().trim();
@@ -836,16 +748,13 @@ RETURN ONLY VALID JSON:
     try {
       questions = JSON.parse(questionsText);
     } catch (parseError) {
-      console.error('JSON parse failed, using intern-specific fallback');
-      return getInternSpecificFallbackQuestions(resumeText, jobDescription, jobTitle, cvKeywords, jobKeywords);
+      return getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywords, jobKeywords);
     }
 
     if (!Array.isArray(questions) || questions.length !== 10) {
-      console.error('Invalid questions array, using intern-specific fallback');
-      return getInternSpecificFallbackQuestions(resumeText, jobDescription, jobTitle, cvKeywords, jobKeywords);
+      return getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywords, jobKeywords);
     }
 
-    // Validate and normalize questions for intern level
     const validatedQuestions = questions.map((q, index) => {
       const questionId = q.questionId || `q${index + 1}`;
       const normalizedType = normalizeQuestionType(q.type);
@@ -860,35 +769,30 @@ RETURN ONLY VALID JSON:
         type: normalizedType,
         question: q.question || `Intern-level question ${index + 1}`,
         category: q.category || 'general',
-        difficulty: q.difficulty === 'hard' ? 'medium' : q.difficulty || 'easy', // Cap at medium for interns
+        difficulty: q.difficulty === 'hard' ? 'medium' : q.difficulty || 'easy',
         expectedDuration: normalizedType === 'coding' ? 300 : 180,
         followUpQuestions: q.followUpQuestions || [],
         starterCode: starterCode
       };
     });
 
-    console.log('✅ Generated intern-specific questions successfully');
     return validatedQuestions;
 
   } catch (error) {
     console.error('AI question generation failed:', error);
     const cvKeywords = extractCVKeywords(resumeText);
     const jobKeywords = extractJobKeywords(jobDescription);
-    return getInternSpecificFallbackQuestions(resumeText, jobDescription, jobTitle, cvKeywords, jobKeywords);
+    return getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywords, jobKeywords);
   }
 }
 
-function getInternSpecificFallbackQuestions(resumeText, jobDescription, jobTitle, cvKeywords, jobKeywords) {
-  console.log('Generating intern-specific fallback questions...');
-  
+function getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywords, jobKeywords) {
   const primaryLang = cvKeywords.languages[0] || 'javascript';
   const hasProjects = resumeText.toLowerCase().includes('project');
   const hasInternship = resumeText.toLowerCase().includes('intern');
   const hasCertifications = cvKeywords.certifications.length > 0;
-  const isStudent = cvKeywords.education.length > 0;
 
   const questions = [
-    // 3 Behavioral Questions - Intern Level
     {
       questionId: "q1",
       type: "behavioral",
@@ -934,8 +838,6 @@ function getInternSpecificFallbackQuestions(resumeText, jobDescription, jobTitle
       ],
       starterCode: null
     },
-
-    // 4 Technical Questions - Intern Level
     {
       questionId: "q4",
       type: "technical",
@@ -988,8 +890,6 @@ function getInternSpecificFallbackQuestions(resumeText, jobDescription, jobTitle
       followUpQuestions: [],
       starterCode: null
     },
-
-    // 3 Coding Questions - Intern Level
     {
       questionId: "q8",
       type: "coding",
@@ -1024,7 +924,6 @@ function getInternSpecificFallbackQuestions(resumeText, jobDescription, jobTitle
     }
   ];
 
-  console.log(`✅ Generated ${questions.length} intern-specific fallback questions for ${primaryLang}`);
   return questions;
 }
 
@@ -1040,7 +939,7 @@ function generateInternLevelStarterCode(questionHint, candidateLanguages) {
     } else if (questionHint.includes('character') || questionHint.includes('count')) {
       starterCode.javascript = `function countCharacters(str) {\n    // Your code here\n    // Hint: Use an object to store character counts\n    const counts = {};\n    \n    return counts;\n}\n\n// Test\nconsole.log(countCharacters("hello")); // Should return {h:1, e:1, l:2, o:1}`;
     } else {
-      starterCode.javascript = `function solution(input) {\n    // Your code here\n    // Write your intern-level solution\n    \n    return result;\n}\n\n// Test case\nconsole.log(solution(testInput));`;
+      starterCode.javascript = `function solution(input) {\n    // Your code here\n    \n    return result;\n}\n\n// Test case\nconsole.log(solution(testInput));`;
     }
   }
 
@@ -1052,17 +951,42 @@ function generateInternLevelStarterCode(questionHint, candidateLanguages) {
     } else if (questionHint.includes('character') || questionHint.includes('count')) {
       starterCode.python = `def count_characters(s):\n    # Your code here\n    # Hint: Use a dictionary to store character counts\n    counts = {}\n    return counts\n\n# Test\nprint(count_characters("hello"))  # Should return {'h':1, 'e':1, 'l':2, 'o':1}`;
     } else {
-      starterCode.python = `def solution(input_data):\n    # Your code here\n    # Write your intern-level solution\n    pass\n\n# Test case\nprint(solution(test_input))`;
+      starterCode.python = `def solution(input_data):\n    # Your code here\n    pass\n\n# Test case\nprint(solution(test_input))`;
     }
   }
 
   if (primaryLang === 'java' || candidateLanguages.includes('java')) {
-    starterCode.java = `public class Solution {\n    public static int solution(int[] input) {\n        // Your intern-level Java solution here\n        return 0;\n    }\n    \n    public static void main(String[] args) {\n        int[] test = {1, 2, 3, 4, 5};\n        System.out.println(solution(test));\n    }\n}`;
+    if (questionHint.includes('max') || questionHint.includes('largest')) {
+      starterCode.java = `public class Solution {\n    public static int findMax(int[] numbers) {\n        // Your code here\n        return 0;\n    }\n    \n    public static void main(String[] args) {\n        int[] test = {3, 7, 2, 9, 1};\n        System.out.println(findMax(test)); // Should return 9\n    }\n}`;
+    } else if (questionHint.includes('palindrome')) {
+      starterCode.java = `public class Solution {\n    public static boolean isPalindrome(String str) {\n        // Your code here\n        return false;\n    }\n    \n    public static void main(String[] args) {\n        System.out.println(isPalindrome("racecar")); // Should return true\n        System.out.println(isPalindrome("hello"));   // Should return false\n    }\n}`;
+    } else {
+      starterCode.java = `public class Solution {\n    public static int solution(int[] input) {\n        // Your code here\n        return 0;\n    }\n    \n    public static void main(String[] args) {\n        int[] test = {1, 2, 3, 4, 5};\n        System.out.println(solution(test));\n    }\n}`;
+    }
   }
 
-  // Default fallback
+  if (primaryLang === 'c++' || candidateLanguages.includes('c++')) {
+    if (questionHint.includes('max') || questionHint.includes('largest')) {
+      starterCode.cpp = `#include <iostream>\n#include <vector>\nusing namespace std;\n\nint findMax(vector<int>& numbers) {\n    // Your code here\n    return 0;\n}\n\nint main() {\n    vector<int> test = {3, 7, 2, 9, 1};\n    cout << findMax(test) << endl; // Should return 9\n    return 0;\n}`;
+    } else {
+      starterCode.cpp = `#include <iostream>\n#include <vector>\nusing namespace std;\n\nint solution(vector<int>& input) {\n    // Your code here\n    return 0;\n}\n\nint main() {\n    vector<int> test = {1, 2, 3, 4, 5};\n    cout << solution(test) << endl;\n    return 0;\n}`;
+    }
+  }
+
+  if (primaryLang === 'go' || candidateLanguages.includes('go')) {
+    starterCode.go = `package main\n\nimport "fmt"\n\nfunc solution(input []int) int {\n    // Your code here\n    return 0\n}\n\nfunc main() {\n    test := []int{1, 2, 3, 4, 5}\n    fmt.Println(solution(test))\n}`;
+  }
+
+  if (primaryLang === 'rust' || candidateLanguages.includes('rust')) {
+    starterCode.rust = `fn solution(input: Vec<i32>) -> i32 {\n    // Your code here\n    0\n}\n\nfn main() {\n    let test = vec![1, 2, 3, 4, 5];\n    println!("{}", solution(test));\n}`;
+  }
+
+  if (primaryLang === 'php' || candidateLanguages.includes('php')) {
+    starterCode.php = `<?php\nfunction solution($input) {\n    // Your code here\n    return 0;\n}\n\n$test = [1, 2, 3, 4, 5];\necho solution($test);\n?>`;
+  }
+
   if (Object.keys(starterCode).length === 0) {
-    starterCode[primaryLang] = `// Your ${primaryLang} solution here\n// This is an intern-level problem\n// Take your time and think through the logic step by step`;
+    starterCode[primaryLang] = `// Your ${primaryLang} solution here\n// This is an intern-level problem`;
   }
 
   return starterCode;
@@ -1098,8 +1022,6 @@ function normalizeQuestionType(type) {
 }
 
 function cleanAndExtractJSON(text) {
-  console.log('Cleaning JSON response...');
-  
   let cleaned = text
     .replace(/```json\s*/gi, '')
     .replace(/```javascript\s*/gi, '')
@@ -1118,12 +1040,11 @@ function cleanAndExtractJSON(text) {
   return cleaned;
 }
 
-async function generateComprehensiveFeedback(question, questionType, responseText, code, responseTime, expectedDuration) {
+async function generateDetailedFeedback(question, questionType, responseText, code, responseTime, expectedDuration, resumeText, jobDescription) {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
-    // Enhanced prompt for intern-level evaluation
-    const prompt = `You are evaluating a SOFTWARE ENGINEERING INTERN candidate's response. Provide constructive, encouraging feedback appropriate for someone starting their career.
+    const prompt = `You are evaluating a SOFTWARE ENGINEERING INTERN candidate's response. Provide specific, detailed, and constructive feedback.
 
 INTERVIEW CONTEXT:
 - Question: "${question}"
@@ -1131,29 +1052,39 @@ INTERVIEW CONTEXT:
 - Response: "${responseText}"
 ${code ? `\nCode Provided:\n${code}` : ''}
 - Response Time: ${responseTime || 'Unknown'} seconds
+- Expected Duration: ${expectedDuration || 180} seconds
 
-EVALUATION CRITERIA FOR INTERNS:
-- Focus on learning potential and growth mindset
-- Encourage effort and partial understanding
-- Provide specific, actionable improvement suggestions
-- Score should reflect intern-level expectations (not senior developer standards)
+EVALUATION CRITERIA - STRICT GRADING:
+- Technical accuracy and understanding
+- Communication clarity and structure
+- Problem-solving approach
+- Code quality (if applicable) - NO POINTS FOR EMPTY/PLACEHOLDER CODE
+- Time management - NO POINTS FOR POOR RESPONSES REGARDLESS OF TIME
 
-SCORING GUIDELINES:
-- 80-100: Excellent for intern level
-- 60-79: Good intern response
-- 40-59: Acceptable intern attempt  
-- 20-39: Needs improvement but shows potential
-- 0-19: Minimal effort or understanding
+CRITICAL RULES:
+1. If response is meaningless/rubbish (like "yes", "no", single words, irrelevant text), score must be 0-15
+2. If code is empty, contains only comments, or is just placeholder text, codeQuality must be 1-2
+3. Poor responses get NO credit for communication or time management
+4. Only award points where genuine effort and understanding is shown
+
+SCORING GUIDELINES (STRICT):
+- 85-100: Excellent intern response with clear understanding
+- 70-84: Good intern response with minor gaps
+- 55-69: Acceptable intern response with some understanding
+- 40-54: Poor response with major issues
+- 0-39: Rubbish/meaningless response
 
 Return ONLY valid JSON:
 {
   "score": 75,
-  "strengths": ["specific strength 1", "specific strength 2"],
-  "improvements": ["specific actionable improvement 1", "specific actionable improvement 2"],
-  "detailedAnalysis": "Detailed analysis paragraph with intern-appropriate feedback",
+  "strengths": ["specific strength based on actual response", "another specific strength"],
+  "improvements": ["specific improvement with actionable advice", "another specific improvement"],
+  "detailedAnalysis": "Detailed paragraph analyzing the response content, technical accuracy, and communication",
   "communicationClarity": 8,
   "technicalAccuracy": 7,
-  "structuredResponse": 9
+  "structuredResponse": 9,
+  "codeQuality": ${questionType === 'coding' ? '8' : 'null'},
+  "timeEfficiency": ${responseTime ? Math.min(10, Math.max(1, Math.round((expectedDuration / responseTime) * 5))) : 'null'}
 }`;
 
     const result = await model.generateContent(prompt);
@@ -1163,184 +1094,309 @@ Return ONLY valid JSON:
     const cleanedText = analysisText.replace(/```json\s*|```\s*/g, '').trim();
     const aiAnalysis = JSON.parse(cleanedText);
     
-    return validateAndEnhanceFeedback(aiAnalysis, questionType, responseText, code);
+    return validateAndEnhanceFeedback(aiAnalysis, questionType, responseText, code, responseTime);
 
   } catch (error) {
     console.error('AI feedback generation failed:', error);
-    return generateInternLevelRuleBasedFeedback(question, questionType, responseText, code, responseTime);
+    return generateDetailedRuleBasedFeedback(question, questionType, responseText, code, responseTime);
   }
 }
 
-function generateInternLevelRuleBasedFeedback(question, questionType, responseText, code, responseTime) {
+function generateDetailedRuleBasedFeedback(question, questionType, responseText, code, responseTime) {
   const feedback = {
-    score: 40, // Start with intern-appropriate base score
+    score: 0,
     strengths: [],
     improvements: [],
     detailedAnalysis: '',
-    communicationClarity: 5,
-    technicalAccuracy: 5,
-    structuredResponse: 5
+    communicationClarity: 1,
+    technicalAccuracy: 1,
+    structuredResponse: 1,
+    codeQuality: questionType === 'coding' ? 1 : null,
+    timeEfficiency: null
   };
 
   const wordCount = responseText.trim().split(/\s+/).length;
+  const responseLength = responseText.trim().length;
+  const meaninglessResponses = ['yes', 'no', 'ok', 'sure', 'maybe', 'i dont know', 'idk', 'not sure'];
+  const isRubbish = responseLength < 10 || meaninglessResponses.includes(responseText.trim().toLowerCase()) || wordCount < 3;
   
-  // Intern-level evaluation
-  if (wordCount >= 10) {
-    feedback.score += 20;
+  if (isRubbish) {
+    feedback.score = Math.random() > 0.5 ? 5 : 10;
+    feedback.improvements = [
+      'Provide meaningful responses that demonstrate your understanding',
+      'Expand your answers with explanations and examples',
+      'Show your thought process and reasoning'
+    ];
+    feedback.detailedAnalysis = `Response is too brief (${wordCount} words, ${responseLength} characters) and lacks substance. For internship interviews, candidates must provide detailed explanations to demonstrate understanding.`;
+    feedback.strengths = ['Attempted to respond to the question'];
+    return feedback;
+  }
+  
+  if (wordCount >= 20 && responseLength >= 50) {
+    feedback.score += 30;
+    feedback.strengths.push('Provided a comprehensive response with good detail');
+    feedback.communicationClarity += 3;
+    feedback.structuredResponse += 3;
+  } else if (wordCount >= 10 && responseLength >= 25) {
+    feedback.score += 15;
     feedback.strengths.push('Provided a meaningful response');
     feedback.communicationClarity += 2;
-  } else if (wordCount >= 5) {
-    feedback.score += 10;
-    feedback.strengths.push('Attempted to answer the question');
-    feedback.communicationClarity += 1;
+    feedback.structuredResponse += 2;
   } else {
-    feedback.improvements.push('Try to provide more detailed explanations in your responses');
+    feedback.improvements.push('Provide more detailed explanations to demonstrate your understanding');
+    feedback.communicationClarity += 1;
   }
 
-  // Question-specific evaluation for interns
   if (questionType === 'coding') {
-    if (code && code.trim().length > 10) {
-      feedback.score += 25;
-      feedback.technicalAccuracy += 3;
-      feedback.strengths.push('Provided code implementation - great job!');
+    const hasCode = code && code.trim().length > 0;
+    const isEmptyCode = !hasCode || code.trim().length < 20 || 
+                       code.includes('// Your code here') || 
+                       code.includes('# Your code here') ||
+                       code.includes('pass') && code.split('\n').length < 4;
+    
+    if (hasCode && !isEmptyCode) {
+      feedback.score += 40;
+      feedback.technicalAccuracy += 4;
+      feedback.codeQuality += 5;
+      feedback.strengths.push('Provided a meaningful code implementation');
       
-      // Basic code quality checks
-      if (code.includes('function') || code.includes('def') || code.includes('class')) {
+      if (code.includes('function') || code.includes('def') || code.includes('class') || code.includes('public')) {
         feedback.score += 10;
+        feedback.codeQuality += 2;
         feedback.strengths.push('Used proper function/class structure');
       }
       
       if (code.includes('//') || code.includes('#') || code.includes('/*')) {
-        feedback.score += 5;
-        feedback.strengths.push('Added helpful comments to code');
+        const commentLines = (code.match(/(\/\/|#|\/\*)/g) || []).length;
+        const totalLines = code.split('\n').length;
+        if (commentLines < totalLines - 2) {
+          feedback.score += 5;
+          feedback.codeQuality += 1;
+          feedback.strengths.push('Added helpful comments');
+        }
       }
-    } else if (code && code.trim().length > 0) {
-      feedback.score += 10;
-      feedback.strengths.push('Attempted to write code');
-      feedback.improvements.push('Try to expand your code implementation with more complete logic');
+
+      if (code.includes('return') && !code.includes('return 0;') && !code.includes('return null')) {
+        feedback.score += 10;
+        feedback.strengths.push('Implemented proper return logic');
+      }
+      
+      if (code.includes('for') || code.includes('while') || code.includes('.map') || code.includes('.forEach')) {
+        feedback.score += 5;
+        feedback.technicalAccuracy += 1;
+        feedback.strengths.push('Demonstrated understanding of iteration');
+      }
+      
+    } else if (hasCode && isEmptyCode) {
+      feedback.improvements.push('Provide actual implementation instead of placeholder code');
+      feedback.codeQuality = 1;
+      feedback.score = Math.max(feedback.score, 10);
     } else {
-      feedback.improvements.push('Remember to provide code for coding questions - even pseudocode is helpful!');
-      feedback.score = Math.max(20, feedback.score - 15);
+      feedback.improvements.push('Code implementation is required for coding questions');
+      feedback.codeQuality = 1;
+      feedback.score = Math.max(feedback.score - 30, 5);
     }
   }
 
-  // Behavioral question evaluation
   if (questionType === 'behavioral') {
-    if (responseText.toLowerCase().includes('learn') || responseText.toLowerCase().includes('challenge')) {
+    const hasLearningMentality = responseText.toLowerCase().includes('learn') || 
+                                responseText.toLowerCase().includes('challenge') ||
+                                responseText.toLowerCase().includes('grow') ||
+                                responseText.toLowerCase().includes('improve');
+    
+    if (hasLearningMentality) {
       feedback.score += 15;
-      feedback.strengths.push('Showed learning mindset and self-awareness');
+      feedback.strengths.push('Demonstrated learning mindset and growth orientation');
     }
     
-    if (responseText.toLowerCase().includes('project') || responseText.toLowerCase().includes('experience')) {
-      feedback.score += 10;
-      feedback.strengths.push('Referenced specific examples from experience');
+    const hasSpecificExample = responseText.toLowerCase().includes('project') || 
+                              responseText.toLowerCase().includes('experience') ||
+                              responseText.toLowerCase().includes('when i') ||
+                              responseText.toLowerCase().includes('for example');
+    
+    if (hasSpecificExample) {
+      feedback.score += 15;
+      feedback.strengths.push('Provided specific examples from personal experience');
+    }
+
+    const hasTeamwork = responseText.toLowerCase().includes('team') || 
+                       responseText.toLowerCase().includes('collaborate') ||
+                       responseText.toLowerCase().includes('others') ||
+                       responseText.toLowerCase().includes('group');
+    
+    if (hasTeamwork) {
+      feedback.score += 8;
+      feedback.strengths.push('Showed understanding of teamwork and collaboration');
     }
   }
 
-  // Technical question evaluation
   if (questionType === 'technical') {
-    // Look for any technical keywords or concepts
-    const techWords = ['algorithm', 'function', 'variable', 'loop', 'array', 'object', 'database', 'api'];
+    const techWords = ['algorithm', 'function', 'variable', 'loop', 'array', 'object', 'database', 'api', 'framework', 'library', 'method', 'class', 'interface'];
     const foundTechWords = techWords.filter(word => responseText.toLowerCase().includes(word));
     
-    if (foundTechWords.length > 0) {
+    if (foundTechWords.length >= 3) {
+      feedback.score += 25;
+      feedback.technicalAccuracy += 4;
+      feedback.strengths.push('Used appropriate technical terminology throughout response');
+    } else if (foundTechWords.length > 0) {
       feedback.score += 15;
       feedback.technicalAccuracy += 2;
-      feedback.strengths.push('Used appropriate technical terminology');
+      feedback.strengths.push('Demonstrated basic technical vocabulary');
+    } else {
+      feedback.improvements.push('Use more technical terminology to show understanding of concepts');
+    }
+
+    if (responseText.includes('example') || responseText.includes('for instance') || responseText.includes('such as')) {
+      feedback.score += 10;
+      feedback.strengths.push('Provided examples to illustrate concepts');
+    }
+    
+    const hasComparison = responseText.toLowerCase().includes('difference') || 
+                         responseText.toLowerCase().includes('compared to') ||
+                         responseText.toLowerCase().includes('versus') ||
+                         responseText.toLowerCase().includes('unlike');
+    
+    if (hasComparison) {
+      feedback.score += 8;
+      feedback.strengths.push('Made comparisons to clarify understanding');
     }
   }
 
-  // Encourage effort for interns
-  if (responseText.trim().length > 0) {
-    feedback.strengths.push('Showed effort in responding to the question');
+  if (responseTime && responseTime > 0 && !isRubbish) {
+    const expectedTime = expectedDuration || 180;
+    if (responseTime <= expectedTime) {
+      feedback.timeEfficiency = Math.min(10, Math.round((expectedTime / responseTime) * 6));
+      if (feedback.timeEfficiency >= 7) {
+        feedback.score += Math.min(15, Math.round((expectedTime / responseTime) * 3));
+        feedback.strengths.push('Responded efficiently within time frame');
+      }
+    } else {
+      feedback.timeEfficiency = Math.max(1, Math.round((expectedTime / responseTime) * 4));
+      if (feedback.timeEfficiency < 4) {
+        feedback.improvements.push('Work on managing time more effectively during responses');
+      }
+    }
   }
 
-  // Ensure intern-appropriate improvements
+  if (feedback.strengths.length === 0) {
+    feedback.strengths.push('Made an attempt to answer the question');
+  }
+
   if (feedback.improvements.length === 0) {
-    feedback.improvements.push('Continue practicing and building your technical communication skills');
+    feedback.improvements.push('Continue practicing to build confidence in technical communication');
   }
 
-  // Cap scores appropriately for interns
-  feedback.score = Math.min(95, Math.max(15, feedback.score));
-  feedback.communicationClarity = Math.min(10, Math.max(3, feedback.communicationClarity));
-  feedback.technicalAccuracy = Math.min(10, Math.max(3, feedback.technicalAccuracy));
-  feedback.structuredResponse = Math.min(10, Math.max(3, feedback.structuredResponse));
+  feedback.score = Math.min(95, Math.max(isRubbish ? 5 : 15, feedback.score));
+  feedback.communicationClarity = Math.min(10, Math.max(1, feedback.communicationClarity));
+  feedback.technicalAccuracy = Math.min(10, Math.max(1, feedback.technicalAccuracy));
+  feedback.structuredResponse = Math.min(10, Math.max(1, feedback.structuredResponse));
+  if (feedback.codeQuality !== null) {
+    feedback.codeQuality = Math.min(10, Math.max(1, feedback.codeQuality));
+  }
 
-  feedback.detailedAnalysis = `Response contains ${wordCount} words. ${questionType === 'coding' && code ? 'Code implementation provided. ' : ''}${questionType === 'coding' && !code ? 'Consider providing code for coding questions. ' : ''}Great effort for an intern-level response! Keep practicing and building your skills.`;
+  feedback.detailedAnalysis = `Response contains ${wordCount} words and ${responseLength} characters. ${questionType === 'coding' && code ? `Code implementation provided with ${code.split('\n').length} lines. ` : ''}${questionType === 'coding' && !code ? 'No code implementation provided. ' : ''}The response ${wordCount >= 15 ? 'shows good effort in explanation' : 'lacks sufficient detail and depth'}. ${feedback.timeEfficiency ? `Time management was ${feedback.timeEfficiency >= 7 ? 'excellent' : feedback.timeEfficiency >= 5 ? 'adequate' : 'needs improvement'}.` : ''} ${isRubbish ? 'This response does not meet the minimum standards expected for an internship interview.' : ''}`;
 
   return feedback;
 }
 
-function validateAndEnhanceFeedback(aiAnalysis, questionType, responseText, code) {
-  const feedback = {
-    score: Math.min(100, Math.max(0, aiAnalysis.score || 50)),
-    strengths: Array.isArray(aiAnalysis.strengths) ? aiAnalysis.strengths : ['Good effort'],
-    improvements: Array.isArray(aiAnalysis.improvements) ? aiAnalysis.improvements : ['Keep practicing'],
-    detailedAnalysis: aiAnalysis.detailedAnalysis || 'Response analyzed for intern-level expectations.',
-    communicationClarity: Math.min(10, Math.max(0, aiAnalysis.communicationClarity || 5)),
-    technicalAccuracy: Math.min(10, Math.max(0, aiAnalysis.technicalAccuracy || 5)),
-    structuredResponse: Math.min(10, Math.max(0, aiAnalysis.structuredResponse || 5))
-  };
-
-  // Ensure minimum encouragement for interns
-  if (feedback.strengths.length === 0) {
-    feedback.strengths.push('Provided a response - good job attempting the question!');
+function validateAndEnhanceFeedback(aiAnalysis, questionType, responseText, code, responseTime) {
+  const wordCount = responseText.trim().split(/\s+/).length;
+  const isRubbish = responseText.trim().length < 10 || wordCount < 3;
+  const isEmptyCode = questionType === 'coding' && (!code || code.trim().length < 20 || code.includes('// Your code here'));
+  
+  let adjustedScore = Math.min(100, Math.max(0, aiAnalysis.score || 50));
+  
+  if (isRubbish) {
+    adjustedScore = Math.min(adjustedScore, 15);
   }
+  
+  if (isEmptyCode) {
+    adjustedScore = Math.min(adjustedScore, 25);
+  }
+  
+  const feedback = {
+    score: adjustedScore,
+    strengths: Array.isArray(aiAnalysis.strengths) ? aiAnalysis.strengths.slice(0, 5) : ['Provided a response'],
+    improvements: Array.isArray(aiAnalysis.improvements) ? aiAnalysis.improvements.slice(0, 5) : ['Continue practicing'],
+    detailedAnalysis: aiAnalysis.detailedAnalysis || 'Response analyzed.',
+    communicationClarity: isRubbish ? Math.min(2, aiAnalysis.communicationClarity || 1) : Math.min(10, Math.max(0, aiAnalysis.communicationClarity || 5)),
+    technicalAccuracy: isRubbish ? Math.min(2, aiAnalysis.technicalAccuracy || 1) : Math.min(10, Math.max(0, aiAnalysis.technicalAccuracy || 5)),
+    structuredResponse: isRubbish ? Math.min(2, aiAnalysis.structuredResponse || 1) : Math.min(10, Math.max(0, aiAnalysis.structuredResponse || 5)),
+    codeQuality: questionType === 'coding' ? (isEmptyCode ? Math.min(2, aiAnalysis.codeQuality || 1) : Math.min(10, Math.max(0, aiAnalysis.codeQuality || 5))) : null,
+    timeEfficiency: isRubbish ? null : aiAnalysis.timeEfficiency || null
+  };
   
   return feedback;
 }
 
 function generateBasicFeedback(responseText, questionType, responseTime) {
   const wordCount = responseText.trim().split(/\s+/).length;
-  const baseScore = wordCount >= 10 ? 60 : 40; // Intern-appropriate scoring
+  const isRubbish = responseText.trim().length < 10 || wordCount < 3;
+  const baseScore = isRubbish ? 8 : (wordCount >= 15 ? 65 : wordCount >= 10 ? 55 : 40);
   
   return {
     score: baseScore,
-    strengths: [
+    strengths: isRubbish ? ['Attempted to respond'] : [
       'Attempted to answer the question',
-      wordCount >= 10 ? 'Provided adequate detail' : 'Showed effort in responding'
+      wordCount >= 15 ? 'Provided good detail in response' : 'Showed effort in responding'
     ],
-    improvements: [
-      wordCount < 10 ? 'Try to provide more detailed explanations' : 'Continue developing your technical communication skills',
-      'Keep practicing - you\'re doing great for intern level!'
+    improvements: isRubbish ? [
+      'Provide meaningful responses that demonstrate understanding',
+      'Expand answers with explanations and examples'
+    ] : [
+      wordCount < 15 ? 'Provide more detailed explanations to demonstrate understanding' : 'Continue developing technical communication skills',
+      'Keep practicing and building confidence'
     ],
-    detailedAnalysis: `Response contains ${wordCount} words. ${questionType === 'coding' ? 'For coding questions, remember to include your code solution. ' : ''}This is good progress for an intern-level interview.`,
-    communicationClarity: Math.max(5, Math.min(8, wordCount >= 15 ? 7 : 5)),
-    technicalAccuracy: 6,
-    structuredResponse: 6
+    detailedAnalysis: `Response contains ${wordCount} words. ${questionType === 'coding' ? 'For coding questions, ensure you include your implementation. ' : ''}This shows ${isRubbish ? 'insufficient' : wordCount >= 15 ? 'good' : 'basic'} effort for an intern-level response.`,
+    communicationClarity: isRubbish ? 1 : Math.max(4, Math.min(8, wordCount >= 20 ? 7 : 5)),
+    technicalAccuracy: isRubbish ? 1 : (questionType === 'technical' ? 6 : 5),
+    structuredResponse: isRubbish ? 1 : (wordCount >= 15 ? 7 : 5),
+    codeQuality: questionType === 'coding' ? (isRubbish ? 1 : 4) : null,
+    timeEfficiency: null
   };
 }
 
-// Add the missing generateOverallFeedback function
 async function generateOverallFeedback(responses, resumeText, jobDescription) {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
-    const averageScore = responses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / responses.length;
-    const responsesSummary = responses.map(r => ({
-      type: r.question?.includes('behavioral') ? 'behavioral' : r.question?.includes('coding') ? 'coding' : 'technical',
-      score: r.feedback?.score || 0,
-      length: r.textResponse?.length || 0
-    }));
+    const scores = responses.map(r => r.feedback?.score || 0);
+    const averageScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+    
+    const behavioralResponses = responses.filter(r => r.questionType === 'behavioral');
+    const technicalResponses = responses.filter(r => r.questionType === 'technical');
+    const codingResponses = responses.filter(r => r.questionType === 'coding');
 
-    const prompt = `Provide overall feedback for a SOFTWARE ENGINEERING INTERN candidate who completed ${responses.length} interview questions.
+    const behavioralAvg = behavioralResponses.length > 0 
+      ? behavioralResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / behavioralResponses.length 
+      : averageScore;
+    
+    const technicalAvg = technicalResponses.length > 0 
+      ? technicalResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / technicalResponses.length 
+      : averageScore;
+    
+    const codingAvg = codingResponses.length > 0 
+      ? codingResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / codingResponses.length 
+      : averageScore;
 
-CANDIDATE PERFORMANCE SUMMARY:
-- Average Score: ${averageScore.toFixed(1)}
-- Question Types: ${responsesSummary.map(r => r.type).join(', ')}
-- Response Quality: ${responsesSummary.map(r => `${r.type}:${r.score}`).join(', ')}
+    const prompt = `Provide comprehensive overall feedback for a SOFTWARE ENGINEERING INTERN candidate.
 
-CANDIDATE'S BACKGROUND:
-${resumeText.substring(0, 500)}...
+PERFORMANCE SUMMARY:
+- Overall Average: ${averageScore.toFixed(1)}
+- Behavioral Questions Average: ${behavioralAvg.toFixed(1)} (${behavioralResponses.length} questions)
+- Technical Questions Average: ${technicalAvg.toFixed(1)} (${technicalResponses.length} questions)  
+- Coding Questions Average: ${codingAvg.toFixed(1)} (${codingResponses.length} questions)
+- Total Questions: ${responses.length}
 
-JOB REQUIREMENTS:
-${jobDescription.substring(0, 300)}...
+INDIVIDUAL RESPONSE ANALYSIS:
+${responses.map((r, i) => `Q${i+1} (${r.questionType}): Score ${r.feedback?.score || 0}/100`).join('\n')}
 
-Provide intern-appropriate feedback focusing on:
-1. Growth potential and learning attitude
-2. Technical foundation for intern level
-3. Areas to develop before/during internship
-4. Encouraging, constructive recommendations
+Provide detailed overall assessment focusing on:
+1. Technical competency for intern level
+2. Communication and explanation skills
+3. Problem-solving approach
+4. Areas of strength and growth
+5. Specific actionable recommendations
 
 Return ONLY valid JSON:
 {
@@ -1348,12 +1404,13 @@ Return ONLY valid JSON:
   "feedback": {
     "strengths": ["strength1", "strength2", "strength3"],
     "improvements": ["improvement1", "improvement2", "improvement3"],
-    "recommendations": ["rec1", "rec2", "rec3"],
+    "recommendations": ["rec1", "rec2", "rec3", "rec4"],
     "categoryScores": {
-      "technicalSkills": ${Math.round(averageScore)},
-      "communicationSkills": ${Math.round(averageScore)},
-      "problemSolving": ${Math.round(averageScore)}
-    }
+      "behavioralSkills": ${Math.round(behavioralAvg)},
+      "technicalKnowledge": ${Math.round(technicalAvg)},
+      "codingAbility": ${Math.round(codingAvg)}
+    },
+    "detailedAssessment": "Comprehensive paragraph about overall performance"
   }
 }`;
 
@@ -1371,32 +1428,107 @@ Return ONLY valid JSON:
 }
 
 function generateFallbackOverallFeedback(responses) {
-  const averageScore = responses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / responses.length;
+  const scores = responses.map(r => r.feedback?.score || 0);
+  const averageScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+  
+  const behavioralResponses = responses.filter(r => r.questionType === 'behavioral');
+  const technicalResponses = responses.filter(r => r.questionType === 'technical');
+  const codingResponses = responses.filter(r => r.questionType === 'coding');
+
+  const behavioralAvg = behavioralResponses.length > 0 
+    ? behavioralResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / behavioralResponses.length 
+    : averageScore;
+  
+  const technicalAvg = technicalResponses.length > 0 
+    ? technicalResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / technicalResponses.length 
+    : averageScore;
+  
+  const codingAvg = codingResponses.length > 0 
+    ? codingResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / codingResponses.length 
+    : averageScore;
   
   return {
     score: Math.round(averageScore),
     feedback: {
       strengths: [
-        'Completed all interview questions',
-        'Demonstrated willingness to learn',
-        'Showed problem-solving effort'
+        'Completed all interview questions successfully',
+        'Demonstrated effort and engagement throughout the interview',
+        averageScore >= 70 ? 'Showed strong foundation for intern-level position' : 'Showed basic understanding with room for growth'
       ],
       improvements: [
-        'Continue practicing technical interviews',
-        'Work on providing more detailed explanations',
-        'Keep building hands-on coding experience'
+        averageScore < 60 ? 'Focus on building stronger technical fundamentals' : 'Continue practicing advanced technical concepts',
+        'Work on providing more detailed explanations in responses',
+        'Practice coding problems regularly to improve implementation speed'
       ],
       recommendations: [
-        'Practice coding problems regularly',
-        'Work on personal projects to gain experience',
-        'Study fundamental computer science concepts',
-        'Practice explaining technical concepts clearly'
+        'Build personal projects to gain hands-on experience',
+        'Practice explaining technical concepts clearly and concisely',
+        'Study fundamental computer science concepts and algorithms',
+        'Join coding communities and participate in code reviews'
       ],
       categoryScores: {
-        technicalSkills: Math.round(averageScore),
-        communicationSkills: Math.round(averageScore * 0.9),
-        problemSolving: Math.round(averageScore * 1.1)
-      }
+        behavioralSkills: Math.round(behavioralAvg),
+        technicalKnowledge: Math.round(technicalAvg),
+        codingAbility: Math.round(codingAvg)
+      },
+      detailedAssessment: `Overall performance shows ${averageScore >= 80 ? 'excellent' : averageScore >= 70 ? 'good' : averageScore >= 60 ? 'satisfactory' : 'developing'} readiness for a software engineering internship. Completed ${responses.length} questions with an average score of ${averageScore.toFixed(1)}%. ${behavioralAvg >= technicalAvg ? 'Strong communication and behavioral responses' : 'Good technical foundation'} ${codingAvg >= 70 ? 'with solid coding abilities.' : 'with coding skills that can be developed further.'}`
+    }
+  };
+}
+
+function calculateFinalResults(responses, totalDuration) {
+  const scores = responses.map(r => r.feedback?.score || 0);
+  const overallScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+  
+  const behavioralResponses = responses.filter(r => r.questionType === 'behavioral');
+  const technicalResponses = responses.filter(r => r.questionType === 'technical');
+  const codingResponses = responses.filter(r => r.questionType === 'coding');
+
+  const categoryScores = {
+    behavioral: behavioralResponses.length > 0 
+      ? Math.round(behavioralResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / behavioralResponses.length)
+      : Math.round(overallScore),
+    
+    technical: technicalResponses.length > 0 
+      ? Math.round(technicalResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / technicalResponses.length)
+      : Math.round(overallScore),
+    
+    coding: codingResponses.length > 0 
+      ? Math.round(codingResponses.reduce((sum, r) => sum + (r.feedback?.score || 0), 0) / codingResponses.length)
+      : Math.round(overallScore)
+  };
+
+  const communicationScore = Math.round(
+    responses.reduce((sum, r) => sum + (r.feedback?.communicationClarity || 5), 0) / responses.length
+  );
+
+  const technicalAccuracyScore = Math.round(
+    responses.reduce((sum, r) => sum + (r.feedback?.technicalAccuracy || 5), 0) / responses.length
+  );
+
+  const problemSolvingScore = Math.round(
+    (categoryScores.coding + categoryScores.technical) / 2
+  );
+
+  return {
+    score: Math.round(overallScore),
+    duration: totalDuration,
+    categoryPercentages: {
+      behavioral: categoryScores.behavioral,
+      technical: categoryScores.technical,
+      coding: categoryScores.coding,
+      communication: (communicationScore / 10) * 100,
+      technicalAccuracy: (technicalAccuracyScore / 10) * 100,
+      problemSolving: problemSolvingScore
+    },
+    breakdown: {
+      totalQuestions: responses.length,
+      behavioralQuestions: behavioralResponses.length,
+      technicalQuestions: technicalResponses.length,
+      codingQuestions: codingResponses.length,
+      averageResponseTime: responses.length > 0 
+        ? Math.round(responses.reduce((sum, r) => sum + (r.responseTime || 0), 0) / responses.length)
+        : 0
     }
   };
 }

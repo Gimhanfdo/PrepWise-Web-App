@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Mic, MicOff, Play, Pause, ChevronRight, Clock, User, FileText, BarChart3, CheckCircle, AlertCircle, Volume2, Code, Terminal, Send, Type, Headphones, Upload, Download, FileCheck, RefreshCw } from 'lucide-react';
+import { Mic, MicOff, Play, Pause, ChevronRight, Clock, User, FileText, BarChart3, CheckCircle, AlertCircle, Volume2, Code, Terminal, Send, Type, Headphones, Upload, Download, FileCheck, RefreshCw, Zap, Target, Trophy, Star, TrendingUp, Brain, MessageCircle, SkipForward } from 'lucide-react';
 
 const MockInterviewSystem = () => {
   const [currentStep, setCurrentStep] = useState('setup'); 
   const [interviewData, setInterviewData] = useState({
-    jobTitle: '',
     jobDescription: '',
     resumeText: ''
   });
@@ -37,6 +36,7 @@ const MockInterviewSystem = () => {
   const [language, setLanguage] = useState('javascript');
   const [codeOutput, setCodeOutput] = useState('');
   const [showCodeEditor, setShowCodeEditor] = useState(false);
+  const [isRunningCode, setIsRunningCode] = useState(false);
 
   const [cvMode, setCvMode] = useState('profile');
   const [profileCV, setProfileCV] = useState(null);
@@ -46,6 +46,7 @@ const MockInterviewSystem = () => {
 
   const [debugMode, setDebugMode] = useState(false);
   const [debugLogs, setDebugLogs] = useState([]);
+  const [questionFeedbacks, setQuestionFeedbacks] = useState({});
 
   const mediaRecorderRef = useRef(null);
   const audioStreamRef = useRef(null);
@@ -57,6 +58,19 @@ const MockInterviewSystem = () => {
   const audioChunksRef = useRef([]);
   const fileInputRef = useRef(null);
 
+  const supportedLanguages = [
+    { value: 'javascript', label: 'JavaScript', template: 'function solution() {\n    // Your code here\n    return result;\n}' },
+    { value: 'python', label: 'Python', template: 'def solution():\n    # Your code here\n    return result' },
+    { value: 'java', label: 'Java', template: 'public class Solution {\n    public static void main(String[] args) {\n        // Your code here\n    }\n}' },
+    { value: 'cpp', label: 'C++', template: '#include <iostream>\nusing namespace std;\n\nint main() {\n    // Your code here\n    return 0;\n}' },
+    { value: 'c', label: 'C', template: '#include <stdio.h>\n\nint main() {\n    // Your code here\n    return 0;\n}' },
+    { value: 'csharp', label: 'C#', template: 'using System;\n\nclass Program {\n    static void Main() {\n        // Your code here\n    }\n}' },
+    { value: 'typescript', label: 'TypeScript', template: 'function solution(): any {\n    // Your code here\n    return result;\n}' },
+    { value: 'go', label: 'Go', template: 'package main\n\nimport "fmt"\n\nfunc main() {\n    // Your code here\n}' },
+    { value: 'rust', label: 'Rust', template: 'fn main() {\n    // Your code here\n}' },
+    { value: 'php', label: 'PHP', template: '<?php\n// Your code here\n?>' }
+  ];
+
   const addDebugLog = useCallback((message, type = 'info') => {
     const log = {
       timestamp: new Date().toLocaleTimeString(),
@@ -67,9 +81,162 @@ const MockInterviewSystem = () => {
     console.log(`[${type.toUpperCase()}] ${message}`);
   }, []);
 
-  const handleJobTitleChange = useCallback((e) => {
-    setInterviewData(prev => ({ ...prev, jobTitle: e.target.value }));
-  }, []);
+  const isValidAnswer = useCallback((responseText, questionType, codeText = null) => {
+    if (questionType === 'coding' || questionType === 'technical_coding') {
+      if (!codeText || codeText.trim().length === 0) return false;
+      
+      const normalizedCode = codeText.replace(/\s+/g, ' ').trim();
+      const starterTemplate = currentQuestion?.starterCode?.[language] || 
+                             supportedLanguages.find(l => l.value === language)?.template || '';
+      const normalizedTemplate = starterTemplate.replace(/\s+/g, ' ').trim();
+      
+      if (normalizedCode === normalizedTemplate) return false;
+      
+      const codeWithoutComments = codeText.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '').trim();
+      if (codeWithoutComments.length < 20) return false;
+      
+      const meaningfulCodePattern = /[{};()=+\-*/><%]/;
+      if (!meaningfulCodePattern.test(codeWithoutComments)) return false;
+      
+      return true;
+    } else {
+      if (!responseText || responseText.trim().length === 0) return false;
+      
+      responseText = responseText.trim().toLowerCase();
+      
+      if (responseText.length < 20) return false;
+      
+      const words = responseText.split(/\s+/).filter(word => word.length > 0);
+      if (words.length < 5) return false;
+      
+      const meaninglessResponses = [
+        'i don\'t know', 'no idea', 'not sure', 'pass', 'skip',
+        'i have no idea', 'don\'t know', 'no clue', 'nothing'
+      ];
+      
+      if (meaninglessResponses.includes(responseText)) return false;
+      
+      const repeatedWordThreshold = 0.5;
+      const wordCounts = {};
+      words.forEach(word => {
+        wordCounts[word] = (wordCounts[word] || 0) + 1;
+      });
+      
+      const mostCommonCount = Math.max(...Object.values(wordCounts));
+      if (mostCommonCount / words.length > repeatedWordThreshold) return false;
+      
+      return true;
+    }
+  }, [currentQuestion, language, supportedLanguages]);
+
+  const calculateQuestionScore = useCallback((responseText, questionType, responseTime, codeText = null, isSkipped = false) => {
+    const expectedTime = currentQuestion?.expectedDuration || 120;
+    
+    if (isSkipped) {
+      return {
+        score: 0,
+        breakdown: { content: 0, communication: 0, timeManagement: 0 },
+        strengths: [],
+        improvements: ['Question was skipped - consider attempting similar questions in practice']
+      };
+    }
+    
+    if (!isValidAnswer(responseText, questionType, codeText)) {
+      return {
+        score: 0,
+        breakdown: { content: 0, communication: 0, timeManagement: 0 },
+        strengths: [],
+        improvements: ['Please provide a meaningful response to the question']
+      };
+    }
+    
+    let contentScore = 70;
+    let communicationScore = 75;
+    let timeManagementScore = 80;
+    let strengths = [];
+    let improvements = [];
+    
+    const responseLength = codeText ? codeText.length : responseText.length;
+    const words = codeText ? codeText.split(/\s+/) : responseText.split(/\s+/);
+    
+    if (questionType === 'coding' || questionType === 'technical_coding') {
+      if (responseLength > 200) {
+        contentScore += 10;
+        strengths.push('Good code length and detail');
+      }
+      if (words.length > 30) {
+        contentScore += 5;
+        strengths.push('Well-structured code');
+      }
+      if (codeText.includes('function') || codeText.includes('def') || codeText.includes('class')) {
+        contentScore += 10;
+        strengths.push('Proper code structure');
+      }
+      if (responseLength < 50) {
+        improvements.push('Provide more complete code implementation');
+      }
+    } else {
+      if (responseLength > 150) {
+        contentScore += 10;
+        communicationScore += 5;
+        strengths.push('Comprehensive response with good detail');
+      }
+      if (words.length > 25) {
+        contentScore += 5;
+        communicationScore += 10;
+        strengths.push('Well-articulated answer');
+      }
+      if (responseLength < 100) {
+        improvements.push('Provide more detailed explanations');
+      }
+      if (words.length < 15) {
+        improvements.push('Expand on your thoughts and reasoning');
+      }
+    }
+    
+    const timeRatio = responseTime / expectedTime;
+    if (timeRatio >= 0.5 && timeRatio <= 1.5) {
+      timeManagementScore += 10;
+      strengths.push('Good time management');
+    } else if (timeRatio < 0.5) {
+      timeManagementScore -= 10;
+      improvements.push('Take more time to think through your response');
+    } else {
+      timeManagementScore -= 5;
+      improvements.push('Work on being more concise');
+    }
+    
+    if (questionType === 'behavioral') {
+      communicationScore += 5;
+      if (responseText.toLowerCase().includes('example') || responseText.toLowerCase().includes('experience')) {
+        contentScore += 15;
+        strengths.push('Used concrete examples');
+      }
+    }
+    
+    contentScore = Math.max(0, Math.min(100, contentScore));
+    communicationScore = Math.max(0, Math.min(100, communicationScore));
+    timeManagementScore = Math.max(0, Math.min(100, timeManagementScore));
+    
+    const weightedScore = Math.round(
+      (contentScore * 0.6) + (communicationScore * 0.3) + (timeManagementScore * 0.1)
+    );
+    
+    if (improvements.length === 0) {
+      improvements.push('Continue practicing to maintain this level of performance');
+    }
+    
+    return {
+      score: weightedScore,
+      breakdown: {
+        content: contentScore,
+        communication: communicationScore,
+        timeManagement: timeManagementScore
+      },
+      strengths,
+      improvements
+    };
+  }, [currentQuestion, isValidAnswer]);
 
   const handleJobDescriptionChange = useCallback((e) => {
     setInterviewData(prev => ({ ...prev, jobDescription: e.target.value }));
@@ -90,9 +257,10 @@ const MockInterviewSystem = () => {
   const handleLanguageChange = useCallback((e) => {
     const newLanguage = e.target.value;
     setLanguage(newLanguage);
-    setCode(currentQuestion?.starterCode?.[newLanguage] || '');
+    const langTemplate = supportedLanguages.find(l => l.value === newLanguage)?.template || '';
+    setCode(currentQuestion?.starterCode?.[newLanguage] || langTemplate);
     setCodeOutput('');
-  }, [currentQuestion]);
+  }, [currentQuestion, supportedLanguages]);
 
   useEffect(() => {
     checkAuthentication();
@@ -496,6 +664,7 @@ Note: The actual CV text extraction would require server-side processing of the 
 
   const executeCode = () => {
     try {
+      setIsRunningCode(true);
       setCodeOutput('Running code...\n');
       addDebugLog('Executing code...');
       
@@ -508,7 +677,11 @@ Note: The actual CV text extraction would require server-side processing of the 
         };
         
         try {
-          const result = eval(code);
+          const result = new Function('console', `
+            ${code}
+            ${code.includes('console.log') ? '' : 'console.log("Code executed successfully");'}
+          `)(console);
+          
           if (result !== undefined) {
             output += 'Return value: ' + result + '\n';
           }
@@ -518,9 +691,13 @@ Note: The actual CV text extraction would require server-side processing of the 
         
         console.log = originalLog;
         setCodeOutput(output || 'Code executed successfully (no output)');
-        addDebugLog(`Code executed: ${output.substring(0, 100)}`);
+        addDebugLog(`JavaScript executed: ${output.substring(0, 100)}`);
+      } else if (language === 'python') {
+        const simulatedOutput = `Simulating Python execution:\n${code}\n\n[In a real environment, this would execute Python code]\nCode appears valid for Python syntax.`;
+        setCodeOutput(simulatedOutput);
+        addDebugLog(`Python simulation completed`);
       } else {
-        const simulatedOutput = `Code execution for ${language} is simulated in this demo.\nYour code would be executed on the server.\n\nCode submitted:\n${code}`;
+        const simulatedOutput = `Code execution for ${language} is simulated in this demo.\nYour code would be executed on the server with proper ${language} compiler/interpreter.\n\nCode submitted:\n${code.substring(0, 200)}${code.length > 200 ? '...' : ''}`;
         setCodeOutput(simulatedOutput);
         addDebugLog(`Simulated execution for ${language}`);
       }
@@ -528,189 +705,381 @@ Note: The actual CV text extraction would require server-side processing of the 
       const errorMsg = `Execution Error: ${error.message}`;
       setCodeOutput(errorMsg);
       addDebugLog(`Code execution error: ${error.message}`, 'error');
+    } finally {
+      setIsRunningCode(false);
     }
   };
 
   const isSetupValid = useCallback(() => {
-    return interviewData.jobTitle && interviewData.jobDescription && interviewData.resumeText;
+    return interviewData.jobDescription && interviewData.resumeText;
   }, [interviewData]);
 
   const createInterview = useCallback(async () => {
-  if (!user) {
-    setError('Please log in to start an interview');
-    return;
-  }
-
-  setLoading(true);
-  setError('');
-  addDebugLog('Creating interview...');
-
-  try {
-    const endpoint = cvMode === 'profile' && profileCV 
-      ? '/api/interviews/create-with-profile-cv'
-      : '/api/interviews/create';
-
-    const requestBody = {
-      jobTitle: interviewData.jobTitle.trim(),
-      jobDescription: interviewData.jobDescription.trim(),
-      ...(cvMode === 'profile' && profileCV 
-        ? { useProfileCV: true }
-        : { resumeText: interviewData.resumeText.trim() }
-      )
-    };
-
-    addDebugLog(`Creating interview with endpoint: ${endpoint}`);
-    addDebugLog(`Request body: ${JSON.stringify({...requestBody, resumeText: requestBody.resumeText ? `${requestBody.resumeText.substring(0, 100)}...` : undefined})}`);
-
-    const interviewResponse = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-      },
-      credentials: 'include',
-      body: JSON.stringify(requestBody)
-    });
-
-    const interviewResult = await interviewResponse.json();
-    addDebugLog(`Interview creation response: ${JSON.stringify({
-      success: interviewResult.success,
-      interviewId: interviewResult.interview?.id,
-      questionsCount: interviewResult.interview?.questions?.length,
-      error: interviewResult.error
-    })}`);
-    
-    if (!interviewResult.success) {
-      throw new Error(interviewResult.error || 'Failed to create interview');
+    if (!user) {
+      setError('Please log in to start an interview');
+      return;
     }
 
-    if (!interviewResult.interview || !interviewResult.interview.questions || interviewResult.interview.questions.length === 0) {
-      throw new Error('Interview created but no questions were generated');
-    }
+    setLoading(true);
+    setError('');
+    addDebugLog('Creating interview...');
 
-    setInterview(interviewResult.interview);
-    setQuestions(interviewResult.interview.questions);
-    addDebugLog(`Interview created successfully with ${interviewResult.interview.questions.length} questions`);
-    
-    // Start the interview
-    await startInterview(interviewResult.interview.id);
-    
-  } catch (err) {
-    addDebugLog(`Interview creation failed: ${err.message}`, 'error');
-    setError(`Failed to create interview: ${err.message}`);
-  } finally {
-    setLoading(false);
-  }
-}, [user, interviewData, cvMode, profileCV, addDebugLog]);
+    try {
+      const endpoint = cvMode === 'profile' && profileCV 
+        ? '/api/interviews/create-with-profile-cv'
+        : '/api/interviews/create';
+
+      const requestBody = {
+        jobTitle: 'Software Engineering Intern',
+        jobDescription: interviewData.jobDescription.trim(),
+        ...(cvMode === 'profile' && profileCV 
+          ? { useProfileCV: true }
+          : { resumeText: interviewData.resumeText.trim() }
+        )
+      };
+
+      addDebugLog(`Creating interview with endpoint: ${endpoint}`);
+      addDebugLog(`Request body: ${JSON.stringify({...requestBody, resumeText: requestBody.resumeText ? `${requestBody.resumeText.substring(0, 100)}...` : undefined})}`);
+
+      const interviewResponse = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
+        credentials: 'include',
+        body: JSON.stringify(requestBody)
+      });
+
+      const interviewResult = await interviewResponse.json();
+      addDebugLog(`Interview creation response: ${JSON.stringify({
+        success: interviewResult.success,
+        interviewId: interviewResult.interview?.id,
+        questionsCount: interviewResult.interview?.questions?.length,
+        error: interviewResult.error
+      })}`);
+      
+      if (!interviewResult.success) {
+        throw new Error(interviewResult.error || 'Failed to create interview');
+      }
+
+      if (!interviewResult.interview || !interviewResult.interview.questions || interviewResult.interview.questions.length === 0) {
+        throw new Error('Interview created but no questions were generated');
+      }
+
+      setInterview(interviewResult.interview);
+      setQuestions(interviewResult.interview.questions);
+      addDebugLog(`Interview created successfully with ${interviewResult.interview.questions.length} questions`);
+      
+      await startInterview(interviewResult.interview.id);
+      
+    } catch (err) {
+      addDebugLog(`Interview creation failed: ${err.message}`, 'error');
+      setError(`Failed to create interview: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [user, interviewData, cvMode, profileCV, addDebugLog]);
 
   const startInterview = async (interviewId) => {
-  try {
-    addDebugLog(`Starting interview with ID: ${interviewId}...`);
-    const response = await fetch(`/api/interviews/${interviewId}/start`, {
-      method: 'PUT',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-      },
-      credentials: 'include'
-    });
+    try {
+      addDebugLog(`Starting interview with ID: ${interviewId}...`);
+      const response = await fetch(`/api/interviews/${interviewId}/start`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
+        credentials: 'include'
+      });
 
-    const result = await response.json();
-    addDebugLog(`Start interview response: ${JSON.stringify(result)}`);
-    
-    if (!result.success) {
-      throw new Error(result.error || 'Failed to start interview');
-    }
-
-    // Use the first question from the result or from the questions array
-    const firstQuestion = result.firstQuestion || result.questions?.[0] || questions[0];
-    
-    if (!firstQuestion) {
-      throw new Error('No questions available to start the interview');
-    }
-
-    setCurrentQuestion(firstQuestion);
-    setQuestionIndex(0);
-    setCode(firstQuestion.starterCode?.[language] || '');
-    setShowCodeEditor(firstQuestion.type === 'coding' || firstQuestion.type === 'technical_coding');
-    setCurrentStep('interview');
-    startTimer();
-    
-    addDebugLog(`Interview started successfully with first question: ${firstQuestion.question.substring(0, 50)}...`);
-    
-  } catch (err) {
-    addDebugLog(`Start interview failed: ${err.message}`, 'error');
-    setError(`Failed to start interview: ${err.message}`);
-  }
-};
-  const submitAnswer = async () => {
-  const responseText = answerMode === 'audio' ? transcription : textAnswer;
-  
-  if (!responseText || responseText.trim().length === 0) {
-    setError('Please provide a valid response before submitting');
-    return;
-  }
-
-  setLoading(true);
-  setError('');
-  addDebugLog(`Submitting answer for question ${questionIndex + 1}...`);
-
-  try {
-    // Calculate actual response time for this question
-    const questionStartTime = timer - (responses.length * 150); // Rough estimate
-    const actualResponseTime = Math.max(questionStartTime, 30); // Minimum 30 seconds
-
-    // Submit to backend API
-    const submitData = {
-      questionId: currentQuestion.questionId,
-      responseTime: actualResponseTime,
-      answerMode: answerMode,
-      responseText: responseText,
-      code: (currentQuestion.type === 'coding' || currentQuestion.type === 'technical_coding') ? code : null
-    };
-
-    addDebugLog(`Submitting to backend: ${JSON.stringify(submitData)}`);
-
-    // Call the actual backend API to submit answer
-    const submitResponse = await fetch(`/api/interviews/${interview.id}/submit-answer`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-      },
-      credentials: 'include',
-      body: JSON.stringify(submitData)
-    });
-
-    const submitResult = await submitResponse.json();
-    addDebugLog(`Submit response: ${JSON.stringify(submitResult)}`);
-    
-    if (!submitResult.success) {
-      throw new Error(submitResult.error || 'Failed to submit answer');
-    }
-
-    // Store response locally for UI
-    const response = {
-      questionId: currentQuestion.questionId,
-      question: currentQuestion.question,
-      transcription: answerMode === 'audio' ? transcription : null,
-      textResponse: answerMode === 'text' ? textAnswer : null,
-      responseTime: actualResponseTime,
-      code: (currentQuestion.type === 'coding' || currentQuestion.type === 'technical_coding') ? code : null,
-      answerMode: answerMode,
-      timestamp: new Date().toISOString(),
-      feedback: submitResult.feedback || null
-    };
-
-    setResponses(prev => [...prev, response]);
-    addDebugLog(`Answer submitted successfully for question ${questionIndex + 1}`);
-
-    // Check if there are more questions
-    if (questionIndex < questions.length - 1) {
-      // Get next question from backend
-      addDebugLog(`Getting next question (${questionIndex + 2}/${questions.length})...`);
+      const result = await response.json();
+      addDebugLog(`Start interview response: ${JSON.stringify(result)}`);
       
-      const nextResponse = await fetch(`/api/interviews/${interview.id}/next-question`, {
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to start interview');
+      }
+
+      const firstQuestion = result.firstQuestion || result.questions?.[0] || questions[0];
+      
+      if (!firstQuestion) {
+        throw new Error('No questions available to start the interview');
+      }
+
+      setCurrentQuestion(firstQuestion);
+      setQuestionIndex(0);
+      setCode(firstQuestion.starterCode?.[language] || supportedLanguages.find(l => l.value === language)?.template || '');
+      setShowCodeEditor(firstQuestion.type === 'coding' || firstQuestion.type === 'technical_coding');
+      setCurrentStep('interview');
+      startTimer();
+      
+      addDebugLog(`Interview started successfully with first question: ${firstQuestion.question.substring(0, 50)}...`);
+      
+    } catch (err) {
+      addDebugLog(`Start interview failed: ${err.message}`, 'error');
+      setError(`Failed to start interview: ${err.message}`);
+    }
+  };
+
+  const skipQuestion = async () => {
+    setLoading(true);
+    setError('');
+    addDebugLog(`Skipping question ${questionIndex + 1}...`);
+
+    try {
+      const questionStartTime = timer - (responses.length * 150);
+      const actualResponseTime = Math.max(questionStartTime, 5);
+
+      const questionFeedback = calculateQuestionScore('', currentQuestion?.type, actualResponseTime, null, true);
+
+      const submitData = {
+        questionId: currentQuestion.questionId,
+        responseTime: actualResponseTime,
+        answerMode: 'skipped',
+        responseText: 'Question skipped',
+        code: null,
+        score: 0,
+        feedback: questionFeedback,
+        skipped: true
+      };
+
+      addDebugLog(`Submitting skip to backend: ${JSON.stringify(submitData)}`);
+
+      const submitResponse = await fetch(`/api/interviews/${interview.id}/submit-answer`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
+        credentials: 'include',
+        body: JSON.stringify(submitData)
+      });
+
+      const submitResult = await submitResponse.json();
+      addDebugLog(`Skip response: ${JSON.stringify(submitResult)}`);
+      
+      if (!submitResult.success) {
+        throw new Error(submitResult.error || 'Failed to skip question');
+      }
+
+      setQuestionFeedbacks(prev => ({
+        ...prev,
+        [currentQuestion.questionId]: questionFeedback
+      }));
+
+      const response = {
+        questionId: currentQuestion.questionId,
+        question: currentQuestion.question,
+        transcription: null,
+        textResponse: null,
+        responseTime: actualResponseTime,
+        code: null,
+        answerMode: 'skipped',
+        timestamp: new Date().toISOString(),
+        feedback: questionFeedback,
+        skipped: true
+      };
+
+      setResponses(prev => [...prev, response]);
+      addDebugLog(`Question ${questionIndex + 1} skipped successfully`);
+
+      if (questionIndex < questions.length - 1) {
+        addDebugLog(`Getting next question (${questionIndex + 2}/${questions.length})...`);
+        
+        const nextResponse = await fetch(`/api/interviews/${interview.id}/next-question`, {
+          method: 'GET',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+          },
+          credentials: 'include'
+        });
+
+        const nextResult = await nextResponse.json();
+        addDebugLog(`Next question response: ${JSON.stringify(nextResult)}`);
+        
+        if (nextResult.success && !nextResult.completed) {
+          const nextQuestion = nextResult.question || questions[questionIndex + 1];
+          setCurrentQuestion(nextQuestion);
+          setQuestionIndex(prev => prev + 1);
+          
+          setAudioBlob(null);
+          setRecordingTime(0);
+          setTextAnswer('');
+          setTranscription('');
+          setTranscriptionError('');
+          const isNextCoding = nextQuestion.type === 'coding' || nextQuestion.type === 'technical_coding';
+          setCode(nextQuestion.starterCode?.[language] || (isNextCoding ? supportedLanguages.find(l => l.value === language)?.template || '' : ''));
+          setCodeOutput('');
+          setShowCodeEditor(isNextCoding);
+          
+          addDebugLog(`Moved to question ${questionIndex + 2}: ${nextQuestion.question.substring(0, 50)}...`);
+        } else {
+          addDebugLog('All questions completed, finishing interview...');
+          await completeInterview();
+        }
+      } else {
+        addDebugLog('Last question skipped, finishing interview...');
+        await completeInterview();
+      }
+        
+    } catch (err) {
+      addDebugLog(`Skip question failed: ${err.message}`, 'error');
+      setError(`Failed to skip question: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitAnswer = async () => {
+    const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
+    let responseText = '';
+    
+    if (isCodingQuestion) {
+      responseText = code || 'No code provided';
+    } else {
+      responseText = answerMode === 'audio' ? transcription : textAnswer;
+    }
+    
+    if (!isValidAnswer(responseText, currentQuestion?.type, isCodingQuestion ? code : null)) {
+      setError('Please provide a meaningful response before submitting');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    addDebugLog(`Submitting answer for question ${questionIndex + 1}...`);
+
+    try {
+      const questionStartTime = timer - (responses.length * 150);
+      const actualResponseTime = Math.max(questionStartTime, 30);
+
+      const questionFeedback = calculateQuestionScore(
+        responseText,
+        currentQuestion?.type,
+        actualResponseTime,
+        isCodingQuestion ? code : null,
+        false
+      );
+
+      const submitData = {
+        questionId: currentQuestion.questionId,
+        responseTime: actualResponseTime,
+        answerMode: isCodingQuestion ? 'code' : answerMode,
+        responseText: responseText,
+        code: isCodingQuestion ? code : null,
+        score: questionFeedback.score,
+        feedback: questionFeedback
+      };
+
+      addDebugLog(`Submitting to backend: ${JSON.stringify(submitData)}`);
+
+      const submitResponse = await fetch(`/api/interviews/${interview.id}/submit-answer`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
+        credentials: 'include',
+        body: JSON.stringify(submitData)
+      });
+
+      const submitResult = await submitResponse.json();
+      addDebugLog(`Submit response: ${JSON.stringify(submitResult)}`);
+      
+      if (!submitResult.success) {
+        throw new Error(submitResult.error || 'Failed to submit answer');
+      }
+
+      setQuestionFeedbacks(prev => ({
+        ...prev,
+        [currentQuestion.questionId]: questionFeedback
+      }));
+
+      const response = {
+        questionId: currentQuestion.questionId,
+        question: currentQuestion.question,
+        transcription: answerMode === 'audio' && !isCodingQuestion ? transcription : null,
+        textResponse: answerMode === 'text' && !isCodingQuestion ? textAnswer : null,
+        responseTime: actualResponseTime,
+        code: isCodingQuestion ? code : null,
+        answerMode: isCodingQuestion ? 'code' : answerMode,
+        timestamp: new Date().toISOString(),
+        feedback: questionFeedback
+      };
+
+      setResponses(prev => [...prev, response]);
+      addDebugLog(`Answer submitted successfully for question ${questionIndex + 1}`);
+
+      if (questionIndex < questions.length - 1) {
+        addDebugLog(`Getting next question (${questionIndex + 2}/${questions.length})...`);
+        
+        const nextResponse = await fetch(`/api/interviews/${interview.id}/next-question`, {
+          method: 'GET',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+          },
+          credentials: 'include'
+        });
+
+        const nextResult = await nextResponse.json();
+        addDebugLog(`Next question response: ${JSON.stringify(nextResult)}`);
+        
+        if (nextResult.success && !nextResult.completed) {
+          const nextQuestion = nextResult.question || questions[questionIndex + 1];
+          setCurrentQuestion(nextQuestion);
+          setQuestionIndex(prev => prev + 1);
+          
+          setAudioBlob(null);
+          setRecordingTime(0);
+          setTextAnswer('');
+          setTranscription('');
+          setTranscriptionError('');
+          const isNextCoding = nextQuestion.type === 'coding' || nextQuestion.type === 'technical_coding';
+          setCode(nextQuestion.starterCode?.[language] || (isNextCoding ? supportedLanguages.find(l => l.value === language)?.template || '' : ''));
+          setCodeOutput('');
+          setShowCodeEditor(isNextCoding);
+          
+          addDebugLog(`Moved to question ${questionIndex + 2}: ${nextQuestion.question.substring(0, 50)}...`);
+        } else {
+          addDebugLog('All questions completed, finishing interview...');
+          await completeInterview();
+        }
+      } else {
+        addDebugLog('Last question completed, finishing interview...');
+        await completeInterview();
+      }
+        
+    } catch (err) {
+      addDebugLog(`Submit answer failed: ${err.message}`, 'error');
+      setError(`Failed to submit answer: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const completeInterview = async () => {
+    try {
+      addDebugLog('Completing interview...');
+      
+      const completeResponse = await fetch(`/api/interviews/${interview.id}/complete`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
+        credentials: 'include'
+      });
+
+      const completeResult = await completeResponse.json();
+      addDebugLog(`Complete interview response: ${JSON.stringify(completeResult)}`);
+      
+      if (!completeResult.success) {
+        throw new Error(completeResult.error || 'Failed to complete interview');
+      }
+
+      const feedbackResponse = await fetch(`/api/interviews/${interview.id}/feedback`, {
         method: 'GET',
         headers: { 
           'Content-Type': 'application/json',
@@ -719,133 +1088,118 @@ Note: The actual CV text extraction would require server-side processing of the 
         credentials: 'include'
       });
 
-      const nextResult = await nextResponse.json();
-      addDebugLog(`Next question response: ${JSON.stringify(nextResult)}`);
-      
-      if (nextResult.success && !nextResult.completed) {
-        // Move to next question
-        const nextQuestion = nextResult.question || questions[questionIndex + 1];
-        setCurrentQuestion(nextQuestion);
-        setQuestionIndex(prev => prev + 1);
-        
-        // Reset form state
-        setAudioBlob(null);
-        setRecordingTime(0);
-        setTextAnswer('');
-        setTranscription('');
-        setTranscriptionError('');
-        setCode(nextQuestion.starterCode?.[language] || '');
-        setCodeOutput('');
-        setShowCodeEditor(nextQuestion.type === 'coding' || nextQuestion.type === 'technical_coding');
-        
-        addDebugLog(`Moved to question ${questionIndex + 2}: ${nextQuestion.question.substring(0, 50)}...`);
+      const feedbackResult = await feedbackResponse.json();
+      addDebugLog(`Feedback response: ${JSON.stringify(feedbackResult)}`);
+
+      if (feedbackResult.success && feedbackResult.feedback) {
+        setFeedback(feedbackResult.feedback);
       } else {
-        // All questions completed
-        addDebugLog('All questions completed, finishing interview...');
-        await completeInterview();
+        const calculatedFeedback = calculateOverallFeedback();
+        setFeedback(calculatedFeedback);
+        addDebugLog('Using calculated feedback based on question responses');
       }
-    } else {
-      // Last question completed
-      addDebugLog('Last question completed, finishing interview...');
-      await completeInterview();
-    }
+
+      setCurrentStep('feedback');
+      stopTimer();
+      addDebugLog(`Interview completed successfully`);
       
-  } catch (err) {
-    addDebugLog(`Submit answer failed: ${err.message}`, 'error');
-    setError(`Failed to submit answer: ${err.message}`);
-  } finally {
-    setLoading(false);
-  }
-};
-
-
-const completeInterview = async () => {
-  try {
-    addDebugLog('Completing interview...');
-    
-    // Call backend to complete interview
-    const completeResponse = await fetch(`/api/interviews/${interview.id}/complete`, {
-      method: 'PUT',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-      },
-      credentials: 'include'
-    });
-
-    const completeResult = await completeResponse.json();
-    addDebugLog(`Complete interview response: ${JSON.stringify(completeResult)}`);
-    
-    if (!completeResult.success) {
-      throw new Error(completeResult.error || 'Failed to complete interview');
+    } catch (err) {
+      addDebugLog(`Complete interview failed: ${err.message}`, 'error');
+      setError(`Failed to complete interview: ${err.message}`);
+      
+      const fallbackFeedback = calculateOverallFeedback();
+      setFeedback(fallbackFeedback);
+      setCurrentStep('feedback');
+      stopTimer();
     }
+  };
 
-    // Get detailed feedback from backend
-    const feedbackResponse = await fetch(`/api/interviews/${interview.id}/feedback`, {
-      method: 'GET',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-      },
-      credentials: 'include'
-    });
-
-    const feedbackResult = await feedbackResponse.json();
-    addDebugLog(`Feedback response: ${JSON.stringify(feedbackResult)}`);
-
-    if (feedbackResult.success && feedbackResult.feedback) {
-      setFeedback(feedbackResult.feedback);
-    } else {
-      // Fallback to mock feedback if backend feedback fails
-      const mockFeedback = {
-        score: 75,
+  const calculateOverallFeedback = () => {
+    const questionFeedbackArray = Object.values(questionFeedbacks);
+    
+    if (questionFeedbackArray.length === 0) {
+      return {
+        score: 70,
         feedback: {
-          technicalSkills: {
-            score: 78,
-            feedback: "Good technical foundation with room for improvement in code optimization."
-          },
-          communicationSkills: {
-            score: 82,
-            feedback: "Clear communication with well-structured responses."
-          },
-          problemSolving: {
-            score: 70,
-            feedback: "Good analytical approach. Continue practicing complex scenarios."
-          },
-          recommendations: [
-            "Practice more coding problems",
-            "Work on time management",
-            "Improve algorithm complexity analysis"
-          ]
+          technicalSkills: { score: 70, feedback: "Interview completed with limited feedback data." },
+          communicationSkills: { score: 75, feedback: "Responses were recorded successfully." },
+          problemSolving: { score: 65, feedback: "Good effort in completing all questions." },
+          recommendations: ["Review technical concepts", "Practice more interviews"]
         }
       };
-      setFeedback(mockFeedback);
-      addDebugLog('Using fallback feedback due to backend error');
     }
 
-    setCurrentStep('feedback');
-    stopTimer();
-    addDebugLog(`Interview completed successfully`);
-    
-  } catch (err) {
-    addDebugLog(`Complete interview failed: ${err.message}`, 'error');
-    setError(`Failed to complete interview: ${err.message}`);
-    
-    // Even if completion fails, show feedback page with local data
-    const fallbackFeedback = {
-      score: 70,
+    let totalScore = 0;
+    let technicalSum = 0;
+    let communicationSum = 0;
+    let problemSolvingSum = 0;
+    let technicalCount = 0;
+    let communicationCount = 0;
+    let problemSolvingCount = 0;
+
+    responses.forEach((response, index) => {
+      const feedback = questionFeedbacks[response.questionId];
+      if (feedback && feedback.score !== undefined) {
+        const score = feedback.score;
+        totalScore += score;
+
+        const questionType = questions[index]?.type;
+        if (questionType === 'coding' || questionType === 'technical_coding' || questionType === 'technical') {
+          technicalSum += score;
+          technicalCount++;
+        }
+        if (questionType === 'behavioral') {
+          communicationSum += score;
+          communicationCount++;
+          problemSolvingSum += score;
+          problemSolvingCount++;
+        }
+        if (questionType === 'problem-solving') {
+          problemSolvingSum += score;
+          problemSolvingCount++;
+        }
+      }
+    });
+
+    const overallScore = Math.round(totalScore / questionFeedbackArray.length);
+    const technicalScore = technicalCount > 0 ? Math.round(technicalSum / technicalCount) : overallScore;
+    const communicationScore = communicationCount > 0 ? Math.round(communicationSum / communicationCount) : overallScore;
+    const problemSolvingScore = problemSolvingCount > 0 ? Math.round(problemSolvingSum / problemSolvingCount) : overallScore;
+
+    const allRecommendations = [];
+    questionFeedbackArray.forEach(feedback => {
+      if (feedback.improvements && Array.isArray(feedback.improvements)) {
+        allRecommendations.push(...feedback.improvements);
+      }
+    });
+
+    const uniqueRecommendations = [...new Set(allRecommendations)].slice(0, 5);
+
+    return {
+      score: overallScore,
       feedback: {
-        technicalSkills: { score: 70, feedback: "Interview completed with limited backend feedback." },
-        communicationSkills: { score: 75, feedback: "Responses were recorded successfully." },
-        problemSolving: { score: 65, feedback: "Good effort in completing all questions." },
-        recommendations: ["Review technical concepts", "Practice more interviews"]
+        technicalSkills: {
+          score: technicalScore,
+          feedback: `Technical skills assessment based on ${technicalCount} technical questions. ${technicalScore >= 80 ? 'Excellent technical foundation!' : technicalScore >= 60 ? 'Good technical understanding with room for growth.' : 'Focus on strengthening technical fundamentals.'}`
+        },
+        communicationSkills: {
+          score: communicationScore,
+          feedback: `Communication assessment based on responses. ${communicationScore >= 80 ? 'Clear and articulate communication!' : communicationScore >= 60 ? 'Good communication with room for improvement.' : 'Work on clarity and structure in responses.'}`
+        },
+        problemSolving: {
+          score: problemSolvingScore,
+          feedback: `Problem-solving evaluation across questions. ${problemSolvingScore >= 80 ? 'Strong analytical thinking!' : problemSolvingScore >= 60 ? 'Good problem-solving approach.' : 'Continue developing analytical skills.'}`
+        },
+        recommendations: uniqueRecommendations.length > 0 ? uniqueRecommendations : [
+          'Continue practicing coding problems regularly',
+          'Work on explaining your thought process clearly',
+          'Practice more technical interviews',
+          'Build more hands-on projects',
+          'Study computer science fundamentals'
+        ]
       }
     };
-    setFeedback(fallbackFeedback);
-    setCurrentStep('feedback');
-    stopTimer();
-  }
-};
+  };
 
   const startTimer = () => {
     timerRef.current = setInterval(() => {
@@ -867,7 +1221,8 @@ const completeInterview = async () => {
     setQuestionIndex(0);
     setResponses([]);
     setFeedback(null);
-    setInterviewData(prev => ({ ...prev, jobTitle: '', jobDescription: '' }));
+    setQuestionFeedbacks({});
+    setInterviewData(prev => ({ ...prev, jobDescription: '' }));
     setCode('');
     setCodeOutput('');
     setShowCodeEditor(false);
@@ -905,19 +1260,19 @@ const completeInterview = async () => {
 
   useEffect(() => {
     if (currentQuestion && currentQuestion.starterCode) {
-      setCode(currentQuestion.starterCode[language] || '');
+      setCode(currentQuestion.starterCode[language] || supportedLanguages.find(l => l.value === language)?.template || '');
     }
-  }, [currentQuestion, language]);
+  }, [currentQuestion, language, supportedLanguages]);
 
   const CVSection = useMemo(() => (
-    <div className="mb-6">
-      <label className="block text-sm font-medium text-gray-700 mb-3">Resume/CV *</label>
+    <div className="mb-4">
+      <label className="block text-sm font-medium text-gray-700 mb-2">Resume/CV *</label>
       
-      <div className="flex gap-2 mb-4">
+      <div className="flex gap-2 mb-3">
         <button
           onClick={() => handleCvModeChange('profile')}
           disabled={!profileCV}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors ${
             cvMode === 'profile' 
               ? 'bg-blue-100 border-blue-500 text-blue-700' 
               : profileCV
@@ -926,27 +1281,27 @@ const completeInterview = async () => {
           }`}
         >
           <User className="w-4 h-4" />
-          Use Profile CV
+          Profile CV
           {profileCV && <CheckCircle className="w-4 h-4 text-green-500" />}
         </button>
         
         <button
           onClick={() => handleCvModeChange('upload')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors ${
             cvMode === 'upload' 
               ? 'bg-purple-100 border-purple-500 text-purple-700' 
               : 'bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100'
           }`}
         >
           <Upload className="w-4 h-4" />
-          Upload New File
+          Upload File
         </button>
 
         {profileCV && (
           <button
             onClick={loadProfileCV}
             disabled={cvLoading}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 border border-gray-300 text-gray-600 hover:bg-gray-200 transition-colors"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 border border-gray-300 text-gray-600 hover:bg-gray-200 transition-colors text-sm"
           >
             <RefreshCw className={`w-4 h-4 ${cvLoading ? 'animate-spin' : ''}`} />
             Refresh
@@ -955,17 +1310,17 @@ const completeInterview = async () => {
       </div>
 
       {cvMode === 'profile' && profileCV && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
           <div className="flex items-start justify-between mb-2">
             <div className="flex items-center gap-2">
-              <FileCheck className="w-5 h-5 text-blue-600" />
-              <h4 className="font-medium text-blue-900">Profile CV Loaded</h4>
+              <FileCheck className="w-4 h-4 text-blue-600" />
+              <h4 className="text-sm font-medium text-blue-900">Profile CV Loaded</h4>
             </div>
             <span className="text-xs text-blue-600">
               {profileCV.age ? `${profileCV.age} old` : 'Current'}
             </span>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
             <div>
               <span className="font-medium text-blue-700">File:</span>
               <span className="ml-1 text-blue-600">{profileCV.fileName}</span>
@@ -976,46 +1331,23 @@ const completeInterview = async () => {
             </div>
             <div>
               <span className="font-medium text-blue-700">Length:</span>
-              <span className="ml-1 text-blue-600">{profileCV.text.length} characters</span>
+              <span className="ml-1 text-blue-600">{profileCV.text.length} chars</span>
             </div>
           </div>
-          {profileCV.uploadedAt && (
-            <div className="mt-2 text-xs text-blue-600">
-              Uploaded: {new Date(profileCV.uploadedAt).toLocaleDateString()}
-            </div>
-          )}
           
-          <div className="mt-3 p-3 bg-white rounded border border-blue-200">
+          <div className="mt-2 p-2 bg-white rounded border border-blue-200">
             <div className="text-xs text-blue-700 mb-1">Preview:</div>
-            <div className="text-sm text-gray-700 max-h-24 overflow-y-auto">
-              {profileCV.text.substring(0, 300)}
-              {profileCV.text.length > 300 && '...'}
+            <div className="text-xs text-gray-700 max-h-20 overflow-y-auto">
+              {profileCV.text.substring(0, 200)}
+              {profileCV.text.length > 200 && '...'}
             </div>
           </div>
-        </div>
-      )}
-
-      {cvMode === 'profile' && !profileCV && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertCircle className="w-5 h-5 text-yellow-600" />
-            <span className="font-medium text-yellow-800">No CV in Profile</span>
-          </div>
-          <p className="text-sm text-yellow-700 mb-3">
-            You don't have a CV uploaded to your profile yet. Please upload one to your profile first, or upload a file below.
-          </p>
-          <button
-            onClick={() => handleCvModeChange('upload')}
-            className="text-sm bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded transition-colors"
-          >
-            Upload File Instead
-          </button>
         </div>
       )}
 
       {cvMode === 'upload' && (
-        <div className="space-y-4">
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
+        <div className="space-y-3">
+          <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
             <input
               ref={fileInputRef}
               type="file"
@@ -1023,15 +1355,14 @@ const completeInterview = async () => {
               onChange={handleFileUpload}
               className="hidden"
             />
-            <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-            <div className="text-sm text-gray-600 mb-2">
+            <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2" />
+            <div className="text-sm text-gray-600 mb-1">
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="text-blue-600 hover:text-blue-700 font-medium"
               >
                 Click to upload
               </button>
-              {' '}or drag and drop
             </div>
             <div className="text-xs text-gray-500">
               PDF, TXT, or DOCX (Max 5MB)
@@ -1039,7 +1370,7 @@ const completeInterview = async () => {
           </div>
 
           {uploadedFile && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-2">
               <div className="flex items-center gap-2">
                 <FileCheck className="w-4 h-4 text-green-600" />
                 <span className="text-sm font-medium text-green-800">
@@ -1049,562 +1380,933 @@ const completeInterview = async () => {
             </div>
           )}
 
-          {(uploadedFile || (!profileCV && cvMode === 'upload')) && (
-            <div>
-              <textarea
-                value={interviewData.resumeText}
-                onChange={(e) => setInterviewData(prev => ({ ...prev, resumeText: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-40 resize-none"
-                placeholder={uploadedFile && interviewData.resumeText.includes('[' + uploadedFile.name + ']')
-                  ? "File content will appear here after processing..." 
-                  : "Or paste your resume/CV text here directly..."
-                }
-                disabled={uploadedFile && interviewData.resumeText.includes('[' + uploadedFile.name + ']')}
-              />
-              <div className="mt-2 flex justify-between text-xs text-gray-500">
-                <span>Characters: {interviewData.resumeText.length}</span>
-                <span>Words: {interviewData.resumeText.split(' ').filter(word => word.length > 0).length}</span>
-              </div>
+          <div>
+            <textarea
+              value={interviewData.resumeText}
+              onChange={(e) => setInterviewData(prev => ({ ...prev, resumeText: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-32 resize-none text-sm"
+              placeholder="Paste your resume/CV text here..."
+            />
+            <div className="mt-1 flex justify-between text-xs text-gray-500">
+              <span>Characters: {interviewData.resumeText.length}</span>
+              <span>Words: {interviewData.resumeText.split(' ').filter(word => word.length > 0).length}</span>
             </div>
-          )}
+          </div>
         </div>
       )}
 
       {cvError && (
-        <div className="mt-3 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-          <AlertCircle className="w-5 h-5 text-red-500" />
-          <span className="text-red-700 text-sm">{cvError}</span>
-        </div>
-      )}
-
-      {cvLoading && (
-        <div className="mt-3 flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />
-          <span className="text-blue-700 text-sm">Loading CV from profile...</span>
+        <div className="mt-2 flex items-center gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+          <AlertCircle className="w-4 h-4 text-red-500" />
+          <span className="text-red-700 text-xs">{cvError}</span>
         </div>
       )}
     </div>
   ), [cvMode, profileCV, interviewData.resumeText, cvLoading, cvError, uploadedFile, handleCvModeChange, loadProfileCV]);
 
   const SetupPhase = useMemo(() => (
-    <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-lg">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Mock Interview Setup</h1>
-        <p className="text-gray-600">
-          Welcome {user?.name || 'User'}! Set up your software engineering internship mock interview
-        </p>
-      </div>
-
-      {debugMode && (
-        <div className="mb-6 bg-gray-900 text-green-400 p-4 rounded-lg">
-          <div className="flex justify-between items-center mb-2">
-            <h3 className="font-medium">Debug Console</h3>
-            <button 
-              onClick={() => setDebugLogs([])}
-              className="text-xs bg-red-600 text-white px-2 py-1 rounded"
-            >
-              Clear
-            </button>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+      <div className="container mx-auto px-6 py-8">
+        <div className="max-w-3xl mx-auto">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full mb-4">
+              <Brain className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-3">
+              AI Mock Interview System
+            </h1>
+            <p className="text-lg text-gray-600">
+              Welcome {user?.name || 'User'}! Prepare for your software engineering internship
+            </p>
           </div>
-          <div className="max-h-32 overflow-y-auto text-xs font-mono space-y-1">
-            {debugLogs.slice(-10).map((log, index) => (
-              <div key={index} className={`${log.type === 'error' ? 'text-red-400' : log.type === 'warn' ? 'text-yellow-400' : 'text-green-400'}`}>
-                [{log.timestamp}] {log.message}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      <div className="space-y-4">
-        {user && (
-          <div className="bg-gray-50 rounded-lg p-4 mb-4">
-            <h3 className="font-medium text-gray-900 mb-2">Interview Candidate</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Name</label>
-                <p className="text-gray-900">{user.name}</p>
+          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+            {debugMode && (
+              <div className="mb-4 bg-gray-900 text-green-400 p-3 rounded-lg">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-sm font-medium">Debug Console</h3>
+                  <button 
+                    onClick={() => setDebugLogs([])}
+                    className="text-xs bg-red-600 text-white px-2 py-1 rounded"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className="max-h-24 overflow-y-auto text-xs font-mono space-y-1">
+                  {debugLogs.slice(-10).map((log, index) => (
+                    <div key={index} className={`${log.type === 'error' ? 'text-red-400' : log.type === 'warn' ? 'text-yellow-400' : 'text-green-400'}`}>
+                      [{log.timestamp}] {log.message}
+                    </div>
+                  ))}
+                </div>
               </div>
+            )}
+
+            <div className="space-y-4">
+              {user && (
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-4 mb-4 border border-blue-100">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                    <User className="w-4 h-4 text-blue-600" />
+                    Interview Candidate
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="bg-white rounded-lg p-3 border border-blue-100">
+                      <label className="block text-xs font-medium text-blue-700 mb-1">Name</label>
+                      <p className="text-gray-900 font-medium text-sm">{user.name}</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 border border-blue-100">
+                      <label className="block text-xs font-medium text-blue-700 mb-1">Email</label>
+                      <p className="text-gray-900 font-medium text-sm">{user.email}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div>
-                <label className="block text-sm font-medium text-gray-700">Email</label>
-                <p className="text-gray-900">{user.email}</p>
+                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-gray-500" />
+                  Job Description *
+                </label>
+                <div className="relative">
+                  <textarea
+                    value={interviewData.jobDescription}
+                    onChange={handleJobDescriptionChange}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-24 resize-none transition-colors text-sm"
+                    placeholder="Paste the software engineering internship job description here..."
+                  />
+                  <div className="absolute bottom-2 right-2 text-xs text-gray-400">
+                    {interviewData.jobDescription.length}/2000
+                  </div>
+                </div>
+              </div>
+
+              {CVSection}
+
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                  <Volume2 className="w-4 h-4" />
+                  Audio Setup
+                </h4>
+                <p className="text-xs text-blue-700 mb-3">Test your microphone before starting:</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={initializeAudio}
+                    disabled={audioPermission}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                      audioPermission 
+                        ? 'bg-green-100 text-green-800 border border-green-300' 
+                        : 'bg-blue-600 hover:bg-blue-700 text-white'
+                    }`}
+                  >
+                    {audioPermission ? (
+                      <>
+                        <CheckCircle className="w-3 h-3" />
+                        Ready
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-3 h-3" />
+                        Test Mic
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setDebugMode(!debugMode)}
+                    className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+                  >
+                    <Terminal className="w-3 h-3" />
+                    {debugMode ? 'Hide Debug' : 'Debug'}
+                  </button>
+                </div>
+                {audioError && (
+                  <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                    <p className="text-xs text-red-600 flex items-center gap-2">
+                      <AlertCircle className="w-3 h-3" />
+                      {audioError}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {error && (
+                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <AlertCircle className="w-4 h-4 text-red-500" />
+                  <span className="text-red-700 text-sm">{error}</span>
+                </div>
+              )}
+
+              <div className="pt-2">
+                <button
+                  onClick={createInterview}
+                  disabled={loading || !isSetupValid() || !user}
+                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-300 disabled:to-gray-300 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:transform-none disabled:shadow-none"
+                >
+                  {loading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      Creating Interview...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-4 h-4" />
+                      Start Mock Interview
+                      <ChevronRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           </div>
-        )}
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Job Title *</label>
-          <input
-            type="text"
-            value={interviewData.jobTitle}
-            onChange={handleJobTitleChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="e.g., Software Engineering Intern"
-          />
         </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Job Description *</label>
-          <textarea
-            value={interviewData.jobDescription}
-            onChange={handleJobDescriptionChange}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-32 resize-none"
-            placeholder="Paste the complete job description here..."
-          />
-        </div>
-
-        {CVSection}
-
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h4 className="font-medium text-blue-900 mb-2">Audio Test</h4>
-          <p className="text-sm text-blue-700 mb-3">Test your microphone before starting the interview:</p>
-          <div className="space-y-2">
-            <button
-              onClick={initializeAudio}
-              disabled={audioPermission}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-green-600 text-white px-4 py-2 rounded-lg text-sm transition-colors mr-2"
-            >
-              {audioPermission ? '✓ Microphone Ready' : 'Test Microphone'}
-            </button>
-            <button
-              onClick={() => setDebugMode(!debugMode)}
-              className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
-            >
-              {debugMode ? 'Hide Debug' : 'Show Debug'}
-            </button>
-          </div>
-          {audioError && (
-            <p className="text-sm text-red-600 mt-2">⚠️ {audioError}</p>
-          )}
-        </div>
-
-        {error && (
-          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-            <AlertCircle className="w-5 h-5 text-red-500" />
-            <span className="text-red-700">{error}</span>
-          </div>
-        )}
-
-        <button
-          onClick={createInterview}
-          disabled={loading || !isSetupValid() || !user}
-          className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-        >
-          {loading ? (
-            <>
-              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-              Creating Interview...
-            </>
-          ) : (
-            <>
-              <ChevronRight className="w-5 h-5" />
-              Start Mock Interview
-            </>
-          )}
-        </button>
       </div>
     </div>
-  ), [user, interviewData, debugMode, debugLogs, audioPermission, audioError, error, loading, isSetupValid, createInterview, handleJobTitleChange, handleJobDescriptionChange, CVSection]);
+  ), [user, interviewData, debugMode, debugLogs, audioPermission, audioError, error, loading, isSetupValid, createInterview, handleJobDescriptionChange, CVSection]);
 
-  const InterviewPhase = useMemo(() => (
-    <div className="max-w-6xl mx-auto p-6">
-      <div className="mb-6">
-        <div className="flex justify-between items-center mb-2">
-          <span className="text-sm font-medium text-gray-700">Question {questionIndex + 1} of {questions.length}</span>
-          <span className="text-sm text-gray-500">
-            <Clock className="w-4 h-4 inline mr-1" />
-            {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
-          </span>
-        </div>
-        <div className="w-full bg-gray-200 rounded-full h-2">
-          <div 
-            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-            style={{ width: `${((questionIndex + 1) / questions.length) * 100}%` }}
-          ></div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          <div className="flex items-start gap-4 mb-4">
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
-              currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding' ? 'bg-purple-100 text-purple-600' :
-              currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-indigo-100 text-indigo-600' :
-              currentQuestion?.type === 'behavioral' ? 'bg-green-100 text-green-600' :
-              'bg-blue-100 text-blue-600'
-            }`}>
-              {currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding' ? <Code className="w-6 h-6" /> : <FileText className="w-6 h-6" />}
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-2">
-                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                  currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding' ? 'bg-purple-100 text-purple-700' :
-                  currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-indigo-100 text-indigo-700' :
-                  currentQuestion?.type === 'behavioral' ? 'bg-green-100 text-green-700' :
-                  'bg-blue-100 text-blue-700'
-                }`}>
-                  {currentQuestion?.type?.replace('_', ' ').toUpperCase()}
-                </span>
-                <span className="text-xs text-gray-500">
-                  Expected: {currentQuestion?.expectedDuration || 120}s
-                </span>
+  const InterviewPhase = useMemo(() => {
+    const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
+    
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+        <div className="bg-white border-b border-gray-200 shadow-sm">
+          <div className="max-w-7xl mx-auto px-6 py-3">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+                  <Brain className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-lg font-semibold text-gray-900">Mock Interview</h1>
+                  <p className="text-xs text-gray-600">Question {questionIndex + 1} of {questions.length}</p>
+                </div>
               </div>
-              <h2 className="text-xl font-semibold text-gray-900 mb-4">
-                {currentQuestion?.question}
-              </h2>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Clock className="w-4 h-4" />
+                  <span className="font-mono text-sm">
+                    {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
+                  </span>
+                </div>
+                <div className="w-24">
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-gradient-to-r from-blue-600 to-indigo-600 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${((questionIndex + 1) / questions.length) * 100}%` }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
+        </div>
 
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-3">Choose Answer Method:</label>
-            <div className="flex gap-4">
-              <button
-                onClick={() => setAnswerMode('audio')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
-                  answerMode === 'audio' 
-                    ? 'bg-blue-100 border-blue-500 text-blue-700' 
-                    : 'bg-gray-50 border-gray-300 text-gray-600'
-                }`}
-              >
-                <Headphones className="w-4 h-4" />
-                Audio Response
-              </button>
-              <button
-                onClick={() => setAnswerMode('text')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
-                  answerMode === 'text' 
-                    ? 'bg-green-100 border-green-500 text-green-700' 
-                    : 'bg-gray-50 border-gray-300 text-gray-600'
-                }`}
-              >
-                <Type className="w-4 h-4" />
-                Text Response
-              </button>
-            </div>
-          </div>
+        <div className="max-w-7xl mx-auto px-6 py-6">
+          <div className={`grid gap-6 ${showCodeEditor && isCodingQuestion ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 max-w-4xl mx-auto'}`}>
+            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+              <div className="flex items-start gap-3 mb-4">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
+                  isCodingQuestion ? 'bg-gradient-to-r from-purple-500 to-pink-500' :
+                  currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-gradient-to-r from-indigo-500 to-blue-500' :
+                  currentQuestion?.type === 'behavioral' ? 'bg-gradient-to-r from-green-500 to-teal-500' :
+                  'bg-gradient-to-r from-blue-500 to-cyan-500'
+                }`}>
+                  {isCodingQuestion ? <Code className="w-6 h-6 text-white" /> : <MessageCircle className="w-6 h-6 text-white" />}
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                      isCodingQuestion ? 'bg-purple-100 text-purple-800' :
+                      currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-indigo-100 text-indigo-800' :
+                      currentQuestion?.type === 'behavioral' ? 'bg-green-100 text-green-800' :
+                      'bg-blue-100 text-blue-800'
+                    }`}>
+                      {currentQuestion?.type?.replace('_', ' ').toUpperCase()}
+                    </span>
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                      ⏱️ {currentQuestion?.expectedDuration || 120}s
+                    </span>
+                  </div>
+                  <h2 className="text-lg font-bold text-gray-900 leading-relaxed">
+                    {currentQuestion?.question}
+                  </h2>
+                </div>
+              </div>
 
-          {(currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding') && (
-            <div className="mb-4">
-              <button
-                onClick={() => setShowCodeEditor(!showCodeEditor)}
-                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors"
-              >
-                <Terminal className="w-4 h-4" />
-                {showCodeEditor ? 'Hide Code Editor' : 'Open Code Editor'}
-              </button>
-            </div>
-          )}
+              {!isCodingQuestion && (
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-3">Response Method:</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => setAnswerMode('audio')}
+                      className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 ${
+                        answerMode === 'audio' 
+                          ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-lg' 
+                          : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <Headphones className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-sm font-medium">Audio</div>
+                        <div className="text-xs text-gray-500">Speak answer</div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setAnswerMode('text')}
+                      className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 ${
+                        answerMode === 'text' 
+                          ? 'bg-green-50 border-green-500 text-green-700 shadow-lg' 
+                          : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                        <Type className="w-4 h-4 text-green-600" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-sm font-medium">Text</div>
+                        <div className="text-xs text-gray-500">Type answer</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
 
-          {answerMode === 'audio' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-center gap-4 py-6">
+              {isCodingQuestion && (
+                <div className="mb-4">
+                  <button
+                    onClick={() => setShowCodeEditor(!showCodeEditor)}
+                    className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-4 py-2 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-sm"
+                  >
+                    <Terminal className="w-4 h-4" />
+                    {showCodeEditor ? 'Hide Code Editor' : 'Open Code Editor'}
+                  </button>
+                </div>
+              )}
+
+              {!isCodingQuestion && answerMode === 'audio' && (
+                <div className="space-y-4">
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-100">
+                    <div className="flex items-center justify-center gap-4 py-6">
+                      <button
+                        onClick={isRecording ? stopRecording : startRecording}
+                        disabled={loading}
+                        className={`w-16 h-16 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${
+                          isRecording 
+                            ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse shadow-red-200' 
+                            : 'bg-blue-500 hover:bg-blue-600 text-white hover:shadow-blue-200'
+                        }`}
+                      >
+                        {isRecording ? <MicOff className="w-8 h-8" /> : <Mic className="w-8 h-8" />}
+                      </button>
+                      
+                      {audioBlob && (
+                        <button
+                          onClick={playRecording}
+                          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg ${
+                            isPlaying ? 'bg-orange-500 hover:bg-orange-600' : 'bg-gray-500 hover:bg-gray-600'
+                          } text-white`}
+                        >
+                          {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="text-center space-y-2">
+                      <p className="text-gray-700 text-sm font-medium">
+                        {isRecording ? (
+                          <span className="flex items-center justify-center gap-2">
+                            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                            Recording... {recordingTime}s
+                          </span>
+                        ) : (
+                          'Click microphone to record'
+                        )}
+                      </p>
+                      
+                      {audioBlob && (
+                        <div className="bg-green-100 border border-green-200 rounded-lg p-2">
+                          <p className="text-green-800 text-sm font-medium flex items-center justify-center gap-2">
+                            <CheckCircle className="w-4 h-4" />
+                            Recorded ({Math.round(audioBlob.size / 1024)}KB)
+                          </p>
+                        </div>
+                      )}
+                      
+                      {isTranscribing && (
+                        <div className="bg-blue-100 border border-blue-200 rounded-lg p-2">
+                          <p className="text-blue-800 text-sm flex items-center justify-center gap-2">
+                            <div className="animate-spin rounded-full h-3 w-3 border-2 border-blue-600 border-t-transparent"></div>
+                            Transcribing...
+                          </p>
+                        </div>
+                      )}
+                      
+                      {audioError && (
+                        <div className="bg-red-100 border border-red-200 rounded-lg p-2">
+                          <p className="text-red-800 text-xs">⚠️ {audioError}</p>
+                        </div>
+                      )}
+                      
+                      {transcriptionError && (
+                        <div className="bg-yellow-100 border border-yellow-200 rounded-lg p-3">
+                          <p className="text-yellow-800 text-xs mb-2">⚠️ {transcriptionError}</p>
+                          <button 
+                            onClick={() => setAnswerMode('text')} 
+                            className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 rounded-lg text-xs transition-colors"
+                          >
+                            Switch to Text
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {transcription && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                      <h4 className="text-sm font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                        <Volume2 className="w-4 h-4" />
+                        Transcription
+                      </h4>
+                      <div className="bg-white rounded-lg p-3 border border-blue-100">
+                        <p className="text-gray-700 text-sm leading-relaxed">{transcription}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {transcriptionError && audioBlob && answerMode === 'audio' && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+                      <h4 className="text-sm font-semibold text-yellow-800 mb-2">Manual Transcription</h4>
+                      <p className="text-yellow-700 mb-2 text-xs">Type what you said:</p>
+                      <textarea
+                        value={transcription}
+                        onChange={handleTranscriptionChange}
+                        className="w-full h-24 px-3 py-2 border border-yellow-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 resize-none text-sm"
+                        placeholder="Type your audio response here..."
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!isCodingQuestion && answerMode === 'text' && (
+                <div className="space-y-3">
+                  <div className="bg-green-50 rounded-xl p-4 border border-green-100">
+                    <label className="block text-sm font-medium text-green-800 mb-2">Your Written Response:</label>
+                    <textarea
+                      value={textAnswer}
+                      onChange={handleTextAnswerChange}
+                      className="w-full h-32 px-3 py-2 border border-green-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none transition-colors text-sm"
+                      placeholder="Type your comprehensive answer here..."
+                    />
+                    <div className="mt-2 flex justify-between text-xs text-green-600">
+                      <span>Characters: {textAnswer.length}</span>
+                      <span>Words: {textAnswer.split(' ').filter(word => word.length > 0).length}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-center gap-3 mt-6">
                 <button
-                  onClick={isRecording ? stopRecording : startRecording}
+                  onClick={skipQuestion}
                   disabled={loading}
-                  className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${
-                    isRecording 
-                      ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' 
-                      : 'bg-blue-500 hover:bg-blue-600 text-white'
-                  }`}
+                  className="bg-gray-500 hover:bg-gray-600 disabled:bg-gray-300 text-white font-medium py-2 px-4 rounded-lg transition-all duration-200 flex items-center gap-2 text-sm"
                 >
-                  {isRecording ? <MicOff className="w-8 h-8" /> : <Mic className="w-8 h-8" />}
+                  {loading ? (
+                    <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                  ) : (
+                    <>
+                      <SkipForward className="w-4 h-4" />
+                      Skip
+                    </>
+                  )}
                 </button>
                 
-                {audioBlob && (
+                {((isCodingQuestion && code.trim()) || (!isCodingQuestion && ((answerMode === 'audio' && transcription) || (answerMode === 'text' && textAnswer.trim())))) && (
                   <button
-                    onClick={playRecording}
-                    className={`w-12 h-12 ${isPlaying ? 'bg-orange-500' : 'bg-gray-500'} hover:bg-gray-600 text-white rounded-full flex items-center justify-center transition-colors`}
+                    onClick={submitAnswer}
+                    disabled={loading}
+                    className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:from-gray-300 disabled:to-gray-300 text-white font-semibold py-2 px-6 rounded-lg transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105 disabled:transform-none text-sm"
                   >
-                    {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
+                    {loading ? (
+                      <>
+                        <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        Submit & Continue
+                        <ChevronRight className="w-4 h-4" />
+                      </>
+                    )}
                   </button>
                 )}
               </div>
 
-              <div className="text-center">
-                <p className="text-gray-600 mb-2">
-                  {isRecording ? `Recording... ${recordingTime}s` : 'Click the microphone to start recording'}
-                </p>
-                {audioBlob && (
-                  <p className="text-sm text-green-600 mb-2">✓ Response recorded ({Math.round(audioBlob.size / 1024)}KB)</p>
-                )}
-                {isTranscribing && (
-                  <p className="text-sm text-blue-600 mb-2">🔄 Transcribing audio...</p>
-                )}
-                {audioError && (
-                  <p className="text-sm text-red-600 mb-2">⚠️ {audioError}</p>
-                )}
-                {transcriptionError && (
-                  <div className="text-sm text-red-600 mb-2 p-2 bg-red-50 rounded">
-                    ⚠️ {transcriptionError}
-                    <br />
-                    <button 
-                      onClick={() => setAnswerMode('text')} 
-                      className="mt-2 text-blue-600 hover:text-blue-800 underline"
+              {error && (
+                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl mt-4">
+                  <AlertCircle className="w-4 h-4 text-red-500" />
+                  <span className="text-red-700 text-sm">{error}</span>
+                </div>
+              )}
+            </div>
+
+            {showCodeEditor && isCodingQuestion && (
+              <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                    <Code className="w-5 h-5 text-purple-600" />
+                    Code Editor
+                  </h3>
+                  <div className="flex items-center gap-3">
+                    <select
+                      value={language}
+                      onChange={handleLanguageChange}
+                      className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                     >
-                      Switch to Text Input
+                      {supportedLanguages.map(lang => (
+                        <option key={lang.value} value={lang.value}>
+                          {lang.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={executeCode}
+                      disabled={isRunningCode}
+                      className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg text-sm transition-colors font-medium"
+                    >
+                      {isRunningCode ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                          Running
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4" />
+                          Run Code
+                        </>
+                      )}
                     </button>
                   </div>
-                )}
-              </div>
-
-              {transcription && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="font-medium text-blue-900 mb-2">Transcription:</h4>
-                  <p className="text-sm text-blue-700">{transcription}</p>
                 </div>
-              )}
 
-              {transcriptionError && audioBlob && answerMode === 'audio' && (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <h4 className="font-medium text-yellow-800 mb-2">Manual Transcription:</h4>
-                  <p className="text-sm text-yellow-700 mb-2">Please type what you said in the recording:</p>
-                  <textarea
-                    value={transcription}
-                    onChange={handleTranscriptionChange}
-                    className="w-full h-24 px-3 py-2 border border-yellow-300 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 resize-none"
-                    placeholder="Type your audio response here..."
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          {answerMode === 'text' && (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Your Written Response:</label>
-                <textarea
-                  value={textAnswer}
-                  onChange={handleTextAnswerChange}
-                  className="w-full h-40 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none"
-                  placeholder="Type your answer here..."
-                />
-              </div>
-              <div className="text-sm text-gray-500">
-                Characters: {textAnswer.length} | Words: {textAnswer.split(' ').filter(word => word.length > 0).length}
-              </div>
-            </div>
-          )}
-
-          {((answerMode === 'audio' && transcription) || (answerMode === 'text' && textAnswer.trim())) && (
-            <div className="flex justify-center mt-6">
-              <button
-                onClick={submitAnswer}
-                disabled={loading}
-                className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white font-medium py-2 px-6 rounded-lg transition-colors flex items-center gap-2"
-              >
-                {loading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle className="w-5 h-5" />
-                    Submit Answer & Continue
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-
-          {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg mt-4">
-              <AlertCircle className="w-5 h-5 text-red-500" />
-              <span className="text-red-700">{error}</span>
-            </div>
-          )}
-
-          {debugMode && (
-            <div className="mt-4 bg-gray-900 text-green-400 p-3 rounded-lg">
-              <h4 className="text-sm font-medium mb-2">Debug Logs:</h4>
-              <div className="max-h-24 overflow-y-auto text-xs font-mono space-y-1">
-                {debugLogs.slice(-5).map((log, index) => (
-                  <div key={index} className={`${log.type === 'error' ? 'text-red-400' : 'text-green-400'}`}>
-                    [{log.timestamp}] {log.message}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Your Code:</label>
+                    <div className="relative">
+                      <textarea
+                        value={code}
+                        onChange={handleCodeChange}
+                        className="w-full h-64 px-4 py-3 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-gray-50 transition-colors"
+                        placeholder={`Write your ${language} code here...`}
+                        style={{ fontFamily: 'Consolas, Monaco, "Courier New", monospace' }}
+                        spellCheck="false"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                      />
+                      <div className="absolute bottom-3 right-3 text-xs text-gray-400">
+                        Lines: {code.split('\n').length}
+                      </div>
+                    </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
 
-        {showCodeEditor && (currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding') && (
-          <div className="bg-white rounded-lg shadow-lg p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Code Editor</h3>
-              <div className="flex items-center gap-2">
-                <select
-                  value={language}
-                  onChange={handleLanguageChange}
-                  className="px-3 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                >
-                  <option value="javascript">JavaScript</option>
-                  <option value="python">Python</option>
-                  <option value="java">Java</option>
-                </select>
-                <button
-                  onClick={executeCode}
-                  className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm transition-colors"
-                >
-                  <Send className="w-3 h-3" />
-                  Run
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Your Code:</label>
-                <textarea
-                  value={code}
-                  onChange={handleCodeChange}
-                  className="w-full h-64 px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                  placeholder={`Write your ${language} code here...`}
-                  style={{ fontFamily: 'Consolas, Monaco, "Courier New", monospace' }}
-                />
-              </div>
-
-              {codeOutput && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Output:</label>
-                  <div className="bg-gray-900 text-green-400 p-3 rounded-lg font-mono text-sm whitespace-pre-wrap max-h-32 overflow-y-auto">
-                    {codeOutput}
+                  {codeOutput && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Output:</label>
+                      <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm whitespace-pre-wrap max-h-32 overflow-y-auto border">
+                        {codeOutput}
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
+                    <div className="flex items-start gap-2">
+                      <Star className="w-4 h-4 text-blue-600 mt-0.5" />
+                      <div>
+                        <p className="text-xs text-blue-800 font-medium mb-1">💡 Tips:</p>
+                        <ul className="text-xs text-blue-700 space-y-0.5">
+                          <li>• Write clean, readable code</li>
+                          <li>• Add comments to explain your approach</li>
+                          <li>• Consider edge cases</li>
+                        </ul>
+                      </div>
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-blue-200 text-xs text-blue-600">
+                      <p>Characters: {code.length} | Lines: {code.split('\n').length}</p>
+                    </div>
                   </div>
                 </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+              </div>
+            )}
 
-      <audio ref={audioPlaybackRef} className="hidden" />
-    </div>
-  ), [questionIndex, questions.length, timer, currentQuestion, answerMode, isRecording, loading, audioBlob, isPlaying, recordingTime, audioError, isTranscribing, transcriptionError, transcription, textAnswer, error, debugMode, debugLogs, showCodeEditor, language, code, codeOutput, handleTranscriptionChange, handleTextAnswerChange, handleCodeChange, handleLanguageChange]);
-
-  const FeedbackPhase = useMemo(() => (
-    <div className="max-w-4xl mx-auto p-6">
-      <div className="text-center mb-8">
-        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-          <CheckCircle className="w-8 h-8 text-green-600" />
-        </div>
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Interview Complete!</h1>
-        <p className="text-gray-600">Here's your detailed performance analysis</p>
-      </div>
-
-      {feedback && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          <div className="bg-white rounded-lg shadow-lg p-6 text-center">
-            <div className="text-3xl font-bold text-blue-600 mb-2">{feedback.score || 0}%</div>
-            <div className="text-gray-600">Overall Score</div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-lg p-6 text-center">
-            <div className="text-3xl font-bold text-purple-600 mb-2">{feedback.feedback?.technicalSkills?.score || 0}%</div>
-            <div className="text-gray-600">Technical Skills</div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-lg p-6 text-center">
-            <div className="text-3xl font-bold text-green-600 mb-2">{feedback.feedback?.communicationSkills?.score || 0}%</div>
-            <div className="text-gray-600">Communication</div>
-          </div>
-        </div>
-      )}
-
-      <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Detailed Analysis</h2>
-        
-        {feedback?.feedback && (
-          <div className="space-y-6">
-            <div>
-              <h3 className="font-medium text-gray-900 mb-2">Technical Skills</h3>
-              <p className="text-gray-600 mb-2">{feedback.feedback.technicalSkills?.feedback}</p>
-            </div>
-
-            <div>
-              <h3 className="font-medium text-gray-900 mb-2">Communication Skills</h3>
-              <p className="text-gray-600 mb-2">{feedback.feedback.communicationSkills?.feedback}</p>
-            </div>
-
-            <div>
-              <h3 className="font-medium text-gray-900 mb-2">Problem Solving</h3>
-              <p className="text-gray-600 mb-2">{feedback.feedback.problemSolving?.feedback}</p>
-            </div>
-
-            {feedback.feedback.recommendations && feedback.feedback.recommendations.length > 0 && (
-              <div>
-                <h3 className="font-medium text-gray-900 mb-2">Recommendations for Improvement</h3>
-                <ul className="space-y-1">
-                  {feedback.feedback.recommendations.map((rec, index) => (
-                    <li key={index} className="flex items-start gap-2">
-                      <ChevronRight className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
-                      <span className="text-gray-600">{rec}</span>
-                    </li>
+            {debugMode && (
+              <div className="bg-gray-900 rounded-xl shadow-lg p-4 border border-gray-700">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="text-sm font-semibold text-green-400">Debug Console</h3>
+                  <button 
+                    onClick={() => setDebugLogs([])}
+                    className="text-xs bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded transition-colors"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className="max-h-32 overflow-y-auto text-xs font-mono space-y-1">
+                  {debugLogs.slice(-10).map((log, index) => (
+                    <div key={index} className={`${
+                      log.type === 'error' ? 'text-red-400' : 
+                      log.type === 'warn' ? 'text-yellow-400' : 
+                      'text-green-400'
+                    }`}>
+                      <span className="text-gray-500">[{log.timestamp}]</span> {log.message}
+                    </div>
                   ))}
-                </ul>
+                </div>
               </div>
             )}
           </div>
-        )}
+        </div>
+
+        <audio ref={audioPlaybackRef} className="hidden" />
       </div>
+    );
+  }, [questionIndex, questions.length, timer, currentQuestion, answerMode, isRecording, loading, audioBlob, isPlaying, recordingTime, audioError, isTranscribing, transcriptionError, transcription, textAnswer, error, debugMode, debugLogs, showCodeEditor, language, code, codeOutput, isRunningCode, supportedLanguages, responses, handleTranscriptionChange, handleTextAnswerChange, handleCodeChange, handleLanguageChange]);
 
-      {responses && responses.length > 0 && (
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Question Breakdown</h2>
-          <div className="space-y-4">
-            {responses.map((response, index) => (
-              <div key={index} className="border border-gray-200 rounded-lg p-4">
-                <div className="flex justify-between items-start mb-2">
-                  <h4 className="font-medium text-gray-900">Question {index + 1}</h4>
-                  <span className="text-sm font-medium text-blue-600">Completed</span>
+  const FeedbackPhase = useMemo(() => (
+    <div className="min-h-screen bg-gradient-to-br from-green-50 via-blue-50 to-indigo-50">
+      <div className="container mx-auto px-6 py-8">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full mb-4 shadow-lg">
+              <Trophy className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-3">Interview Complete!</h1>
+            <p className="text-lg text-gray-600">
+              Here's your comprehensive performance analysis.
+            </p>
+          </div>
+
+          {feedback && (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+              <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
+                <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Trophy className="w-6 h-6 text-white" />
                 </div>
-                <p className="text-gray-600 text-sm mb-3">{questions[index]?.question}</p>
-                
-                {response.code && (
-                  <div className="mt-3 p-3 bg-gray-50 rounded border">
-                    <h5 className="text-sm font-medium text-gray-700 mb-2">Submitted Code:</h5>
-                    <pre className="text-xs text-gray-600 font-mono whitespace-pre-wrap">{response.code}</pre>
-                  </div>
-                )}
-
-                {(response.transcription || response.textResponse) && (
-                  <div className="mt-3 p-3 bg-blue-50 rounded border">
-                    <h5 className="text-sm font-medium text-blue-700 mb-2">
-                      {response.transcription ? 'Audio Transcription:' : 'Written Response:'}
-                    </h5>
-                    <p className="text-sm text-blue-600">{response.transcription || response.textResponse}</p>
-                  </div>
-                )}
+                <div className="text-3xl font-bold text-blue-600 mb-2">{feedback.score || 0}%</div>
+                <div className="text-gray-600 font-medium text-sm">Overall Score</div>
+                <div className={`mt-2 px-3 py-1 rounded-full text-xs font-medium ${
+                  (feedback.score || 0) >= 80 ? 'bg-green-100 text-green-800' :
+                  (feedback.score || 0) >= 60 ? 'bg-yellow-100 text-yellow-800' :
+                  'bg-red-100 text-red-800'
+                }`}>
+                  {(feedback.score || 0) >= 80 ? 'Excellent' : 
+                   (feedback.score || 0) >= 60 ? 'Good' : 'Needs Work'}
+                </div>
               </div>
-            ))}
+
+              <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
+                <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Code className="w-6 h-6 text-white" />
+                </div>
+                <div className="text-3xl font-bold text-purple-600 mb-2">{feedback.feedback?.technicalSkills?.score || 0}%</div>
+                <div className="text-gray-600 font-medium text-sm">Technical Skills</div>
+                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-1000"
+                    style={{ width: `${feedback.feedback?.technicalSkills?.score || 0}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
+                <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-teal-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <MessageCircle className="w-6 h-6 text-white" />
+                </div>
+                <div className="text-3xl font-bold text-green-600 mb-2">{feedback.feedback?.communicationSkills?.score || 0}%</div>
+                <div className="text-gray-600 font-medium text-sm">Communication</div>
+                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-gradient-to-r from-green-500 to-teal-500 h-2 rounded-full transition-all duration-1000"
+                    style={{ width: `${feedback.feedback?.communicationSkills?.score || 0}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
+                <div className="w-12 h-12 bg-gradient-to-r from-orange-500 to-red-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <Brain className="w-6 h-6 text-white" />
+                </div>
+                <div className="text-3xl font-bold text-orange-600 mb-2">{feedback.feedback?.problemSolving?.score || 0}%</div>
+                <div className="text-gray-600 font-medium text-sm">Problem Solving</div>
+                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className="bg-gradient-to-r from-orange-500 to-red-500 h-2 rounded-full transition-all duration-1000"
+                    style={{ width: `${feedback.feedback?.problemSolving?.score || 0}%` }}
+                  ></div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-blue-600" />
+                Performance Analysis
+              </h2>
+              
+              {feedback?.feedback && (
+                <div className="space-y-6">
+                  <div className="border-l-4 border-purple-500 pl-4">
+                    <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                      <Code className="w-4 h-4 text-purple-600" />
+                      Technical Skills
+                    </h3>
+                    <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.technicalSkills?.feedback}</p>
+                    <div className="bg-purple-50 rounded-lg p-2">
+                      <div className="text-sm font-medium text-purple-800">Score: {feedback.feedback.technicalSkills?.score}%</div>
+                    </div>
+                  </div>
+
+                  <div className="border-l-4 border-green-500 pl-4">
+                    <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                      <MessageCircle className="w-4 h-4 text-green-600" />
+                      Communication Skills
+                    </h3>
+                    <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.communicationSkills?.feedback}</p>
+                    <div className="bg-green-50 rounded-lg p-2">
+                      <div className="text-sm font-medium text-green-800">Score: {feedback.feedback.communicationSkills?.score}%</div>
+                    </div>
+                  </div>
+
+                  <div className="border-l-4 border-orange-500 pl-4">
+                    <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                      <Brain className="w-4 h-4 text-orange-600" />
+                      Problem Solving
+                    </h3>
+                    <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.problemSolving?.feedback}</p>
+                    <div className="bg-orange-50 rounded-lg p-2">
+                      <div className="text-sm font-medium text-orange-800">Score: {feedback.feedback.problemSolving?.score}%</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <Target className="w-5 h-5 text-indigo-600" />
+                Recommendations
+              </h2>
+              
+              {feedback?.feedback?.recommendations && feedback.feedback.recommendations.length > 0 && (
+                <div className="space-y-3">
+                  {feedback.feedback.recommendations.map((rec, index) => (
+                    <div key={index} className="flex items-start gap-3 p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+                      <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <span className="text-indigo-600 font-bold text-xs">{index + 1}</span>
+                      </div>
+                      <p className="text-gray-700 leading-relaxed text-sm">{rec}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
+                <h4 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                  <Star className="w-4 h-4" />
+                  Next Steps
+                </h4>
+                <ul className="space-y-1 text-sm text-blue-800">
+                  <li className="flex items-center gap-2">
+                    <ChevronRight className="w-3 h-3" />
+                    Review improvement areas
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <ChevronRight className="w-3 h-3" />
+                    Practice similar questions
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <ChevronRight className="w-3 h-3" />
+                    Work on technical skills
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {Object.keys(questionFeedbacks).length > 0 && (
+            <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-purple-600" />
+                Question Analysis
+              </h2>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {responses.map((response, index) => {
+                  const feedback = questionFeedbacks[response.questionId];
+                  if (!feedback) return null;
+                  
+                  return (
+                    <div key={index} className="border border-gray-200 rounded-xl p-4 hover:shadow-lg transition-shadow">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-sm ${
+                            feedback.score >= 80 ? 'bg-green-500' :
+                            feedback.score >= 60 ? 'bg-yellow-500' :
+                            'bg-red-500'
+                          }`}>
+                            {index + 1}
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-gray-900 text-sm">Question {index + 1}</h4>
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              questions[index]?.type === 'coding' ? 'bg-purple-100 text-purple-700' :
+                              questions[index]?.type === 'behavioral' ? 'bg-green-100 text-green-700' :
+                              'bg-blue-100 text-blue-700'
+                            }`}>
+                              {questions[index]?.type}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className={`text-lg font-bold ${
+                            feedback.score >= 80 ? 'text-green-600' :
+                            feedback.score >= 60 ? 'text-yellow-600' :
+                            'text-red-600'
+                          }`}>
+                            {response.skipped ? 'SKIP' : `${feedback.score}%`}
+                          </div>
+                          <div className="text-xs text-gray-500">{response.responseTime}s</div>
+                        </div>
+                      </div>
+                      
+                      <p className="text-gray-600 text-xs mb-3 leading-relaxed">{questions[index]?.question}</p>
+                      
+                      <div className="space-y-2">
+                        {feedback.strengths && feedback.strengths.length > 0 && (
+                          <div>
+                            <h5 className="text-xs font-semibold text-green-700 mb-1 flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" />
+                              Strengths
+                            </h5>
+                            <ul className="text-xs text-green-600 space-y-0.5">
+                              {feedback.strengths.map((strength, idx) => (
+                                <li key={idx} className="flex items-start gap-1">
+                                  <div className="w-1 h-1 bg-green-500 rounded-full mt-1.5 flex-shrink-0"></div>
+                                  {strength}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        
+                        {feedback.improvements && feedback.improvements.length > 0 && (
+                          <div>
+                            <h5 className="text-xs font-semibold text-orange-700 mb-1 flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" />
+                              Improvements
+                            </h5>
+                            <ul className="text-xs text-orange-600 space-y-0.5">
+                              {feedback.improvements.map((improvement, idx) => (
+                                <li key={idx} className="flex items-start gap-1">
+                                  <div className="w-1 h-1 bg-orange-500 rounded-full mt-1.5 flex-shrink-0"></div>
+                                  {improvement}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {response.code && (
+                          <div className="mt-2 p-2 bg-gray-50 rounded-lg border">
+                            <h5 className="text-xs font-semibold text-gray-700 mb-1">Code:</h5>
+                            <pre className="text-xs text-gray-600 font-mono whitespace-pre-wrap overflow-x-auto max-h-20 overflow-y-auto">
+                              {response.code}
+                            </pre>
+                          </div>
+                        )}
+
+                        {(response.transcription || response.textResponse) && !response.skipped && (
+                          <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-100">
+                            <h5 className="text-xs font-semibold text-blue-700 mb-1">
+                              {response.transcription ? 'Audio:' : 'Text:'}
+                            </h5>
+                            <p className="text-xs text-blue-600 leading-relaxed">
+                              {response.transcription || response.textResponse}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {responses && responses.length > 0 && (
+            <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
+              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-blue-600" />
+                Interview Summary
+              </h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                  <div className="text-xl font-bold text-blue-600">{responses.length}</div>
+                  <div className="text-xs text-blue-700">Questions</div>
+                </div>
+                <div className="text-center p-3 bg-green-50 rounded-lg">
+                  <div className="text-xl font-bold text-green-600">
+                    {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
+                  </div>
+                  <div className="text-xs text-green-700">Total Time</div>
+                </div>
+                <div className="text-center p-3 bg-purple-50 rounded-lg">
+                  <div className="text-xl font-bold text-purple-600">
+                    {responses.filter(r => r.code).length}
+                  </div>
+                  <div className="text-xs text-purple-700">Coding</div>
+                </div>
+                <div className="text-center p-3 bg-orange-50 rounded-lg">
+                  <div className="text-xl font-bold text-orange-600">
+                    {responses.filter(r => r.skipped).length}
+                  </div>
+                  <div className="text-xs text-orange-700">Skipped</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-center gap-4">
+            <button
+              onClick={resetInterview}
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Start New Interview
+            </button>
+            <button
+              onClick={() => window.print()}
+              className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105"
+            >
+              <Download className="w-4 h-4" />
+              Download Report
+            </button>
           </div>
         </div>
-      )}
-
-      <div className="flex justify-center gap-4 mt-8">
-        <button
-          onClick={resetInterview}
-          className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-lg transition-colors"
-        >
-          Start New Interview
-        </button>
-        <button
-          onClick={() => window.print()}
-          className="bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-6 rounded-lg transition-colors"
-        >
-          Print Report
-        </button>
       </div>
     </div>
-  ), [feedback, responses, questions, resetInterview]);
+  ), [feedback, responses, questions, questionFeedbacks, timer, resetInterview]);
 
   if (user === null && !error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading interview system...</p>
+          <div className="w-12 h-12 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <div className="animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent"></div>
+          </div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading Interview System</h2>
+          <p className="text-gray-600 text-sm">Preparing your personalized mock interview...</p>
         </div>
       </div>
     );
@@ -1624,7 +2326,7 @@ const completeInterview = async () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen">
       {renderCurrentStep()}
     </div>
   );
