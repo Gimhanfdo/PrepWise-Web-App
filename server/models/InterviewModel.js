@@ -175,6 +175,6 @@ interviewSchema.set('toJSON', {
   }
 });
 
-const interviewModel = mongoose.models.interview || mongoose.model('interview', interviewSchema);
+const InterviewModel = mongoose.models.interview || mongoose.model('interview', interviewSchema);
 
-export default interviewModel;
+export default InterviewModel;

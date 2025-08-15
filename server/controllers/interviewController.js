@@ -1,4 +1,4 @@
-import interviewModel from '../models/InterviewModel.js';
+import InterviewModel from '../models/InterviewModel.js';
 import userModel from '../models/userModel.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
@@ -74,7 +74,7 @@ export const createInterview = async (req, res) => {
       updatedAt: new Date()
     };
 
-    const interview = new interviewModel(interviewData);
+    const interview = new InterviewModel(interviewData);
     const savedInterview = await interview.save();
 
     res.status(201).json({
@@ -150,7 +150,7 @@ export const createInterviewWithProfileCV = async (req, res) => {
       updatedAt: new Date()
     };
 
-    const interview = new interviewModel(interviewData);
+    const interview = new InterviewModel(interviewData);
     const savedInterview = await interview.save();
 
     res.status(201).json({
@@ -186,7 +186,7 @@ export const startInterview = async (req, res) => {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    const interview = await interviewModel.findOne({ _id: interviewId, userId });
+    const interview = await InterviewModel.findOne({ _id: interviewId, userId });
     if (!interview) {
       return res.status(404).json({ 
         success: false,
@@ -240,7 +240,7 @@ export const getNextQuestion = async (req, res) => {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    const interview = await interviewModel.findOne({ _id: interviewId, userId });
+    const interview = await InterviewModel.findOne({ _id: interviewId, userId });
     if (!interview) {
       return res.status(404).json({ 
         success: false,
@@ -304,7 +304,7 @@ export const submitAnswer = async (req, res) => {
       });
     }
 
-    const interview = await interviewModel.findOne({ _id: interviewId, userId });
+    const interview = await InterviewModel.findOne({ _id: interviewId, userId });
     if (!interview) {
       return res.status(404).json({ 
         success: false,
@@ -385,7 +385,7 @@ export const skipQuestion = async (req, res) => {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    const interview = await interviewModel.findOne({ _id: interviewId, userId });
+    const interview = await InterviewModel.findOne({ _id: interviewId, userId });
     if (!interview) {
       return res.status(404).json({ 
         success: false,
@@ -504,7 +504,7 @@ export const completeInterview = async (req, res) => {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    const interview = await interviewModel.findOne({ _id: interviewId, userId });
+    const interview = await InterviewModel.findOne({ _id: interviewId, userId });
     if (!interview) {
       return res.status(404).json({ 
         success: false,
@@ -576,7 +576,7 @@ export const getInterviewFeedback = async (req, res) => {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    const interview = await interviewModel.findOne({ _id: interviewId, userId });
+    const interview = await InterviewModel.findOne({ _id: interviewId, userId });
 
     if (!interview) {
       return res.status(404).json({ 
@@ -610,13 +610,13 @@ export const getUserInterviews = async (req, res) => {
     const userId = req.user?.userId || req.user?.id || req.user?._id;
     const { page = 1, limit = 10 } = req.query;
 
-    const interviews = await interviewModel.find({ userId })
+    const interviews = await InterviewModel.find({ userId })
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .select('status overallFeedback createdAt completedAt totalDuration');
 
-    const total = await interviewModel.countDocuments({ userId });
+    const total = await InterviewModel.countDocuments({ userId });
 
     res.json({
       success: true,
@@ -642,7 +642,7 @@ export const getInterview = async (req, res) => {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    const interview = await interviewModel.findOne({ _id: interviewId, userId });
+    const interview = await InterviewModel.findOne({ _id: interviewId, userId });
 
     if (!interview) {
       return res.status(404).json({ 
