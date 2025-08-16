@@ -304,43 +304,40 @@ function validateAndSanitizeInput(input) {
     .substring(0, 10000); // Limit length to prevent overflow
 }
 
-function validateLanguage(language) {
-  const validLanguages = [
-    'javascript', 'python', 'java', 'c++', 'cpp', 'c#', 'csharp', 
-    'go', 'rust', 'php', 'typescript', 'swift', 'kotlin', 'c', 'ruby'
-  ];
-  
-  if (!language || typeof language !== 'string') {
-    return 'javascript'; // Default fallback
-  }
-  
-  const normalizedLanguage = language.toLowerCase().trim();
-  return validLanguages.includes(normalizedLanguage) ? normalizedLanguage : 'javascript';
-}
-
-function validateCodingSubmission(questionType, responseText, code, language) {
+function validateCodingSubmission(questionType, responseText, code, language, expectedLanguage) {
   const errors = [];
-  
-  // For coding questions, ensure we have actual code
+
   if (questionType === 'coding') {
+    // Code presence
     if (!code || code.trim().length === 0) {
       errors.push('Code is required for coding questions');
     }
-    
+
+    // Language presence
     if (!language) {
       errors.push('Programming language must be specified for coding questions');
     }
-    
+
+    // Language match
+    if (expectedLanguage && language && language.toLowerCase() !== expectedLanguage.toLowerCase()) {
+      errors.push(`Submitted code language (${language}) does not match expected (${expectedLanguage})`);
+    }
+
     // Check if code contains basic programming elements
     const codeToCheck = code || responseText || '';
     const hasBasicElements = /\b(function|def|class|int|string|return|if|for|while|const|let|var)\b/i.test(codeToCheck);
-    
+
     if (!hasBasicElements && codeToCheck.length > 0) {
       console.warn('Code submission may not contain valid programming syntax');
     }
   }
-  
+
   return errors;
+}
+
+// Helper function to validate the submitted language
+function validateLanguage(language) {
+  return language ? language.trim() : null;
 }
 
 export const submitAnswer = async (req, res) => {
@@ -378,7 +375,14 @@ export const submitAnswer = async (req, res) => {
     }
 
     // Validate coding submission
-    const validationErrors = validateCodingSubmission(question.type, sanitizedResponseText, sanitizedCode, validatedLanguage);
+    const validationErrors = validateCodingSubmission(
+      question.type,
+      sanitizedResponseText,
+      sanitizedCode,
+      validatedLanguage,
+      question.language // expected language for the question
+    );
+
     if (validationErrors.length > 0) {
       return res.status(400).json({
         success: false,
@@ -406,12 +410,10 @@ export const submitAnswer = async (req, res) => {
       );
       console.log('✅ AI Analysis Result:', {
         score: analysis.score,
-        relevance: analysis.questionRelevance,
-        type: analysis.responseType
+        responseType: analysis.responseType
       });
     } catch (error) {
       console.error('❌ AI Feedback Failed:', error.message);
-      // Use fallback feedback instead of returning error
       analysis = generateFallbackFeedback(question.type, sanitizedResponseText, sanitizedCode);
       console.log('🔄 Using fallback feedback');
     }
@@ -421,7 +423,7 @@ export const submitAnswer = async (req, res) => {
       question: question.question,
       questionType: question.type,
       transcription: answerMode === 'audio' ? sanitizedResponseText : null,
-      textResponse: answerMode === 'text' ? sanitizedResponseText : sanitizedResponseText,
+      textResponse: sanitizedResponseText,
       code: sanitizedCode || null,
       language: question.type === 'coding' ? validatedLanguage : null,
       responseTime: parseInt(responseTime) || 0,
@@ -466,14 +468,11 @@ export const submitAnswer = async (req, res) => {
   }
 };
 
-// Improved AI feedback function with better error handling
+// Improved AI feedback function
 async function generateStrictAIFeedback(question, questionType, responseText, code, language) {
   const model = genAI.getGenerativeModel({ 
     model: "gemini-2.5-flash",
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 2048
-    }
+    generationConfig: { temperature: 0.1, maxOutputTokens: 2048 }
   });
 
   const codeSection = code ? `
@@ -482,72 +481,46 @@ CODE PROVIDED (${language}):
 ${code}
 \`\`\`` : 'NO CODE PROVIDED';
 
-  const prompt = `You are an EXTREMELY STRICT technical interviewer for software engineering positions. Analyze this interview response and provide brutally honest feedback.
+  const prompt = `You are a senior software engineering interviewer and code reviewer. 
+Analyze this response thoroughly and give strict, constructive feedback. For coding questions, evaluate correctness, syntax, language best practices, efficiency, code structure/readability, and edge case handling.
 
-CRITICAL SCORING RULES:
-1. If the answer is COMPLETELY IRRELEVANT to the question, give 0%
-2. If the answer addresses a different topic entirely, give 0%
-3. Generic/template responses get 1-25% maximum
-4. Only give high scores (70%+) for answers that DIRECTLY address the specific question
-5. For coding questions: evaluate logic, syntax, and problem-solving approach
-6. BE RUTHLESS - irrelevant answers get 0%, no exceptions
-
-QUESTION: "${question}"
-QUESTION TYPE: ${questionType}
-RESPONSE: "${responseText}"
-${codeSection}
-
-For coding questions, evaluate:
-- Does the code attempt to solve the actual problem?
-- Is the logic correct?
-- Is the syntax appropriate for ${language || 'the language'}?
-- Would this code work if properly completed?
-
-Return ONLY this exact JSON structure with no markdown:
+Provide ONLY JSON using this structure:
 {
   "score": 0-100,
   "questionRelevance": 1-10,
   "responseType": "perfectly-relevant|mostly-relevant|partially-relevant|mostly-irrelevant|completely-off-topic",
-  "strengths": ["strength1", "strength2"],
-  "improvements": ["improvement1", "improvement2"],
-  "detailedAnalysis": "Honest analysis of response quality and relevance",
-  "communicationClarity": 1-10,
-  "technicalAccuracy": 1-10,
-  "overallAssessment": "Assessment of competence demonstrated"
-}`;
+  "correctness": 1-10,
+  "syntax": 1-10,
+  "languageBestPractices": 1-10,
+  "efficiency": 1-10,
+  "structureAndReadability": 1-10,
+  "edgeCaseHandling": 1-10,
+  "strengths": ["strength1","strength2","strength3"],
+  "improvements": ["improvement1","improvement2","improvement3","improvement4"],
+  "detailedAnalysis": "Honest analysis of response quality",
+  "overallAssessment": "Final verdict on quality"
+}
+
+QUESTION: "${question}"
+QUESTION TYPE: ${questionType}
+RESPONSE: "${responseText}"
+${codeSection}`;
 
   try {
     const result = await model.generateContent(prompt);
     const response = await result.response;
     let analysisText = response.text().trim();
-    
-    // Enhanced JSON extraction
-    analysisText = analysisText
-      .replace(/```json\s*/gi, '')
-      .replace(/```javascript\s*/gi, '')
-      .replace(/```\s*/g, '')
-      .replace(/^```/gm, '')
-      .replace(/```$/gm, '')
-      .trim();
 
-    // Find JSON boundaries more reliably
-    let jsonStart = analysisText.indexOf('{');
-    let jsonEnd = analysisText.lastIndexOf('}');
-    
-    // If no braces found, try to extract JSON-like content
+    // Clean JSON
+    analysisText = analysisText.replace(/```json\s*|```javascript\s*|```/gi, '').trim();
+    const jsonStart = analysisText.indexOf('{');
+    const jsonEnd = analysisText.lastIndexOf('}');
+
     if (jsonStart === -1 || jsonEnd === -1) {
-      // Look for key-value patterns that might indicate JSON
-      const jsonPattern = /"score"\s*:\s*\d+/;
-      if (jsonPattern.test(analysisText)) {
-        // Try to construct valid JSON from the content
-        console.warn('Attempting to construct JSON from fragmented response');
-        throw new Error('Fragmented JSON response detected');
-      }
       throw new Error('No JSON structure found in AI response');
     }
-    
+
     const jsonText = analysisText.substring(jsonStart, jsonEnd + 1);
-    
     let aiAnalysis;
     try {
       aiAnalysis = JSON.parse(jsonText);
@@ -558,74 +531,36 @@ Return ONLY this exact JSON structure with no markdown:
       throw new Error('Failed to parse AI feedback JSON: ' + parseError.message);
     }
 
-    // Validate and sanitize the parsed response
     return validateAndSanitizeAIResponse(aiAnalysis, questionType);
-
   } catch (error) {
     console.error('AI Feedback Generation Error:', error.message);
-    throw error; // Re-throw to trigger fallback
+    throw error;
   }
 }
 
-// Improved response validation
+// Enhanced response validation
 function validateAndSanitizeAIResponse(aiAnalysis, questionType) {
-  // Validate score
-  if (typeof aiAnalysis.score !== 'number' || aiAnalysis.score < 0 || aiAnalysis.score > 100) {
-    aiAnalysis.score = 50; // Default fallback score
-  }
-
-  // Validate other numeric fields
-  aiAnalysis.questionRelevance = Math.max(1, Math.min(10, aiAnalysis.questionRelevance || 5));
-  aiAnalysis.communicationClarity = Math.max(1, Math.min(10, aiAnalysis.communicationClarity || 5));
-  aiAnalysis.technicalAccuracy = Math.max(1, Math.min(10, aiAnalysis.technicalAccuracy || 5));
-
-  // Validate arrays
-  let strengths = Array.isArray(aiAnalysis.strengths) ? aiAnalysis.strengths.slice(0, 3) : [];
-  const improvements = Array.isArray(aiAnalysis.improvements) ? aiAnalysis.improvements.slice(0, 4) : [];
-
-  // Validate response type
-  const validResponseTypes = ['perfectly-relevant', 'mostly-relevant', 'partially-relevant', 'mostly-irrelevant', 'completely-off-topic'];
-  if (!validResponseTypes.includes(aiAnalysis.responseType)) {
-    aiAnalysis.responseType = 'partially-relevant';
-  }
-
-  // Quality control for very low scores
-  if (aiAnalysis.score < 30) {
-    strengths = strengths.filter(strength => 
-      !strength.toLowerCase().includes('provided') &&
-      !strength.toLowerCase().includes('attempted') &&
-      !strength.toLowerCase().includes('gave a response')
-    );
-    
-    if (strengths.length === 0) {
-      strengths = ['None identified'];
-    }
-  }
-
-  // Force consistency for completely irrelevant answers
-  if (aiAnalysis.responseType === 'completely-off-topic' || aiAnalysis.questionRelevance <= 2) {
-    aiAnalysis.score = 0;
-    strengths = ['None identified'];
-  }
-
-  // Ensure we have meaningful improvements
-  const finalImprovements = improvements.length > 0 ? improvements : [
-    'The response needs to directly address the specific question asked',
-    'Provide more relevant examples and specific details',
-    'Focus on understanding what the question is asking',
-    'Practice explaining technical concepts clearly'
-  ];
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value || min));
 
   return {
-    score: Math.round(aiAnalysis.score),
-    questionRelevance: aiAnalysis.questionRelevance,
-    responseType: aiAnalysis.responseType,
-    strengths: strengths,
-    improvements: finalImprovements,
-    detailedAnalysis: aiAnalysis.detailedAnalysis || 'Response analyzed for relevance and technical accuracy.',
-    communicationClarity: aiAnalysis.communicationClarity,
-    technicalAccuracy: aiAnalysis.technicalAccuracy,
-    overallAssessment: aiAnalysis.overallAssessment || 'Response requires improvement to meet expectations'
+    score: Math.round(clamp(aiAnalysis.score, 0, 100)),
+    questionRelevance: clamp(aiAnalysis.questionRelevance, 1, 10),
+    responseType: aiAnalysis.responseType || 'partially-relevant',
+    correctness: clamp(aiAnalysis.correctness, 1, 10),
+    syntax: clamp(aiAnalysis.syntax, 1, 10),
+    languageBestPractices: clamp(aiAnalysis.languageBestPractices, 1, 10),
+    efficiency: clamp(aiAnalysis.efficiency, 1, 10),
+    structureAndReadability: clamp(aiAnalysis.structureAndReadability, 1, 10),
+    edgeCaseHandling: clamp(aiAnalysis.edgeCaseHandling, 1, 10),
+    strengths: Array.isArray(aiAnalysis.strengths) ? aiAnalysis.strengths.slice(0, 3) : ['None identified'],
+    improvements: Array.isArray(aiAnalysis.improvements) ? aiAnalysis.improvements.slice(0, 4) : [
+      'Focus on correct problem-solving approach',
+      'Use best practices for the selected language',
+      'Improve readability and structure',
+      'Handle edge cases and optimize logic'
+    ],
+    detailedAnalysis: aiAnalysis.detailedAnalysis || 'Response analyzed for correctness, efficiency, and best practices.',
+    overallAssessment: aiAnalysis.overallAssessment || 'Improvement needed in code quality and correctness'
   };
 }
 

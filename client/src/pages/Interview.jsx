@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Mic, MicOff, Play, Pause, ChevronRight, Clock, User, FileText, BarChart3, CheckCircle, AlertCircle, Volume2, Code, Terminal, Send, Type, Headphones, Upload, Download, FileCheck, RefreshCw, Zap, Target, Trophy, Star, TrendingUp, Brain, MessageCircle, SkipForward } from 'lucide-react';
+import { Mic, MicOff,Award, Play, Pause, ChevronRight, Clock, User, FileText, BarChart3, CheckCircle, AlertCircle, Volume2, Code, Terminal, Send, Type, Headphones, Upload, Download, FileCheck, RefreshCw, Zap, Target, Trophy, Star, TrendingUp, Brain, MessageCircle, SkipForward } from 'lucide-react';
 
 const MockInterviewSystem = () => {
   const [currentStep, setCurrentStep] = useState('setup'); 
@@ -984,8 +984,11 @@ Status: Ready for submission`;
     }
   };
 
-  const submitAnswer = async () => {
-    const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
+   const submitAnswer = async () => {
+    const isCodingQuestion = currentQuestion?.type === 'coding' || 
+                            currentQuestion?.type === 'technical_coding' || 
+                            currentQuestion?.type === 'problem-solving';
+    
     let responseText = '';
     
     if (isCodingQuestion) {
@@ -1007,13 +1010,18 @@ Status: Ready for submission`;
       const questionStartTime = Date.now() - ((responses.length + 1) * 120000);
       const actualResponseTime = Math.max(Math.floor((Date.now() - questionStartTime) / 1000), 30);
 
+      // UPDATED: Enhanced submit data for coding questions
       const submitData = {
         questionId: currentQuestion.questionId,
         responseTime: actualResponseTime,
         answerMode: isCodingQuestion ? 'code' : answerMode,
         responseText: responseText,
         code: isCodingQuestion ? code : null,
-        language: isCodingQuestion ? language : null
+        language: isCodingQuestion ? language : null,
+        // ADDED: Additional metadata for better feedback generation
+        questionType: currentQuestion.type,
+        difficulty: currentQuestion.difficulty || 'intermediate',
+        expectedComplexity: currentQuestion.expectedComplexity || 'medium'
       };
 
       addDebugLog(`Submitting to backend: ${JSON.stringify({...submitData, responseText: submitData.responseText.substring(0, 50) + '...'})}`);
@@ -1039,22 +1047,17 @@ Status: Ready for submission`;
         throw new Error(submitResult.error || 'Failed to submit answer');
       }
 
-      const aiFeedback = submitResult.feedback || {
-        score: 50,
-        strengths: ['Response submitted successfully'],
-        improvements: ['Continue practicing'],
-        detailedAnalysis: 'Response analyzed by AI',
-        communicationClarity: 5,
-        technicalAccuracy: 5,
-        questionRelevance: 5,
-        responseType: 'submitted'
-      };
+      // UPDATED: Enhanced feedback processing for coding questions
+      const aiFeedback = submitResult.feedback ? 
+        processCodingFeedback(submitResult.feedback, isCodingQuestion) : 
+        createFallbackFeedback(isCodingQuestion);
 
       setQuestionFeedbacks(prev => ({
         ...prev,
         [currentQuestion.questionId]: aiFeedback
       }));
 
+      // UPDATED: Enhanced response object with additional coding metadata
       const response = {
         questionId: currentQuestion.questionId,
         question: currentQuestion.question,
@@ -1067,7 +1070,11 @@ Status: Ready for submission`;
         answerMode: isCodingQuestion ? 'code' : answerMode,
         timestamp: new Date().toISOString(),
         feedback: aiFeedback,
-        score: aiFeedback.score || 50
+        score: aiFeedback.score || 50,
+        // ADDED: Coding-specific metrics
+        codeMetrics: isCodingQuestion ? aiFeedback.codeMetrics : null,
+        algorithmicThinking: isCodingQuestion ? aiFeedback.algorithmicThinking : null,
+        codeQuality: isCodingQuestion ? aiFeedback.codeQuality : null
       };
 
       setResponses(prev => [...prev, response]);
@@ -1086,6 +1093,74 @@ Status: Ready for submission`;
       setLoading(false);
     }
   };
+
+    const processCodingFeedback = (rawFeedback, isCodingQuestion) => {
+    if (!isCodingQuestion) {
+      return {
+        score: rawFeedback.score || 50,
+        strengths: rawFeedback.strengths || [],
+        improvements: rawFeedback.improvements || [],
+        detailedAnalysis: rawFeedback.detailedAnalysis || 'Response analyzed',
+        communicationClarity: rawFeedback.communicationClarity || 5,
+        technicalAccuracy: rawFeedback.technicalAccuracy || 5,
+        questionRelevance: rawFeedback.questionRelevance || 5,
+        responseType: rawFeedback.responseType || 'submitted'
+      };
+    }
+
+    // ENHANCED: Coding-specific feedback processing
+    return {
+      score: rawFeedback.score || 50,
+      strengths: rawFeedback.strengths || [],
+      improvements: rawFeedback.improvements || [],
+      detailedAnalysis: rawFeedback.detailedAnalysis || 'Code solution analyzed',
+      
+      // Standard metrics
+      communicationClarity: rawFeedback.communicationClarity || 5,
+      technicalAccuracy: rawFeedback.technicalAccuracy || 5,
+      questionRelevance: rawFeedback.questionRelevance || 5,
+      responseType: rawFeedback.responseType || 'code-submitted',
+      
+      // ADDED: Coding-specific metrics from enhanced API
+      codeMetrics: {
+        syntaxCorrectness: rawFeedback.codeMetrics?.syntaxCorrectness || rawFeedback.syntaxCorrectness || 5,
+        logicalFlow: rawFeedback.codeMetrics?.logicalFlow || rawFeedback.logicalFlow || 5,
+        efficiency: rawFeedback.codeMetrics?.efficiency || rawFeedback.efficiency || 5,
+        readability: rawFeedback.codeMetrics?.readability || rawFeedback.readability || 5,
+        bestPractices: rawFeedback.codeMetrics?.bestPractices || rawFeedback.bestPractices || 5
+      },
+      
+      algorithmicThinking: {
+        problemDecomposition: rawFeedback.algorithmicThinking?.problemDecomposition || rawFeedback.problemDecomposition || 5,
+        algorithmChoice: rawFeedback.algorithmicThinking?.algorithmChoice || rawFeedback.algorithmChoice || 5,
+        edgeCaseHandling: rawFeedback.algorithmicThinking?.edgeCaseHandling || rawFeedback.edgeCaseHandling || 5,
+        timeComplexity: rawFeedback.algorithmicThinking?.timeComplexity || rawFeedback.timeComplexity || 5,
+        spaceComplexity: rawFeedback.algorithmicThinking?.spaceComplexity || rawFeedback.spaceComplexity || 5
+      },
+      
+      codeQuality: {
+        structure: rawFeedback.codeQuality?.structure || rawFeedback.structure || 5,
+        naming: rawFeedback.codeQuality?.naming || rawFeedback.naming || 5,
+        comments: rawFeedback.codeQuality?.comments || rawFeedback.comments || 5,
+        modularity: rawFeedback.codeQuality?.modularity || rawFeedback.modularity || 5,
+        errorHandling: rawFeedback.codeQuality?.errorHandling || rawFeedback.errorHandling || 5
+      },
+      
+      // Additional insights
+      strengths_detailed: {
+        technical: rawFeedback.strengths_detailed?.technical || [],
+        algorithmic: rawFeedback.strengths_detailed?.algorithmic || [],
+        implementation: rawFeedback.strengths_detailed?.implementation || []
+      },
+      
+      improvements_detailed: {
+        technical: rawFeedback.improvements_detailed?.technical || [],
+        algorithmic: rawFeedback.improvements_detailed?.algorithmic || [],
+        implementation: rawFeedback.improvements_detailed?.implementation || []
+      }
+    };
+  };
+
 
   const completeInterview = async () => {
     try {
@@ -1522,7 +1597,6 @@ Status: Ready for submission`;
       </div>
     </div>
   ), [user, interviewData, debugMode, debugLogs, audioPermission, audioError, error, loading, isSetupValid, createInterview, handleJobDescriptionChange, CVSection]);
-
   const InterviewPhase = useMemo(() => {
     const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
     
@@ -1901,331 +1975,478 @@ Status: Ready for submission`;
     );
   }, [questionIndex, questions.length, timer, currentQuestion, answerMode, isRecording, loading, audioBlob, isPlaying, recordingTime, audioError, isTranscribing, transcriptionError, transcription, textAnswer, error, debugMode, debugLogs, showCodeEditor, language, code, codeOutput, isRunningCode, supportedLanguages, responses, handleLanguageChange, handleCodeChange, executeCode]);
 
-  const FeedbackPhase = useMemo(() => (
-    <div className="min-h-screen bg-gradient-to-br from-green-50 via-blue-50 to-indigo-50">
-      <div className="container mx-auto px-6 py-8">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full mb-4 shadow-lg">
-              <Trophy className="w-8 h-8 text-white" />
+  // NEW: Enhanced Coding Question Analysis Component
+const CodingQuestionAnalysis = ({ response, feedback, questionData, index }) => {
+  const isCoding = response.questionType === 'coding' || 
+                  response.questionType === 'technical_coding' || 
+                  response.questionType === 'problem-solving';
+
+  if (!isCoding || !feedback.codeMetrics) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      {/* Code Metrics */}
+      <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+        <h6 className="text-xs font-semibold text-purple-800 mb-2 flex items-center gap-1">
+          <Code className="w-3 h-3" />
+          Code Quality Metrics
+        </h6>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+          {Object.entries(feedback.codeMetrics).map(([metric, score]) => (
+            <div key={metric} className="bg-white rounded p-2 border border-purple-100">
+              <div className="text-xs text-purple-700 font-medium capitalize">
+                {metric.replace(/([A-Z])/g, ' $1').trim()}
+              </div>
+              <div className="flex items-center gap-1 mt-1">
+                <div className="w-full bg-purple-200 rounded-full h-1.5">
+                  <div 
+                    className="bg-purple-600 h-1.5 rounded-full transition-all duration-500"
+                    style={{ width: `${(score / 10) * 100}%` }}
+                  ></div>
+                </div>
+                <span className="text-xs text-purple-600 font-bold">{score}/10</span>
+              </div>
             </div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-3">Interview Complete!</h1>
-            <p className="text-lg text-gray-600">
-              Here's your comprehensive performance analysis.
-            </p>
+          ))}
+        </div>
+      </div>
+
+      {/* Algorithmic Thinking */}
+      {feedback.algorithmicThinking && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <h6 className="text-xs font-semibold text-blue-800 mb-2 flex items-center gap-1">
+            <Brain className="w-3 h-3" />
+            Algorithmic Thinking
+          </h6>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {Object.entries(feedback.algorithmicThinking).map(([metric, score]) => (
+              <div key={metric} className="bg-white rounded p-2 border border-blue-100">
+                <div className="text-xs text-blue-700 font-medium capitalize">
+                  {metric.replace(/([A-Z])/g, ' $1').trim()}
+                </div>
+                <div className="flex items-center gap-1 mt-1">
+                  <div className="w-full bg-blue-200 rounded-full h-1.5">
+                    <div 
+                      className="bg-blue-600 h-1.5 rounded-full transition-all duration-500"
+                      style={{ width: `${(score / 10) * 100}%` }}
+                    ></div>
+                  </div>
+                  <span className="text-xs text-blue-600 font-bold">{score}/10</span>
+                </div>
+              </div>
+            ))}
           </div>
+        </div>
+      )}
 
-          {feedback && (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-              <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
-                <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Trophy className="w-6 h-6 text-white" />
+      {/* Implementation Quality */}
+      {feedback.codeQuality && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+          <h6 className="text-xs font-semibold text-green-800 mb-2 flex items-center gap-1">
+            <Award className="w-3 h-3" />
+            Implementation Quality
+          </h6>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {Object.entries(feedback.codeQuality).map(([metric, score]) => (
+              <div key={metric} className="bg-white rounded p-2 border border-green-100">
+                <div className="text-xs text-green-700 font-medium capitalize">
+                  {metric.replace(/([A-Z])/g, ' $1').trim()}
                 </div>
-                <div className="text-3xl font-bold text-blue-600 mb-2">{feedback.score || 0}%</div>
-                <div className="text-gray-600 font-medium text-sm">Overall Score</div>
-                <div className={`mt-2 px-3 py-1 rounded-full text-xs font-medium ${
-                  (feedback.score || 0) >= 80 ? 'bg-green-100 text-green-800' :
-                  (feedback.score || 0) >= 60 ? 'bg-yellow-100 text-yellow-800' :
-                  'bg-red-100 text-red-800'
-                }`}>
-                  {(feedback.score || 0) >= 80 ? 'Excellent' : 
-                   (feedback.score || 0) >= 60 ? 'Good' : 'Needs Work'}
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
-                <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Code className="w-6 h-6 text-white" />
-                </div>
-                <div className="text-3xl font-bold text-purple-600 mb-2">{feedback.feedback?.technicalSkills?.score || 0}%</div>
-                <div className="text-gray-600 font-medium text-sm">Technical Skills</div>
-                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-1000"
-                    style={{ width: `${feedback.feedback?.technicalSkills?.score || 0}%` }}
-                  ></div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
-                <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-teal-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <MessageCircle className="w-6 h-6 text-white" />
-                </div>
-                <div className="text-3xl font-bold text-green-600 mb-2">{feedback.feedback?.communicationSkills?.score || 0}%</div>
-                <div className="text-gray-600 font-medium text-sm">Communication</div>
-                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-gradient-to-r from-green-500 to-teal-500 h-2 rounded-full transition-all duration-1000"
-                    style={{ width: `${feedback.feedback?.communicationSkills?.score || 0}%` }}
-                  ></div>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
-                <div className="w-12 h-12 bg-gradient-to-r from-orange-500 to-red-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Brain className="w-6 h-6 text-white" />
-                </div>
-                <div className="text-3xl font-bold text-orange-600 mb-2">{feedback.feedback?.problemSolving?.score || 0}%</div>
-                <div className="text-gray-600 font-medium text-sm">Problem Solving</div>
-                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-gradient-to-r from-orange-500 to-red-500 h-2 rounded-full transition-all duration-1000"
-                    style={{ width: `${feedback.feedback?.problemSolving?.score || 0}%` }}
-                  ></div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-blue-600" />
-                Performance Analysis
-              </h2>
-              
-              {feedback?.feedback && (
-                <div className="space-y-6">
-                  <div className="border-l-4 border-purple-500 pl-4">
-                    <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                      <Code className="w-4 h-4 text-purple-600" />
-                      Technical Skills
-                    </h3>
-                    <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.technicalSkills?.feedback}</p>
-                    <div className="bg-purple-50 rounded-lg p-2">
-                      <div className="text-sm font-medium text-purple-800">Score: {feedback.feedback.technicalSkills?.score}%</div>
-                    </div>
+                <div className="flex items-center gap-1 mt-1">
+                  <div className="w-full bg-green-200 rounded-full h-1.5">
+                    <div 
+                      className="bg-green-600 h-1.5 rounded-full transition-all duration-500"
+                      style={{ width: `${(score / 10) * 100}%` }}
+                    ></div>
                   </div>
-
-                  <div className="border-l-4 border-green-500 pl-4">
-                    <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                      <MessageCircle className="w-4 h-4 text-green-600" />
-                      Communication Skills
-                    </h3>
-                    <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.communicationSkills?.feedback}</p>
-                    <div className="bg-green-50 rounded-lg p-2">
-                      <div className="text-sm font-medium text-green-800">Score: {feedback.feedback.communicationSkills?.score}%</div>
-                    </div>
-                  </div>
-
-                  <div className="border-l-4 border-orange-500 pl-4">
-                    <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                      <Brain className="w-4 h-4 text-orange-600" />
-                      Problem Solving
-                    </h3>
-                    <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.problemSolving?.feedback}</p>
-                    <div className="bg-orange-50 rounded-lg p-2">
-                      <div className="text-sm font-medium text-orange-800">Score: {feedback.feedback.problemSolving?.score}%</div>
-                    </div>
-                  </div>
+                  <span className="text-xs text-green-600 font-bold">{score}/10</span>
                 </div>
-              )}
-            </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
-            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <Target className="w-5 h-5 text-indigo-600" />
-                Recommendations
-              </h2>
-              
-              {feedback?.feedback?.recommendations && feedback.feedback.recommendations.length > 0 && (
-                <div className="space-y-3">
-                  {feedback.feedback.recommendations.map((rec, index) => (
-                    <div key={index} className="flex items-start gap-3 p-3 bg-indigo-50 rounded-lg border border-indigo-100">
-                      <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span className="text-indigo-600 font-bold text-xs">{index + 1}</span>
-                      </div>
-                      <p className="text-gray-700 leading-relaxed text-sm">{rec}</p>
-                    </div>
+      {/* Detailed Strengths and Improvements for Coding */}
+      {feedback.strengths_detailed && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+          <h6 className="text-xs font-semibold text-emerald-800 mb-2">Detailed Strengths</h6>
+          <div className="space-y-2">
+            {feedback.strengths_detailed.technical?.length > 0 && (
+              <div>
+                <div className="text-xs font-medium text-emerald-700">Technical:</div>
+                <ul className="text-xs text-emerald-600 ml-2">
+                  {feedback.strengths_detailed.technical.map((item, idx) => (
+                    <li key={idx}>• {item}</li>
                   ))}
-                </div>
-              )}
-              
-              <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
-                <h4 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
-                  <Star className="w-4 h-4" />
-                  Next Steps
-                </h4>
-                <ul className="space-y-1 text-sm text-blue-800">
-                  <li className="flex items-center gap-2">
-                    <ChevronRight className="w-3 h-3" />
-                    Review improvement areas
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <ChevronRight className="w-3 h-3" />
-                    Practice similar questions
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <ChevronRight className="w-3 h-3" />
-                    Work on technical skills
-                  </li>
                 </ul>
               </div>
+            )}
+            {feedback.strengths_detailed.algorithmic?.length > 0 && (
+              <div>
+                <div className="text-xs font-medium text-emerald-700">Algorithmic:</div>
+                <ul className="text-xs text-emerald-600 ml-2">
+                  {feedback.strengths_detailed.algorithmic.map((item, idx) => (
+                    <li key={idx}>• {item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// UPDATED: Enhanced FeedbackPhase with coding-specific analysis
+const FeedbackPhase = useMemo(() => (
+  <div className="min-h-screen bg-gradient-to-br from-green-50 via-blue-50 to-indigo-50">
+    <div className="container mx-auto px-6 py-8">
+      <div className="max-w-6xl mx-auto">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full mb-4 shadow-lg">
+            <Trophy className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-3">Interview Complete!</h1>
+          <p className="text-lg text-gray-600">
+            Here's your comprehensive performance analysis with detailed coding feedback.
+          </p>
+        </div>
+
+        {feedback && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
+              <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Trophy className="w-6 h-6 text-white" />
+              </div>
+              <div className="text-3xl font-bold text-blue-600 mb-2">{feedback.score || 0}%</div>
+              <div className="text-gray-600 font-medium text-sm">Overall Score</div>
+              <div className={`mt-2 px-3 py-1 rounded-full text-xs font-medium ${
+                (feedback.score || 0) >= 80 ? 'bg-green-100 text-green-800' :
+                (feedback.score || 0) >= 60 ? 'bg-yellow-100 text-yellow-800' :
+                'bg-red-100 text-red-800'
+              }`}>
+                {(feedback.score || 0) >= 80 ? 'Excellent' : 
+                 (feedback.score || 0) >= 60 ? 'Good' : 'Needs Work'}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
+              <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Code className="w-6 h-6 text-white" />
+              </div>
+              <div className="text-3xl font-bold text-purple-600 mb-2">{feedback.feedback?.technicalSkills?.score || 0}%</div>
+              <div className="text-gray-600 font-medium text-sm">Technical Skills</div>
+              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-1000"
+                  style={{ width: `${feedback.feedback?.technicalSkills?.score || 0}%` }}
+                ></div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
+              <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-teal-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                <MessageCircle className="w-6 h-6 text-white" />
+              </div>
+              <div className="text-3xl font-bold text-green-600 mb-2">{feedback.feedback?.communicationSkills?.score || 0}%</div>
+              <div className="text-gray-600 font-medium text-sm">Communication</div>
+              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-gradient-to-r from-green-500 to-teal-500 h-2 rounded-full transition-all duration-1000"
+                  style={{ width: `${feedback.feedback?.communicationSkills?.score || 0}%` }}
+                ></div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
+              <div className="w-12 h-12 bg-gradient-to-r from-orange-500 to-red-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Brain className="w-6 h-6 text-white" />
+              </div>
+              <div className="text-3xl font-bold text-orange-600 mb-2">{feedback.feedback?.problemSolving?.score || 0}%</div>
+              <div className="text-gray-600 font-medium text-sm">Problem Solving</div>
+              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-gradient-to-r from-orange-500 to-red-500 h-2 rounded-full transition-all duration-1000"
+                  style={{ width: `${feedback.feedback?.problemSolving?.score || 0}%` }}
+                ></div>
+              </div>
             </div>
           </div>
+        )}
 
-          {Object.keys(questionFeedbacks).length > 0 && (
-            <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
-              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-purple-600" />
-                Question Analysis
-              </h2>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {responses.map((response, index) => {
-                  const feedback = questionFeedbacks[response.questionId];
-                  if (!feedback) return null;
-                  
-                  return (
-                    <div key={index} className="border border-gray-200 rounded-xl p-4 hover:shadow-lg transition-shadow">
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-sm ${
-                            feedback.score >= 80 ? 'bg-green-500' :
-                            feedback.score >= 60 ? 'bg-yellow-500' :
-                            'bg-red-500'
-                          }`}>
-                            {index + 1}
-                          </div>
-                          <div>
-                            <h4 className="font-semibold text-gray-900 text-sm">Question {index + 1}</h4>
-                            <span className={`text-xs px-2 py-0.5 rounded-full ${
-                              questions[index]?.type === 'coding' ? 'bg-purple-100 text-purple-700' :
-                              questions[index]?.type === 'behavioral' ? 'bg-green-100 text-green-700' :
-                              'bg-blue-100 text-blue-700'
-                            }`}>
-                              {questions[index]?.type}
-                            </span>
-                          </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-blue-600" />
+              Performance Analysis
+            </h2>
+            
+            {feedback?.feedback && (
+              <div className="space-y-6">
+                <div className="border-l-4 border-purple-500 pl-4">
+                  <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                    <Code className="w-4 h-4 text-purple-600" />
+                    Technical Skills
+                  </h3>
+                  <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.technicalSkills?.feedback}</p>
+                  <div className="bg-purple-50 rounded-lg p-2">
+                    <div className="text-sm font-medium text-purple-800">Score: {feedback.feedback.technicalSkills?.score}%</div>
+                  </div>
+                </div>
+
+                <div className="border-l-4 border-green-500 pl-4">
+                  <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                    <MessageCircle className="w-4 h-4 text-green-600" />
+                    Communication Skills
+                  </h3>
+                  <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.communicationSkills?.feedback}</p>
+                  <div className="bg-green-50 rounded-lg p-2">
+                    <div className="text-sm font-medium text-green-800">Score: {feedback.feedback.communicationSkills?.score}%</div>
+                  </div>
+                </div>
+
+                <div className="border-l-4 border-orange-500 pl-4">
+                  <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                    <Brain className="w-4 h-4 text-orange-600" />
+                    Problem Solving
+                  </h3>
+                  <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.problemSolving?.feedback}</p>
+                  <div className="bg-orange-50 rounded-lg p-2">
+                    <div className="text-sm font-medium text-orange-800">Score: {feedback.feedback.problemSolving?.score}%</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <Target className="w-5 h-5 text-indigo-600" />
+              Recommendations
+            </h2>
+            
+            {feedback?.feedback?.recommendations && feedback.feedback.recommendations.length > 0 && (
+              <div className="space-y-3">
+                {feedback.feedback.recommendations.map((rec, index) => (
+                  <div key={index} className="flex items-start gap-3 p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+                    <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <span className="text-indigo-600 font-bold text-xs">{index + 1}</span>
+                    </div>
+                    <p className="text-gray-700 leading-relaxed text-sm">{rec}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
+              <h4 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                <Star className="w-4 h-4" />
+                Next Steps
+              </h4>
+              <ul className="space-y-1 text-sm text-blue-800">
+                <li className="flex items-center gap-2">
+                  <ChevronRight className="w-3 h-3" />
+                  Review improvement areas
+                </li>
+                <li className="flex items-center gap-2">
+                  <ChevronRight className="w-3 h-3" />
+                  Practice similar questions
+                </li>
+                <li className="flex items-center gap-2">
+                  <ChevronRight className="w-3 h-3" />
+                  Work on technical skills
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {/* UPDATED: Enhanced Question Analysis with Coding Metrics */}
+        {Object.keys(questionFeedbacks).length > 0 && (
+          <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
+            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <FileText className="w-5 h-5 text-purple-600" />
+              Detailed Question Analysis
+            </h2>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {responses.map((response, index) => {
+                const feedback = questionFeedbacks[response.questionId];
+                if (!feedback) return null;
+                
+                const isCoding = response.questionType === 'coding' || 
+                                response.questionType === 'technical_coding' || 
+                                response.questionType === 'problem-solving';
+                
+                return (
+                  <div key={index} className="border border-gray-200 rounded-xl p-4 hover:shadow-lg transition-shadow">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-sm ${
+                          feedback.score >= 80 ? 'bg-green-500' :
+                          feedback.score >= 60 ? 'bg-yellow-500' :
+                          'bg-red-500'
+                        }`}>
+                          {index + 1}
                         </div>
-                        <div className="text-right">
-                          <div className={`text-lg font-bold ${
-                            feedback.score >= 80 ? 'text-green-600' :
-                            feedback.score >= 60 ? 'text-yellow-600' :
-                            'text-red-600'
+                        <div>
+                          <h4 className="font-semibold text-gray-900 text-sm">Question {index + 1}</h4>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            isCoding ? 'bg-purple-100 text-purple-700' :
+                            questions[index]?.type === 'behavioral' ? 'bg-green-100 text-green-700' :
+                            'bg-blue-100 text-blue-700'
                           }`}>
-                            {response.skipped ? 'SKIP' : `${feedback.score}%`}
-                          </div>
-                          <div className="text-xs text-gray-500">{response.responseTime}s</div>
+                            {questions[index]?.type}
+                            {isCoding && <Code className="w-3 h-3 inline ml-1" />}
+                          </span>
                         </div>
                       </div>
-                      
-                      <p className="text-gray-600 text-xs mb-3 leading-relaxed">{questions[index]?.question}</p>
-                      
-                      <div className="space-y-2">
-                        {feedback.strengths && feedback.strengths.length > 0 && (
-                          <div>
-                            <h5 className="text-xs font-semibold text-green-700 mb-1 flex items-center gap-1">
-                              <CheckCircle className="w-3 h-3" />
-                              Strengths
-                            </h5>
-                            <ul className="text-xs text-green-600 space-y-0.5">
-                              {feedback.strengths.map((strength, idx) => (
-                                <li key={idx} className="flex items-start gap-1">
-                                  <div className="w-1 h-1 bg-green-500 rounded-full mt-1.5 flex-shrink-0"></div>
-                                  {strength}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        
-                        {feedback.improvements && feedback.improvements.length > 0 && (
-                          <div>
-                            <h5 className="text-xs font-semibold text-orange-700 mb-1 flex items-center gap-1">
-                              <AlertCircle className="w-3 h-3" />
-                              Improvements
-                            </h5>
-                            <ul className="text-xs text-orange-600 space-y-0.5">
-                              {feedback.improvements.map((improvement, idx) => (
-                                <li key={idx} className="flex items-start gap-1">
-                                  <div className="w-1 h-1 bg-orange-500 rounded-full mt-1.5 flex-shrink-0"></div>
-                                  {improvement}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-
-                        {response.code && (
-                          <div className="mt-2 p-2 bg-gray-50 rounded-lg border">
-                            <h5 className="text-xs font-semibold text-gray-700 mb-1">Code:</h5>
-                            <pre className="text-xs text-gray-600 font-mono whitespace-pre-wrap overflow-x-auto max-h-20 overflow-y-auto">
-                              {response.code}
-                            </pre>
-                          </div>
-                        )}
-
-                        {(response.transcription || response.textResponse) && !response.skipped && (
-                          <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-100">
-                            <h5 className="text-xs font-semibold text-blue-700 mb-1">
-                              {response.transcription ? 'Audio:' : 'Text:'}
-                            </h5>
-                            <p className="text-xs text-blue-600 leading-relaxed">
-                              {response.transcription || response.textResponse}
-                            </p>
-                          </div>
-                        )}
+                      <div className="text-right">
+                        <div className={`text-lg font-bold ${
+                          feedback.score >= 80 ? 'text-green-600' :
+                          feedback.score >= 60 ? 'text-yellow-600' :
+                          'text-red-600'
+                        }`}>
+                          {response.skipped ? 'SKIP' : `${feedback.score}%`}
+                        </div>
+                        <div className="text-xs text-gray-500">{response.responseTime}s</div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+                    
+                    <p className="text-gray-600 text-xs mb-3 leading-relaxed">{questions[index]?.question}</p>
+                    
+                    {/* Standard Feedback */}
+                    <div className="space-y-2">
+                      {feedback.strengths && feedback.strengths.length > 0 && (
+                        <div>
+                          <h5 className="text-xs font-semibold text-green-700 mb-1 flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3" />
+                            Strengths
+                          </h5>
+                          <ul className="text-xs text-green-600 space-y-0.5">
+                            {feedback.strengths.map((strength, idx) => (
+                              <li key={idx} className="flex items-start gap-1">
+                                <div className="w-1 h-1 bg-green-500 rounded-full mt-1.5 flex-shrink-0"></div>
+                                {strength}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {feedback.improvements && feedback.improvements.length > 0 && (
+                        <div>
+                          <h5 className="text-xs font-semibold text-orange-700 mb-1 flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3" />
+                            Improvements
+                          </h5>
+                          <ul className="text-xs text-orange-600 space-y-0.5">
+                            {feedback.improvements.map((improvement, idx) => (
+                              <li key={idx} className="flex items-start gap-1">
+                                <div className="w-1 h-1 bg-orange-500 rounded-full mt-1.5 flex-shrink-0"></div>
+                                {improvement}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
 
-          {responses && responses.length > 0 && (
-            <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
-              <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-blue-600" />
-                Interview Summary
-              </h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <div className="text-center p-3 bg-blue-50 rounded-lg">
-                  <div className="text-xl font-bold text-blue-600">{responses.length}</div>
-                  <div className="text-xs text-blue-700">Questions</div>
-                </div>
-                <div className="text-center p-3 bg-green-50 rounded-lg">
-                  <div className="text-xl font-bold text-green-600">
-                    {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
-                  </div>
-                  <div className="text-xs text-green-700">Total Time</div>
-                </div>
-                <div className="text-center p-3 bg-purple-50 rounded-lg">
-                  <div className="text-xl font-bold text-purple-600">
-                    {responses.filter(r => r.code).length}
-                  </div>
-                  <div className="text-xs text-purple-700">Coding</div>
-                </div>
-                <div className="text-center p-3 bg-orange-50 rounded-lg">
-                  <div className="text-xl font-bold text-orange-600">
-                    {responses.filter(r => r.skipped).length}
-                  </div>
-                  <div className="text-xs text-orange-700">Skipped</div>
-                </div>
-              </div>
-            </div>
-          )}
+                    {/* Enhanced Coding Analysis */}
+                    <CodingQuestionAnalysis 
+                      response={response} 
+                      feedback={feedback} 
+                      questionData={questions[index]} 
+                      index={index} 
+                    />
 
-          <div className="flex justify-center gap-4">
-            <button
-              onClick={resetInterview}
-              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Start New Interview
-            </button>
-            <button
-              onClick={() => window.print()}
-              className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105"
-            >
-              <Download className="w-4 h-4" />
-              Download Report
-            </button>
+                    {/* Enhanced Code Display */}
+                    {response.code && (
+                      <div className="mt-3 p-2 bg-gray-50 rounded-lg border">
+                        <div className="flex justify-between items-center mb-1">
+                          <h5 className="text-xs font-semibold text-gray-700">Code Solution:</h5>
+                          <span className="text-xs text-gray-500">{response.language}</span>
+                        </div>
+                        <pre className="text-xs text-gray-600 font-mono whitespace-pre-wrap overflow-x-auto max-h-32 overflow-y-auto bg-white rounded border p-2">
+                          {response.code}
+                        </pre>
+                      </div>
+                    )}
+
+                    {/* Audio/Text Response Display */}
+                    {(response.transcription || response.textResponse) && !response.skipped && (
+                      <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-100">
+                        <h5 className="text-xs font-semibold text-blue-700 mb-1">
+                          {response.transcription ? 'Audio Response:' : 'Text Response:'}
+                        </h5>
+                        <p className="text-xs text-blue-600 leading-relaxed">
+                          {response.transcription || response.textResponse}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
+        )}
+
+        {responses && responses.length > 0 && (
+          <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
+            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-blue-600" />
+              Interview Summary
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                <div className="text-xl font-bold text-blue-600">{responses.length}</div>
+                <div className="text-xs text-blue-700">Questions</div>
+              </div>
+              <div className="text-center p-3 bg-green-50 rounded-lg">
+                <div className="text-xl font-bold text-green-600">
+                  {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
+                </div>
+                <div className="text-xs text-green-700">Total Time</div>
+              </div>
+              <div className="text-center p-3 bg-purple-50 rounded-lg">
+                <div className="text-xl font-bold text-purple-600">
+                  {responses.filter(r => r.code).length}
+                </div>
+                <div className="text-xs text-purple-700">Coding</div>
+              </div>
+              <div className="text-center p-3 bg-orange-50 rounded-lg">
+                <div className="text-xl font-bold text-orange-600">
+                  {responses.filter(r => r.skipped).length}
+                </div>
+                <div className="text-xs text-orange-700">Skipped</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-center gap-4">
+          <button
+            onClick={resetInterview}
+            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Start New Interview
+          </button>
+          <button
+            onClick={() => window.print()}
+            className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl transform hover:scale-105"
+          >
+            <Download className="w-4 h-4" />
+            Download Report
+          </button>
         </div>
       </div>
     </div>
-  ), [feedback, responses, questions, questionFeedbacks, timer, resetInterview]);
+  </div>
+), [feedback, responses, questions, questionFeedbacks, timer, resetInterview]);
 
   if (user === null && !error) {
     return (
