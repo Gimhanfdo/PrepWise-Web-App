@@ -129,98 +129,6 @@ const MockInterviewSystem = () => {
     }
   }, [currentQuestion, language, supportedLanguages]);
 
-  const calculateQuestionScore = useCallback((responseText, questionType, responseTime, codeText = null, isSkipped = false) => {
-  if (isSkipped) {
-    return {
-      score: 0,
-      breakdown: { content: 0, communication: 0 },
-      strengths: [],
-      improvements: ['Question was skipped - consider attempting similar questions in practice']
-    };
-  }
-  
-  if (!isValidAnswer(responseText, questionType, codeText)) {
-    return {
-      score: 0,
-      breakdown: { content: 0, communication: 0 },
-      strengths: [],
-      improvements: ['Please provide a meaningful response to the question']
-    };
-  }
-  
-  let contentScore = 70;
-  let communicationScore = 75;
-  let strengths = [];
-  let improvements = [];
-  
-  const responseLength = codeText ? codeText.length : responseText.length;
-  const words = codeText ? codeText.split(/\s+/) : responseText.split(/\s+/);
-  
-  if (questionType === 'coding' || questionType === 'technical_coding') {
-    if (responseLength > 200) {
-      contentScore += 10;
-      strengths.push('Good code length and detail');
-    }
-    if (words.length > 30) {
-      contentScore += 5;
-      strengths.push('Well-structured code');
-    }
-    if (codeText.includes('function') || codeText.includes('def') || codeText.includes('class')) {
-      contentScore += 10;
-      strengths.push('Proper code structure');
-    }
-    if (responseLength < 50) {
-      improvements.push('Provide more complete code implementation');
-    }
-  } else {
-    if (responseLength > 150) {
-      contentScore += 10;
-      communicationScore += 5;
-      strengths.push('Comprehensive response with good detail');
-    }
-    if (words.length > 25) {
-      contentScore += 5;
-      communicationScore += 10;
-      strengths.push('Well-articulated answer');
-    }
-    if (responseLength < 100) {
-      improvements.push('Provide more detailed explanations');
-    }
-    if (words.length < 15) {
-      improvements.push('Expand on your thoughts and reasoning');
-    }
-  }
-  
-  if (questionType === 'behavioral') {
-    communicationScore += 5;
-    if (responseText.toLowerCase().includes('example') || responseText.toLowerCase().includes('experience')) {
-      contentScore += 15;
-      strengths.push('Used concrete examples');
-    }
-  }
-  
-  contentScore = Math.max(0, Math.min(100, contentScore));
-  communicationScore = Math.max(0, Math.min(100, communicationScore));
-  
-  const weightedScore = Math.round(
-    (contentScore * 0.7) + (communicationScore * 0.3)
-  );
-  
-  if (improvements.length === 0) {
-    improvements.push('Continue practicing to maintain this level of performance');
-  }
-  
-  return {
-    score: weightedScore,
-    breakdown: {
-      content: contentScore,
-      communication: communicationScore
-    },
-    strengths,
-    improvements
-  };
-}, [isValidAnswer]);
-
   const handleJobDescriptionChange = useCallback((e) => {
     setInterviewData(prev => ({ ...prev, jobDescription: e.target.value }));
   }, []);
@@ -757,71 +665,138 @@ Status: Ready for submission`;
   }, [interviewData]);
 
   const createInterview = useCallback(async () => {
-    if (!user) {
-      setError('Please log in to start an interview');
-      return;
+  if (!user) {
+    setError('Please log in to start an interview');
+    return;
+  }
+
+  setLoading(true);
+  setError('');
+  addDebugLog('Creating interview...');
+
+  try {
+    const endpoint = cvMode === 'profile' && profileCV 
+      ? '/api/interviews/create-with-profile-cv'
+      : '/api/interviews/create';
+
+    const requestBody = {
+      jobTitle: 'Software Engineering Intern',
+      jobDescription: interviewData.jobDescription.trim(),
+      difficulty: 'intermediate', // Add difficulty level
+      questionCount: 5, // Specify number of questions
+      ...(cvMode === 'profile' && profileCV 
+        ? { useProfileCV: true }
+        : { resumeText: interviewData.resumeText.trim() }
+      )
+    };
+
+    addDebugLog(`Creating interview with endpoint: ${endpoint}`);
+    addDebugLog(`Request body: ${JSON.stringify({...requestBody, resumeText: requestBody.resumeText ? `${requestBody.resumeText.substring(0, 100)}...` : undefined})}`);
+
+    const interviewResponse = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      credentials: 'include',
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!interviewResponse.ok) {
+      throw new Error(`HTTP ${interviewResponse.status}: ${interviewResponse.statusText}`);
     }
 
-    setLoading(true);
-    setError('');
-    addDebugLog('Creating interview...');
-
-    try {
-      const endpoint = cvMode === 'profile' && profileCV 
-        ? '/api/interviews/create-with-profile-cv'
-        : '/api/interviews/create';
-
-      const requestBody = {
-        jobTitle: 'Software Engineering Intern',
-        jobDescription: interviewData.jobDescription.trim(),
-        ...(cvMode === 'profile' && profileCV 
-          ? { useProfileCV: true }
-          : { resumeText: interviewData.resumeText.trim() }
-        )
-      };
-
-      addDebugLog(`Creating interview with endpoint: ${endpoint}`);
-      addDebugLog(`Request body: ${JSON.stringify({...requestBody, resumeText: requestBody.resumeText ? `${requestBody.resumeText.substring(0, 100)}...` : undefined})}`);
-
-      const interviewResponse = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-        },
-        credentials: 'include',
-        body: JSON.stringify(requestBody)
-      });
-
-      const interviewResult = await interviewResponse.json();
-      addDebugLog(`Interview creation response: ${JSON.stringify({
-        success: interviewResult.success,
-        interviewId: interviewResult.interview?.id,
-        questionsCount: interviewResult.interview?.questions?.length,
-        error: interviewResult.error
-      })}`);
-      
-      if (!interviewResult.success) {
-        throw new Error(interviewResult.error || 'Failed to create interview');
-      }
-
-      if (!interviewResult.interview || !interviewResult.interview.questions || interviewResult.interview.questions.length === 0) {
-        throw new Error('Interview created but no questions were generated');
-      }
-
-      setInterview(interviewResult.interview);
-      setQuestions(interviewResult.interview.questions);
-      addDebugLog(`Interview created successfully with ${interviewResult.interview.questions.length} questions`);
-      
-      await startInterview(interviewResult.interview.id);
-      
-    } catch (err) {
-      addDebugLog(`Interview creation failed: ${err.message}`, 'error');
-      setError(`Failed to create interview: ${err.message}`);
-    } finally {
-      setLoading(false);
+    const interviewResult = await interviewResponse.json();
+    addDebugLog(`Interview creation response: ${JSON.stringify({
+      success: interviewResult.success,
+      interviewId: interviewResult.interview?.id,
+      questionsCount: interviewResult.interview?.questions?.length,
+      error: interviewResult.error
+    })}`);
+    
+    if (!interviewResult.success) {
+      throw new Error(interviewResult.error || 'Failed to create interview');
     }
-  }, [user, interviewData, cvMode, profileCV, addDebugLog]);
+
+    if (!interviewResult.interview || !interviewResult.interview.questions || interviewResult.interview.questions.length === 0) {
+      throw new Error('Interview created but no questions were generated');
+    }
+
+    setInterview(interviewResult.interview);
+    setQuestions(interviewResult.interview.questions);
+    addDebugLog(`Interview created successfully with ${interviewResult.interview.questions.length} questions`);
+    
+    await startInterview(interviewResult.interview.id);
+    
+  } catch (err) {
+    addDebugLog(`Interview creation failed: ${err.message}`, 'error');
+    setError(`Failed to create interview: ${err.message}`);
+  } finally {
+    setLoading(false);
+  }
+}, [user, interviewData, cvMode, profileCV, addDebugLog]);
+
+const moveToNextQuestion = async () => {
+  addDebugLog(`Getting next question (${questionIndex + 2}/${questions.length})...`);
+  
+  try {
+    const nextResponse = await fetch(`/api/interviews/${interview.id}/next-question`, {
+      method: 'GET',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      credentials: 'include'
+    });
+
+    if (!nextResponse.ok) {
+      throw new Error(`HTTP ${nextResponse.status}: ${nextResponse.statusText}`);
+    }
+
+    const nextResult = await nextResponse.json();
+    addDebugLog(`Next question response: ${JSON.stringify(nextResult)}`);
+    
+    if (nextResult.success && !nextResult.completed) {
+      const nextQuestion = nextResult.question || questions[questionIndex + 1];
+      setCurrentQuestion(nextQuestion);
+      setQuestionIndex(prev => prev + 1);
+      
+      // Reset form state for next question
+      resetQuestionState(nextQuestion);
+      
+      addDebugLog(`Moved to question ${questionIndex + 2}: ${nextQuestion.question.substring(0, 50)}...`);
+    } else {
+      addDebugLog('All questions completed, finishing interview...');
+      await completeInterview();
+    }
+  } catch (err) {
+    addDebugLog(`Next question failed: ${err.message}`, 'error');
+    await completeInterview(); // Fallback to complete interview
+  }
+};
+
+const resetQuestionState = (nextQuestion) => {
+  setAudioBlob(null);
+  setRecordingTime(0);
+  setTextAnswer('');
+  setTranscription('');
+  setTranscriptionError('');
+  setError('');
+  
+  const isNextCoding = nextQuestion.type === 'coding' || nextQuestion.type === 'technical_coding';
+  setShowCodeEditor(isNextCoding);
+  
+  if (isNextCoding) {
+    const template = nextQuestion.starterCode?.[language] || 
+                    supportedLanguages.find(l => l.value === language)?.template || '';
+    setCode(template);
+  } else {
+    setCode('');
+  }
+  
+  setCodeOutput('');
+};
 
   const startInterview = async (interviewId) => {
     try {
@@ -864,384 +839,268 @@ Status: Ready for submission`;
   };
 
   const skipQuestion = async () => {
-    setLoading(true);
-    setError('');
-    addDebugLog(`Skipping question ${questionIndex + 1}...`);
+  setLoading(true);
+  setError('');
+  addDebugLog(`Skipping question ${questionIndex + 1}...`);
 
-    try {
-      const questionStartTime = timer - (responses.length * 150);
-      const actualResponseTime = Math.max(questionStartTime, 5);
+  try {
+    const actualResponseTime = 5;
 
-      const questionFeedback = calculateQuestionScore('', currentQuestion?.type, actualResponseTime, null, true);
+    const submitData = {
+      questionId: currentQuestion.questionId,
+      responseTime: actualResponseTime,
+      answerMode: 'skipped',
+      responseText: 'Question skipped by candidate',
+      code: null,
+      language: null,
+      skipped: true
+    };
 
-      const submitData = {
-        questionId: currentQuestion.questionId,
-        responseTime: actualResponseTime,
-        answerMode: 'skipped',
-        responseText: 'Question skipped',
-        code: null,
-        score: 0,
-        feedback: questionFeedback,
-        skipped: true
-      };
+    addDebugLog(`Submitting skip to backend: ${JSON.stringify(submitData)}`);
 
-      addDebugLog(`Submitting skip to backend: ${JSON.stringify(submitData)}`);
+    const submitResponse = await fetch(`/api/interviews/${interview.id}/submit-answer`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      credentials: 'include',
+      body: JSON.stringify(submitData)
+    });
 
-      const submitResponse = await fetch(`/api/interviews/${interview.id}/submit-answer`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-        },
-        credentials: 'include',
-        body: JSON.stringify(submitData)
-      });
-
-      const submitResult = await submitResponse.json();
-      addDebugLog(`Skip response: ${JSON.stringify(submitResult)}`);
-      
-      if (!submitResult.success) {
-        throw new Error(submitResult.error || 'Failed to skip question');
-      }
-
-      setQuestionFeedbacks(prev => ({
-        ...prev,
-        [currentQuestion.questionId]: questionFeedback
-      }));
-
-      const response = {
-        questionId: currentQuestion.questionId,
-        question: currentQuestion.question,
-        transcription: null,
-        textResponse: null,
-        responseTime: actualResponseTime,
-        code: null,
-        answerMode: 'skipped',
-        timestamp: new Date().toISOString(),
-        feedback: questionFeedback,
-        skipped: true
-      };
-
-      setResponses(prev => [...prev, response]);
-      addDebugLog(`Question ${questionIndex + 1} skipped successfully`);
-
-      if (questionIndex < questions.length - 1) {
-        addDebugLog(`Getting next question (${questionIndex + 2}/${questions.length})...`);
-        
-        const nextResponse = await fetch(`/api/interviews/${interview.id}/next-question`, {
-          method: 'GET',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-          },
-          credentials: 'include'
-        });
-
-        const nextResult = await nextResponse.json();
-        addDebugLog(`Next question response: ${JSON.stringify(nextResult)}`);
-        
-        if (nextResult.success && !nextResult.completed) {
-          const nextQuestion = nextResult.question || questions[questionIndex + 1];
-          setCurrentQuestion(nextQuestion);
-          setQuestionIndex(prev => prev + 1);
-          
-          setAudioBlob(null);
-          setRecordingTime(0);
-          setTextAnswer('');
-          setTranscription('');
-          setTranscriptionError('');
-          const isNextCoding = nextQuestion.type === 'coding' || nextQuestion.type === 'technical_coding';
-          setCode(nextQuestion.starterCode?.[language] || (isNextCoding ? supportedLanguages.find(l => l.value === language)?.template || '' : ''));
-          setCodeOutput('');
-          setShowCodeEditor(isNextCoding);
-          
-          addDebugLog(`Moved to question ${questionIndex + 2}: ${nextQuestion.question.substring(0, 50)}...`);
-        } else {
-          addDebugLog('All questions completed, finishing interview...');
-          await completeInterview();
-        }
-      } else {
-        addDebugLog('Last question skipped, finishing interview...');
-        await completeInterview();
-      }
-        
-    } catch (err) {
-      addDebugLog(`Skip question failed: ${err.message}`, 'error');
-      setError(`Failed to skip question: ${err.message}`);
-    } finally {
-      setLoading(false);
+    if (!submitResponse.ok) {
+      throw new Error(`HTTP ${submitResponse.status}: ${submitResponse.statusText}`);
     }
-  };
 
-  const submitAnswer = async () => {
-    const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
-    let responseText = '';
+    const submitResult = await submitResponse.json();
+    addDebugLog(`Skip response: ${JSON.stringify(submitResult)}`);
     
-    if (isCodingQuestion) {
-      responseText = code || 'No code provided';
+    if (!submitResult.success) {
+      throw new Error(submitResult.error || 'Failed to skip question');
+    }
+
+    // Use backend feedback for skipped question
+    const skipFeedback = submitResult.feedback || {
+      score: 0,
+      strengths: [],
+      improvements: ['Question was skipped - consider attempting similar questions in practice'],
+      detailedAnalysis: 'Question was skipped by the candidate.',
+      communicationClarity: 0,
+      technicalAccuracy: 0,
+      questionRelevance: 0,
+      responseType: 'skipped'
+    };
+
+    setQuestionFeedbacks(prev => ({
+      ...prev,
+      [currentQuestion.questionId]: skipFeedback
+    }));
+
+    const response = {
+      questionId: currentQuestion.questionId,
+      question: currentQuestion.question,
+      questionType: currentQuestion.type,
+      transcription: null,
+      textResponse: null,
+      responseTime: actualResponseTime,
+      code: null,
+      language: null,
+      answerMode: 'skipped',
+      timestamp: new Date().toISOString(),
+      feedback: skipFeedback,
+      skipped: true,
+      score: 0
+    };
+
+    setResponses(prev => [...prev, response]);
+    addDebugLog(`Question ${questionIndex + 1} skipped successfully`);
+
+    if (questionIndex < questions.length - 1) {
+      await moveToNextQuestion();
     } else {
-      responseText = answerMode === 'audio' ? transcription : textAnswer;
+      await completeInterview();
     }
+        
+  } catch (err) {
+    addDebugLog(`Skip question failed: ${err.message}`, 'error');
+    setError(`Failed to skip question: ${err.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const submitAnswer = async () => {
+  const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
+  let responseText = '';
+  
+  if (isCodingQuestion) {
+    responseText = code || 'No code provided';
+  } else {
+    responseText = answerMode === 'audio' ? transcription : textAnswer;
+  }
+  
+  if (!isValidAnswer(responseText, currentQuestion?.type, isCodingQuestion ? code : null)) {
+    setError('Please provide a meaningful response before submitting');
+    return;
+  }
+
+  setLoading(true);
+  setError('');
+  addDebugLog(`Submitting answer for question ${questionIndex + 1}...`);
+
+  try {
+    const questionStartTime = Date.now() - ((responses.length + 1) * 120000);
+    const actualResponseTime = Math.max(Math.floor((Date.now() - questionStartTime) / 1000), 30);
+
+    // Submit data to backend for AI analysis
+    const submitData = {
+      questionId: currentQuestion.questionId,
+      responseTime: actualResponseTime,
+      answerMode: isCodingQuestion ? 'code' : answerMode,
+      responseText: responseText,
+      code: isCodingQuestion ? code : null,
+      language: isCodingQuestion ? language : null
+      // Remove client-side calculated score and feedback
+    };
+
+    addDebugLog(`Submitting to backend: ${JSON.stringify({...submitData, responseText: submitData.responseText.substring(0, 50) + '...'})}`);
+
+    const submitResponse = await fetch(`/api/interviews/${interview.id}/submit-answer`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      credentials: 'include',
+      body: JSON.stringify(submitData)
+    });
+
+    if (!submitResponse.ok) {
+      throw new Error(`HTTP ${submitResponse.status}: ${submitResponse.statusText}`);
+    }
+
+    const submitResult = await submitResponse.json();
+    addDebugLog(`Submit response: ${JSON.stringify(submitResult)}`);
     
-    if (!isValidAnswer(responseText, currentQuestion?.type, isCodingQuestion ? code : null)) {
-      setError('Please provide a meaningful response before submitting');
-      return;
+    if (!submitResult.success) {
+      throw new Error(submitResult.error || 'Failed to submit answer');
     }
 
-    setLoading(true);
-    setError('');
-    addDebugLog(`Submitting answer for question ${questionIndex + 1}...`);
+    // Use the AI-generated feedback from backend
+    const aiFeedback = submitResult.feedback || {
+      score: 50,
+      strengths: ['Response submitted successfully'],
+      improvements: ['Continue practicing'],
+      detailedAnalysis: 'Response analyzed by AI',
+      communicationClarity: 5,
+      technicalAccuracy: 5,
+      questionRelevance: 5,
+      responseType: 'submitted'
+    };
 
-    try {
-      const questionStartTime = timer - (responses.length * 150);
-      const actualResponseTime = Math.max(questionStartTime, 30);
+    // Store the real AI feedback
+    setQuestionFeedbacks(prev => ({
+      ...prev,
+      [currentQuestion.questionId]: aiFeedback
+    }));
 
-      const questionFeedback = calculateQuestionScore(
-        responseText,
-        currentQuestion?.type,
-        actualResponseTime,
-        isCodingQuestion ? code : null,
-        false
-      );
+    const response = {
+      questionId: currentQuestion.questionId,
+      question: currentQuestion.question,
+      questionType: currentQuestion.type,
+      transcription: answerMode === 'audio' && !isCodingQuestion ? transcription : null,
+      textResponse: answerMode === 'text' && !isCodingQuestion ? textAnswer : null,
+      responseTime: actualResponseTime,
+      code: isCodingQuestion ? code : null,
+      language: isCodingQuestion ? language : null,
+      answerMode: isCodingQuestion ? 'code' : answerMode,
+      timestamp: new Date().toISOString(),
+      feedback: aiFeedback, // Use AI feedback
+      score: aiFeedback.score || 50
+    };
 
-      const submitData = {
-        questionId: currentQuestion.questionId,
-        responseTime: actualResponseTime,
-        answerMode: isCodingQuestion ? 'code' : answerMode,
-        responseText: responseText,
-        code: isCodingQuestion ? code : null,
-        score: questionFeedback.score,
-        feedback: questionFeedback
-      };
+    setResponses(prev => [...prev, response]);
+    addDebugLog(`Answer submitted successfully for question ${questionIndex + 1}`);
 
-      addDebugLog(`Submitting to backend: ${JSON.stringify(submitData)}`);
-
-      const submitResponse = await fetch(`/api/interviews/${interview.id}/submit-answer`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-        },
-        credentials: 'include',
-        body: JSON.stringify(submitData)
-      });
-
-      const submitResult = await submitResponse.json();
-      addDebugLog(`Submit response: ${JSON.stringify(submitResult)}`);
-      
-      if (!submitResult.success) {
-        throw new Error(submitResult.error || 'Failed to submit answer');
-      }
-
-      setQuestionFeedbacks(prev => ({
-        ...prev,
-        [currentQuestion.questionId]: questionFeedback
-      }));
-
-      const response = {
-        questionId: currentQuestion.questionId,
-        question: currentQuestion.question,
-        transcription: answerMode === 'audio' && !isCodingQuestion ? transcription : null,
-        textResponse: answerMode === 'text' && !isCodingQuestion ? textAnswer : null,
-        responseTime: actualResponseTime,
-        code: isCodingQuestion ? code : null,
-        answerMode: isCodingQuestion ? 'code' : answerMode,
-        timestamp: new Date().toISOString(),
-        feedback: questionFeedback
-      };
-
-      setResponses(prev => [...prev, response]);
-      addDebugLog(`Answer submitted successfully for question ${questionIndex + 1}`);
-
-      if (questionIndex < questions.length - 1) {
-        addDebugLog(`Getting next question (${questionIndex + 2}/${questions.length})...`);
-        
-        const nextResponse = await fetch(`/api/interviews/${interview.id}/next-question`, {
-          method: 'GET',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-          },
-          credentials: 'include'
-        });
-
-        const nextResult = await nextResponse.json();
-        addDebugLog(`Next question response: ${JSON.stringify(nextResult)}`);
-        
-        if (nextResult.success && !nextResult.completed) {
-          const nextQuestion = nextResult.question || questions[questionIndex + 1];
-          setCurrentQuestion(nextQuestion);
-          setQuestionIndex(prev => prev + 1);
-          
-          setAudioBlob(null);
-          setRecordingTime(0);
-          setTextAnswer('');
-          setTranscription('');
-          setTranscriptionError('');
-          const isNextCoding = nextQuestion.type === 'coding' || nextQuestion.type === 'technical_coding';
-          setCode(nextQuestion.starterCode?.[language] || (isNextCoding ? supportedLanguages.find(l => l.value === language)?.template || '' : ''));
-          setCodeOutput('');
-          setShowCodeEditor(isNextCoding);
-          
-          addDebugLog(`Moved to question ${questionIndex + 2}: ${nextQuestion.question.substring(0, 50)}...`);
-        } else {
-          addDebugLog('All questions completed, finishing interview...');
-          await completeInterview();
-        }
-      } else {
-        addDebugLog('Last question completed, finishing interview...');
-        await completeInterview();
-      }
-        
-    } catch (err) {
-      addDebugLog(`Submit answer failed: ${err.message}`, 'error');
-      setError(`Failed to submit answer: ${err.message}`);
-    } finally {
-      setLoading(false);
+    // Move to next question or complete interview
+    if (questionIndex < questions.length - 1) {
+      await moveToNextQuestion();
+    } else {
+      await completeInterview();
     }
-  };
+        
+  } catch (err) {
+    addDebugLog(`Submit answer failed: ${err.message}`, 'error');
+    setError(`Failed to submit answer: ${err.message}`);
+  } finally {
+    setLoading(false);
+  }
+};
 
-  const completeInterview = async () => {
-    try {
-      addDebugLog('Completing interview...');
-      
-      const completeResponse = await fetch(`/api/interviews/${interview.id}/complete`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-        },
-        credentials: 'include'
-      });
+const completeInterview = async () => {
+  try {
+    addDebugLog('Completing interview...');
+    
+    const completeResponse = await fetch(`/api/interviews/${interview.id}/complete`, {
+      method: 'PUT',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      credentials: 'include'
+    });
 
-      const completeResult = await completeResponse.json();
-      addDebugLog(`Complete interview response: ${JSON.stringify(completeResult)}`);
-      
-      if (!completeResult.success) {
-        throw new Error(completeResult.error || 'Failed to complete interview');
-      }
+    if (!completeResponse.ok) {
+      throw new Error(`HTTP ${completeResponse.status}: ${completeResponse.statusText}`);
+    }
 
-      const feedbackResponse = await fetch(`/api/interviews/${interview.id}/feedback`, {
-        method: 'GET',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-        },
-        credentials: 'include'
-      });
+    const completeResult = await completeResponse.json();
+    addDebugLog(`Complete interview response: ${JSON.stringify(completeResult)}`);
+    
+    if (!completeResult.success) {
+      throw new Error(completeResult.error || 'Failed to complete interview');
+    }
 
+    // Always try to get AI-generated overall feedback from backend
+    const feedbackResponse = await fetch(`/api/interviews/${interview.id}/feedback`, {
+      method: 'GET',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      credentials: 'include'
+    });
+
+    if (feedbackResponse.ok) {
       const feedbackResult = await feedbackResponse.json();
       addDebugLog(`Feedback response: ${JSON.stringify(feedbackResult)}`);
 
       if (feedbackResult.success && feedbackResult.feedback) {
+        // Use the AI-generated overall feedback from backend
         setFeedback(feedbackResult.feedback);
+        addDebugLog('Using AI-generated overall feedback from backend');
       } else {
-        const calculatedFeedback = calculateOverallFeedback();
-        setFeedback(calculatedFeedback);
-        addDebugLog('Using calculated feedback based on question responses');
+        addDebugLog('Backend feedback not available, using fallback');
+        setFeedback(createFallbackFeedback());
       }
-
-      setCurrentStep('feedback');
-      stopTimer();
-      addDebugLog(`Interview completed successfully`);
-      
-    } catch (err) {
-      addDebugLog(`Complete interview failed: ${err.message}`, 'error');
-      setError(`Failed to complete interview: ${err.message}`);
-      
-      const fallbackFeedback = calculateOverallFeedback();
-      setFeedback(fallbackFeedback);
-      setCurrentStep('feedback');
-      stopTimer();
+    } else {
+      addDebugLog('Feedback endpoint failed, using fallback');
+      setFeedback(createFallbackFeedback());
     }
-  };
 
-  const calculateOverallFeedback = () => {
-    const questionFeedbackArray = Object.values(questionFeedbacks);
+    setCurrentStep('feedback');
+    stopTimer();
+    addDebugLog(`Interview completed successfully`);
     
-    if (questionFeedbackArray.length === 0) {
-      return {
-        score: 70,
-        feedback: {
-          technicalSkills: { score: 70, feedback: "Interview completed with limited feedback data." },
-          communicationSkills: { score: 75, feedback: "Responses were recorded successfully." },
-          problemSolving: { score: 65, feedback: "Good effort in completing all questions." },
-          recommendations: ["Review technical concepts", "Practice more interviews"]
-        }
-      };
-    }
-
-    let totalScore = 0;
-    let technicalSum = 0;
-    let communicationSum = 0;
-    let problemSolvingSum = 0;
-    let technicalCount = 0;
-    let communicationCount = 0;
-    let problemSolvingCount = 0;
-
-    responses.forEach((response, index) => {
-      const feedback = questionFeedbacks[response.questionId];
-      if (feedback && feedback.score !== undefined) {
-        const score = feedback.score;
-        totalScore += score;
-
-        const questionType = questions[index]?.type;
-        if (questionType === 'coding' || questionType === 'technical_coding' || questionType === 'technical') {
-          technicalSum += score;
-          technicalCount++;
-        }
-        if (questionType === 'behavioral') {
-          communicationSum += score;
-          communicationCount++;
-          problemSolvingSum += score;
-          problemSolvingCount++;
-        }
-        if (questionType === 'problem-solving') {
-          problemSolvingSum += score;
-          problemSolvingCount++;
-        }
-      }
-    });
-
-    const overallScore = Math.round(totalScore / questionFeedbackArray.length);
-    const technicalScore = technicalCount > 0 ? Math.round(technicalSum / technicalCount) : overallScore;
-    const communicationScore = communicationCount > 0 ? Math.round(communicationSum / communicationCount) : overallScore;
-    const problemSolvingScore = problemSolvingCount > 0 ? Math.round(problemSolvingSum / problemSolvingCount) : overallScore;
-
-    const allRecommendations = [];
-    questionFeedbackArray.forEach(feedback => {
-      if (feedback.improvements && Array.isArray(feedback.improvements)) {
-        allRecommendations.push(...feedback.improvements);
-      }
-    });
-
-    const uniqueRecommendations = [...new Set(allRecommendations)].slice(0, 5);
-
-    return {
-      score: overallScore,
-      feedback: {
-        technicalSkills: {
-          score: technicalScore,
-          feedback: `Technical skills assessment based on ${technicalCount} technical questions. ${technicalScore >= 80 ? 'Excellent technical foundation!' : technicalScore >= 60 ? 'Good technical understanding with room for growth.' : 'Focus on strengthening technical fundamentals.'}`
-        },
-        communicationSkills: {
-          score: communicationScore,
-          feedback: `Communication assessment based on responses. ${communicationScore >= 80 ? 'Clear and articulate communication!' : communicationScore >= 60 ? 'Good communication with room for improvement.' : 'Work on clarity and structure in responses.'}`
-        },
-        problemSolving: {
-          score: problemSolvingScore,
-          feedback: `Problem-solving evaluation across questions. ${problemSolvingScore >= 80 ? 'Strong analytical thinking!' : problemSolvingScore >= 60 ? 'Good problem-solving approach.' : 'Continue developing analytical skills.'}`
-        },
-        recommendations: uniqueRecommendations.length > 0 ? uniqueRecommendations : [
-          'Continue practicing coding problems regularly',
-          'Work on explaining your thought process clearly',
-          'Practice more technical interviews',
-          'Build more hands-on projects',
-          'Study computer science fundamentals'
-        ]
-      }
-    };
-  };
+  } catch (err) {
+    addDebugLog(`Complete interview failed: ${err.message}`, 'error');
+    setError(`Failed to complete interview: ${err.message}`);
+    
+    setFeedback(createFallbackFeedback());
+    setCurrentStep('feedback');
+    stopTimer();
+  }
+};
 
   const startTimer = () => {
     timerRef.current = setInterval(() => {

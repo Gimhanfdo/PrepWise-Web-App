@@ -320,45 +320,33 @@ export const submitAnswer = async (req, res) => {
       });
     }
 
-    // ADD THESE DEBUG LOGS
-    console.log('=== SUBMIT ANSWER DEBUG ===');
-    console.log('Question Text:', question.question);
+    console.log('=== ANALYZING RESPONSE ===');
+    console.log('Question:', question.question);
     console.log('Question Type:', question.type);
-    console.log('Response Text:', responseText);
-    console.log('Function Type:', typeof generateDetailedFeedback);
-    console.log('==========================');
+    console.log('Response:', responseText);
+    console.log('Code:', code || 'None');
 
-    let analysis = null;
+    // Use ONLY AI feedback - no fallbacks
+    let analysis;
     try {
-      console.log('🔄 Calling generateDetailedFeedback...');
-      
-      analysis = await generateDetailedFeedback(
+      analysis = await generateStrictAIFeedback(
         question.question,
         question.type,
         responseText,
-        code,
-        interview.resumeText,
-        interview.jobDescription
+        code
       );
-      
-      console.log('✅ Analysis completed:', {
+      console.log('✅ AI Analysis Result:', {
         score: analysis.score,
-        hasStrengths: analysis.strengths?.length,
-        hasImprovements: analysis.improvements?.length,
-        analysisLength: analysis.detailedAnalysis?.length
+        relevance: analysis.questionRelevance,
+        type: analysis.responseType
       });
-      
-    } catch (analysisError) {
-      console.error('❌ Analysis failed, using basic fallback:', analysisError.message);
-      console.error('Full error:', analysisError);
-      
-      // Log which fallback is being used
-      console.log('🔄 Falling back to generateBasicFeedback...');
-      analysis = generateBasicFeedback(responseText, question.type);
-      
-      console.log('📝 Fallback result:', {
-        score: analysis.score,
-        source: 'fallback'
+    } catch (error) {
+      console.error('❌ AI Feedback Failed:', error.message);
+      // Return error instead of fallback
+      return res.status(500).json({
+        success: false,
+        error: 'AI feedback system temporarily unavailable. Please try again.',
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       });
     }
 
@@ -386,11 +374,9 @@ export const submitAnswer = async (req, res) => {
 
     await interview.save();
 
-    // Log final response being sent
-    console.log('📤 Final feedback being sent:', {
+    console.log('📤 Final Response Sent:', {
       score: analysis.score,
-      strengths: analysis.strengths,
-      improvements: analysis.improvements?.slice(0, 2) // Just first 2 for brevity
+      type: analysis.responseType
     });
 
     res.json({
@@ -413,75 +399,170 @@ export const submitAnswer = async (req, res) => {
   }
 };
 
-// ALSO, let's check what your generateBasicFeedback function looks like
-// This might be the culprit - it could be giving high scores incorrectly
+async function generateStrictAIFeedback(question, questionType, responseText, code) {
+  const model = genAI.getGenerativeModel({ 
+    model: "gemini-2.0-flash-exp",
+    generationConfig: {
+      temperature: 0.1,  // Low temperature for consistent scoring
+      maxOutputTokens: 2048
+    }
+  });
 
-function generateBasicFeedback(responseText, questionType) {
-  console.log('⚠️  USING BASIC FALLBACK - This should give low scores for off-topic answers');
+  const prompt = `You are an EXTREMELY STRICT technical interviewer for software engineering positions. Your job is to be brutally honest about answer quality and relevance.
+
+CRITICAL SCORING RULES:
+1. If the answer is COMPLETELY IRRELEVANT to the question asked, give 0%
+2. If the answer addresses a different topic entirely, give 0%
+3. If the answer is generic/template-like and doesn't specifically address the question, give 1-25% maximum
+4. Only give high scores (70%+) for answers that DIRECTLY and THOROUGHLY address the specific question
+5. Just providing "a response" is NOT a strength - quality and relevance are everything
+6. BE RUTHLESS - irrelevant answers get 0%, no exceptions
+
+QUESTION ASKED: "${question}"
+QUESTION TYPE: ${questionType}
+CANDIDATE RESPONSE: "${responseText}"
+${code ? `CODE PROVIDED: ${code}` : 'NO CODE PROVIDED'}
+
+RELEVANCE CHECK:
+- Does this response answer the EXACT question that was asked?
+- If this is a behavioral question asking for personal experience, did they share actual personal experience?
+- If this asks about a specific technology/concept, did they address that specific item?
+- If this is a coding question, did they attempt to solve the actual problem presented?
+
+HARSH SCORING GUIDELINES:
+- 90-100%: Perfect, detailed answer that completely addresses the question with excellent insight
+- 80-89%: Very good answer that clearly addresses the question with solid understanding
+- 70-79%: Good answer that properly addresses the question with adequate detail
+- 60-69%: Acceptable answer that addresses the question but lacks depth or has minor issues
+- 50-59%: Weak answer that barely addresses the question or has significant gaps
+- 40-49%: Poor answer that partially addresses the question but misses key points
+- 30-39%: Very poor answer that barely relates to the question
+- 1-29%: Answer has some connection but doesn't properly address what was asked
+- 0%: COMPLETELY IRRELEVANT - answer is about a different topic entirely, or makes no sense in context
+
+EXAMPLES OF WHAT DESERVES 0%:
+- Answering about databases when asked about a specific project challenge
+- Giving a generic definition when asked for personal experience  
+- Talking about completely unrelated technologies
+- Copy-paste answers that don't match the question context
+- Generic responses like "I would research it" without any substance
+- Answering the wrong question entirely
+- Any response that is completely off-topic or irrelevant to what was asked
+
+EXAMPLES OF WHAT DESERVES 70%+ ONLY:
+- Specific, detailed answers that directly address what was asked
+- Personal examples that match behavioral question requirements
+- Technical explanations that accurately cover the specific concept asked
+- Code solutions that actually solve the presented problem
+- Demonstrations of deep understanding of the specific topic
+
+STRENGTH IDENTIFICATION RULES:
+- NEVER list "provided a response" or "attempted to answer" as strengths
+- ONLY mention actual technical knowledge, specific insights, or relevant examples
+- If the answer is poor/irrelevant, strengths should be minimal or none
+- Be honest - if there are no real strengths, say so
+
+IMPROVEMENT IDENTIFICATION:
+- Be specific about what went wrong
+- Point out the mismatch between question and answer
+- Suggest concrete ways to actually address the question asked
+- Don't be gentle - be direct about poor performance
+
+Return ONLY this JSON structure with no markdown formatting:
+{
+  "score": [0-100 integer - be ruthlessly honest, 0 for completely irrelevant],
+  "questionRelevance": [1-10 - how well they answered what was actually asked],
+  "responseType": "perfectly-relevant" | "mostly-relevant" | "partially-relevant" | "mostly-irrelevant" | "completely-off-topic",
+  "strengths": [list actual strengths only if they exist - if answer is poor/irrelevant, use ["None identified"] or minimal relevant points],
+  "improvements": [be specific about what went wrong and how to fix it],
+  "detailedAnalysis": "Be brutally honest about why you gave this score. Clearly explain the mismatch between question and answer. Don't sugarcoat poor performance.",
+  "communicationClarity": [1-10 - based on how clearly they expressed their thoughts],
+  "technicalAccuracy": [1-10 - based on correctness of any technical content],
+  "overallAssessment": "Honest assessment of whether this response demonstrates competence for the role"
+}`;
+
+  const result = await model.generateContent(prompt);
+  const response = await result.response;
+  let analysisText = response.text().trim();
   
-  // Check if this is the database answer to behavioral question
-  const response = responseText.toLowerCase();
-  const isDatabaseAnswerToNonDatabaseQuestion = (
-    response.includes('mysql') && 
-    response.includes('mongodb') && 
-    response.includes('structured data') &&
-    questionType === 'behavioral'
-  );
+  // Clean any markdown formatting
+  analysisText = analysisText
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .replace(/^```/gm, '')
+    .replace(/```$/gm, '')
+    .trim();
+
+  // Find JSON in the response
+  const jsonStart = analysisText.indexOf('{');
+  const jsonEnd = analysisText.lastIndexOf('}');
   
-  if (isDatabaseAnswerToNonDatabaseQuestion) {
-    console.log('🚨 Detected database answer to behavioral question - scoring low');
-    return {
-      score: 15,
-      strengths: ['Demonstrated technical knowledge'],
-      improvements: [
-        'Answer the specific question asked - this was about your project experience, not database comparisons',
-        'Read behavioral questions carefully and provide personal examples',
-        'Focus on YOUR specific challenges and solutions'
-      ],
-      detailedAnalysis: `Student provided database comparison answer when asked about behavioral project experience. This shows knowledge but completely misses the question. Score: 15/100`,
-      communicationClarity: 3,
-      technicalAccuracy: 6
-    };
+  if (jsonStart === -1 || jsonEnd === -1) {
+    throw new Error('AI response did not contain valid JSON structure');
   }
   
-  // For other responses, return your existing logic
-  return generateImprovedFallbackFeedback('General question', questionType, responseText, null);
-}
-
-// Test function to verify the new feedback function works
-export const testNewFeedback = async (req, res) => {
+  const jsonText = analysisText.substring(jsonStart, jsonEnd + 1);
+  
+  let aiAnalysis;
   try {
-    console.log('🧪 Testing new feedback function...');
-    
-    const testQuestion = "Your Event Management System project involved developing a GUI-based application with user authentication and database integration using C# and .NET. Tell me about a significant technical challenge you encountered during the development of this system. How did you approach solving it, and what did you learn from that experience?";
-    const testResponse = "MySQL stores structured data in predefined tables with relationships, ideal for complex queries and strong consistency. MongoDB stores flexible, JSON-like documents, suiting rapidly changing or unstructured data. I'd choose MongoDB for agile, schema-evolving apps, and MySQL for transaction-heavy systems requiring strict schema enforcement and reliable relational integrity.";
-    
-    const result = await generateDetailedFeedback(
-      testQuestion,
-      "behavioral", 
-      testResponse,
-      null,
-      "",
-      ""
+    aiAnalysis = JSON.parse(jsonText);
+  } catch (parseError) {
+    console.error('JSON Parse Error:', parseError);
+    console.error('Raw AI Response:', analysisText);
+    throw new Error('Failed to parse AI feedback response');
+  }
+
+  // Validate required fields
+  if (typeof aiAnalysis.score !== 'number' || aiAnalysis.score < 0 || aiAnalysis.score > 100) {
+    throw new Error('Invalid score in AI response');
+  }
+
+  // Ensure arrays are properly formatted with quality control
+  let strengths = Array.isArray(aiAnalysis.strengths) ? aiAnalysis.strengths.slice(0, 3) : [];
+  const improvements = Array.isArray(aiAnalysis.improvements) ? aiAnalysis.improvements.slice(0, 4) : [];
+
+  // Additional validation for irrelevant answers - ensure 0% for completely off-topic responses
+  if (aiAnalysis.score < 30 && strengths.length > 0) {
+    // Filter out generic "strengths" for very poor answers
+    strengths = strengths.filter(strength => 
+      !strength.toLowerCase().includes('provided') &&
+      !strength.toLowerCase().includes('attempted') &&
+      !strength.toLowerCase().includes('gave a response') &&
+      !strength.toLowerCase().includes('answered the question')
     );
     
-    console.log('🧪 Test result:', result);
-    
-    res.json({
-      success: true,
-      message: 'Test completed',
-      feedback: result,
-      expected: 'Score should be very low (10-15) for off-topic response'
-    });
-    
-  } catch (error) {
-    console.error('Test failed:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    // If no real strengths remain for very low scores, be honest
+    if (strengths.length === 0) {
+      strengths = ['None identified'];
+    }
   }
-};
+
+  // Force 0% and appropriate feedback for completely irrelevant answers
+  if (aiAnalysis.responseType === 'completely-off-topic' || aiAnalysis.questionRelevance <= 2) {
+    aiAnalysis.score = 0;
+    strengths = ['None identified'];
+  }
+
+  // Ensure we have meaningful improvements for poor answers
+  const finalImprovements = improvements.length > 0 ? improvements : [
+    'The response did not address the specific question asked',
+    'Focus on understanding what the question is actually asking',
+    'Provide relevant examples and specific details related to the topic',
+    'Ensure your answer directly responds to the interviewer\'s question'
+  ];
+
+  return {
+    score: Math.round(aiAnalysis.score),
+    questionRelevance: Math.max(1, Math.min(10, aiAnalysis.questionRelevance || 1)),
+    responseType: aiAnalysis.responseType || 'partially-relevant',
+    strengths: strengths.length > 0 ? strengths : ['None identified'],
+    improvements: finalImprovements,
+    detailedAnalysis: aiAnalysis.detailedAnalysis || 'Response analyzed for relevance and accuracy.',
+    communicationClarity: Math.max(1, Math.min(10, aiAnalysis.communicationClarity || 5)),
+    technicalAccuracy: Math.max(1, Math.min(10, aiAnalysis.technicalAccuracy || 5)),
+    overallAssessment: aiAnalysis.overallAssessment || 'Response requires significant improvement'
+  };
+}
 
 export const skipQuestion = async (req, res) => {
   try {
@@ -511,7 +592,7 @@ export const skipQuestion = async (req, res) => {
       question: question.question,
       questionType: question.type,
       transcription: null,
-      textResponse: 'Question skipped',
+      textResponse: 'Question skipped by candidate',
       code: null,
       responseTime: 0,
       recordingDuration: null,
@@ -519,11 +600,18 @@ export const skipQuestion = async (req, res) => {
       skipped: true,
       feedback: {
         score: 0,
-        strengths: [],
-        improvements: ['Question was skipped - consider attempting similar questions in practice'],
-        detailedAnalysis: 'Question was skipped by the candidate.',
+        questionRelevance: 0,
+        responseType: 'skipped',
+        strengths: ['None'],
+        improvements: [
+          'The candidate did not attempt to answer the question.',
+          'Even if unsure, provide some attempt or explanation of your thought process.',
+          'Skipping questions shows lack of engagement with the interview process.'
+        ],
+        detailedAnalysis: 'Question was skipped entirely by the candidate. This shows no engagement with the question content and represents a missed opportunity to demonstrate knowledge or problem-solving approach.',
         communicationClarity: 0,
-        technicalAccuracy: 0
+        technicalAccuracy: 0,
+        overallAssessment: 'No attempt made - significant concern for interview performance'
       }
     };
 
@@ -540,7 +628,7 @@ export const skipQuestion = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Question skipped successfully',
+      message: 'Question skipped',
       progress: {
         current: interview.responses.length,
         total: interview.questions.length,
@@ -576,14 +664,7 @@ export const analyzeResponse = async (req, res) => {
       });
     }
 
-    const feedback = await generateDetailedFeedback(
-      question,
-      questionType,
-      responseText,
-      code,
-      '',
-      ''
-    );
+    const feedback = await generateStrictAIFeedback(question, questionType, responseText, code);
 
     res.json({
       success: true,
@@ -594,7 +675,7 @@ export const analyzeResponse = async (req, res) => {
     console.error('Analyze response error:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to analyze response',
+      error: 'Failed to analyze response - AI system temporarily unavailable',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -1357,456 +1438,6 @@ function cleanAndExtractJSON(text) {
   }
   
   return cleaned;
-}
-
-function analyzeResponseQuality(responseText, questionType) {
-  const response = responseText.trim().toLowerCase();
-  const wordCount = responseText.trim().split(/\s+/).length;
-  
-  const inappropriateResponses = [
-    'no idea', 'dont know', "don't know", 'idk', 'not sure', 'no clue',
-    'what', 'huh', 'what are you saying', 'what do you mean',
-    'i have no idea', 'no understanding', 'completely lost'
-  ];
-  
-  const dismissiveResponses = [
-    'whatever', 'who cares', 'does not matter', "doesn't matter",
-    'why should i know', 'not important', 'boring', 'stupid question'
-  ];
-  
-  const isInappropriate = inappropriateResponses.some(phrase => response.includes(phrase)) ||
-                         dismissiveResponses.some(phrase => response.includes(phrase));
-  
-  const isTooShort = wordCount < 3 || responseText.trim().length < 10;
-  
-  const isOffTopic = !isInappropriate && !isTooShort && (
-    response.includes('different topic') ||
-    response.includes('not related') ||
-    (questionType === 'technical' && !containsAnyTechnicalContent(responseText))
-  );
-  
-  return {
-    isInappropriate,
-    isTooShort,
-    isOffTopic,
-    wordCount
-  };
-}
-
-// Enhanced feedback generation using Gemini 2.5 Flash
-async function generateDetailedFeedback(question, questionType, responseText, code, resumeText, jobDescription) {
-  try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-    
-    // Pre-analyze the response for immediate issues
-    const preAnalysis = preAnalyzeResponse(responseText, question, questionType);
-    
-    const prompt = `You are an expert technical interviewer evaluating a SOFTWARE ENGINEERING INTERN candidate. You must provide precise, honest feedback based on how well their response matches the specific question asked.
-
-CRITICAL ANALYSIS TASK:
-Question Asked: "${question}"
-Question Type: ${questionType}
-Candidate's Response: "${responseText}"
-${code ? `Code Provided: ${code}` : 'No code provided'}
-
-PRE-ANALYSIS FLAGS:
-${preAnalysis.flags.map(flag => `- ${flag}`).join('\n')}
-
-EVALUATION CRITERIA:
-
-1. RELEVANCE CHECK (Most Important):
-   - Does the response answer the SPECIFIC question asked?
-   - For behavioral questions: Did they describe a personal experience/challenge?
-   - For technical questions: Did they address the technical concept asked about?
-   - PENALTY: If completely off-topic, maximum score is 15/100
-
-2. CONTENT ANALYSIS:
-   - Technical accuracy of any claims made
-   - Depth and detail of explanation
-   - Use of appropriate examples
-   - Professional communication style
-
-3. BEHAVIORAL QUESTION REQUIREMENTS:
-   If question asks about "challenge you faced" or "experience":
-   - Must describe a SPECIFIC situation from their experience
-   - Should explain what they DID to solve it
-   - Should mention lessons learned or outcomes
-
-SCORING RUBRIC (Be Strict and Honest):
-- 90-100: Perfect answer that fully addresses the question with excellent detail
-- 80-89: Good answer that addresses the question with solid understanding
-- 70-79: Adequate answer with some gaps but stays on topic
-- 60-69: Weak answer that partially addresses the question
-- 50-59: Poor answer that barely relates to the question
-- 30-49: Very poor answer that mostly misses the point
-- 10-29: Completely wrong answer or totally off-topic
-- 0-9: Nonsensical, inappropriate, or no meaningful response
-
-SPECIFIC ANALYSIS FOR THIS RESPONSE:
-The candidate was asked: "${question}"
-They responded with: "${responseText}"
-
-CRITICAL QUESTIONS TO ANSWER:
-1. Does this response answer what was asked?
-2. If it's a behavioral question about their project experience, did they describe their actual experience?
-3. If it's about a technical challenge, did they mention a specific challenge they faced?
-4. Is this response relevant to the question at all?
-
-Be brutally honest. If they answered the wrong question entirely, score accordingly low and explain exactly what went wrong.
-
-Return ONLY valid JSON (no markdown formatting):
-{
-  "score": [0-100, be honest about how well this matches the question],
-  "strengths": ["Specific positive aspects of their response, if any"],
-  "improvements": ["Specific issues with their response", "What they need to fix"],
-  "detailedAnalysis": "Comprehensive analysis explaining: 1) How well their response matches the question asked, 2) What they got right/wrong, 3) Why this score was given. Reference their exact words and the exact question.",
-  "communicationClarity": [1-10],
-  "technicalAccuracy": [1-10],
-  "questionRelevance": [1-10, how well they answered what was actually asked],
-  "responseType": "on-topic|partially-relevant|completely-off-topic"
-}`;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    let analysisText = response.text().trim();
-    
-    // Clean the response of any markdown formatting
-    analysisText = analysisText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    
-    let aiAnalysis;
-    try {
-      aiAnalysis = JSON.parse(analysisText);
-    } catch (parseError) {
-      console.error('Failed to parse AI response:', parseError);
-      return generateIntelligentFallback(question, questionType, responseText, code, preAnalysis);
-    }
-    
-    // Validate and enhance the AI response
-    return validateAndEnhanceFeedback(aiAnalysis, question, questionType, responseText, code, preAnalysis);
-
-  } catch (error) {
-    console.error('Gemini API failed:', error);
-    return generateIntelligentFallback(question, questionType, responseText, code, preAnalysis);
-  }
-}
-
-// Pre-analyze response for obvious issues
-function preAnalyzeResponse(responseText, question, questionType) {
-  const response = responseText.toLowerCase();
-  const questionLower = question.toLowerCase();
-  const flags = [];
-  
-  // Check for question mismatch
-  if (questionType === 'behavioral') {
-    const behavioralKeywords = ['challenge', 'experience', 'project', 'faced', 'solved', 'developed'];
-    const hasBehavioralResponse = ['when', 'during', 'while working', 'i faced', 'challenge was', 'problem', 'difficulty'].some(phrase => response.includes(phrase));
-    
-    if (!hasBehavioralResponse && questionLower.includes('challenge')) {
-      flags.push('Response does not describe a personal challenge or experience as requested');
-    }
-  }
-  
-  // Check for topic mismatch
-  if (questionLower.includes('event management') && !response.includes('event')) {
-    flags.push('Question asks about Event Management System but response does not mention events');
-  }
-  
-  if (questionLower.includes('c#') && !response.includes('c#') && !response.includes('.net')) {
-    flags.push('Question mentions C# and .NET but response does not address these technologies');
-  }
-  
-  // Check for database question mismatch
-  if (response.includes('mysql') && response.includes('mongodb') && !questionLower.includes('mysql') && !questionLower.includes('mongodb')) {
-    flags.push('Response discusses MySQL and MongoDB but question does not ask about these databases');
-  }
-  
-  // Check for template/memorized answers
-  if (response.includes('structured data in predefined tables') && !questionLower.includes('database')) {
-    flags.push('Response appears to be answering a database comparison question');
-  }
-  
-  const responseLength = responseText.trim().split(/\s+/).length;
-  const isAppropriateLength = responseLength >= 15;
-  
-  return {
-    flags,
-    isAppropriateLength,
-    responseLength,
-    appearsOffTopic: flags.length > 0
-  };
-}
-
-// Validate and enhance AI feedback
-function validateAndEnhanceFeedback(aiAnalysis, question, questionType, responseText, code, preAnalysis) {
-  let score = Math.max(0, Math.min(100, aiAnalysis.score || 50));
-  
-  // Apply penalties for obvious mismatches
-  if (preAnalysis.appearsOffTopic) {
-    score = Math.min(score, 20); // Cap score at 20 for off-topic responses
-  }
-  
-  // Specific penalty for answering wrong question entirely
-  if (questionType === 'behavioral' && responseText.toLowerCase().includes('mysql') && responseText.toLowerCase().includes('mongodb')) {
-    score = Math.min(score, 15);
-  }
-  
-  // Ensure feedback is specific and helpful
-  let improvements = Array.isArray(aiAnalysis.improvements) ? aiAnalysis.improvements : [];
-  if (preAnalysis.appearsOffTopic) {
-    improvements.unshift('Read the question carefully and ensure your response directly addresses what is being asked');
-    if (questionType === 'behavioral') {
-      improvements.push('For behavioral questions, describe a specific personal experience or situation you encountered');
-    }
-  }
-  
-  let strengths = Array.isArray(aiAnalysis.strengths) ? aiAnalysis.strengths : [];
-  if (strengths.length === 0 || preAnalysis.appearsOffTopic) {
-    if (responseText.trim().length > 50) {
-      strengths = ['Provided a detailed response'];
-    } else {
-      strengths = ['Attempted to provide an answer'];
-    }
-  }
-  
-  return {
-    score: score,
-    strengths: strengths.slice(0, 3),
-    improvements: improvements.slice(0, 4),
-    detailedAnalysis: aiAnalysis.detailedAnalysis || generateSpecificAnalysis(question, questionType, responseText, score, preAnalysis),
-    communicationClarity: Math.max(1, Math.min(10, aiAnalysis.communicationClarity || 5)),
-    technicalAccuracy: Math.max(1, Math.min(10, aiAnalysis.technicalAccuracy || 5)),
-    questionRelevance: Math.max(1, Math.min(10, aiAnalysis.questionRelevance || (preAnalysis.appearsOffTopic ? 2 : 5))),
-    responseType: aiAnalysis.responseType || (preAnalysis.appearsOffTopic ? 'completely-off-topic' : 'partially-relevant')
-  };
-}
-
-// Generate intelligent fallback when AI fails
-function generateIntelligentFallback(question, questionType, responseText, code, preAnalysis) {
-  let score = 40; // Base score
-  let strengths = [];
-  let improvements = [];
-  
-  // Analyze the specific case of wrong question answered
-  if (preAnalysis.appearsOffTopic) {
-    score = 12;
-    strengths = ['Demonstrated knowledge of database concepts'];
-    improvements = [
-      'Read the question carefully - you were asked about your Event Management System project experience, not database comparisons',
-      'For behavioral questions, describe a specific challenge YOU faced and how YOU solved it',
-      'Focus on answering the exact question asked rather than providing general technical knowledge',
-      'Practice identifying different question types (behavioral vs technical)'
-    ];
-  } else {
-    // Standard analysis for on-topic responses
-    if (preAnalysis.isAppropriateLength) {
-      score += 20;
-      strengths.push('Provided comprehensive detail');
-    }
-    
-    if (questionType === 'behavioral' && responseText.toLowerCase().includes('project')) {
-      score += 15;
-      strengths.push('Mentioned project experience');
-    }
-    
-    improvements.push('Ensure your response directly addresses the specific question asked');
-    improvements.push('Provide more specific examples from your personal experience');
-  }
-  
-  const detailedAnalysis = generateSpecificAnalysis(question, questionType, responseText, score, preAnalysis);
-  
-  return {
-    score: score,
-    strengths: strengths.length > 0 ? strengths : ['Provided a response'],
-    improvements: improvements,
-    detailedAnalysis: detailedAnalysis,
-    communicationClarity: preAnalysis.isAppropriateLength ? 6 : 3,
-    technicalAccuracy: preAnalysis.appearsOffTopic ? 2 : 5,
-    questionRelevance: preAnalysis.appearsOffTopic ? 1 : 4,
-    responseType: preAnalysis.appearsOffTopic ? 'completely-off-topic' : 'partially-relevant'
-  };
-}
-
-// Generate specific analysis based on question-response mismatch
-function generateSpecificAnalysis(question, questionType, responseText, score, preAnalysis) {
-  let analysis = `Analysis of response to: "${question}"\n\n`;
-  
-  // Identify specific mismatch
-  if (questionType === 'behavioral' && responseText.includes('MySQL') && responseText.includes('MongoDB')) {
-    analysis += `MAJOR ISSUE: The candidate was asked about a behavioral question regarding their Event Management System project - specifically about a technical challenge they faced and how they solved it. However, they provided a textbook answer about MySQL vs MongoDB database differences.\n\n`;
-    analysis += `This response completely misses the point of the behavioral question. The interviewer wanted to hear about:\n`;
-    analysis += `- A specific challenge the candidate encountered in their Event Management System project\n`;
-    analysis += `- How they approached solving that challenge\n`;
-    analysis += `- What they learned from the experience\n\n`;
-    analysis += `Instead, they provided generic technical knowledge that doesn't demonstrate personal experience or problem-solving skills.\n\n`;
-    analysis += `Score: ${score}/100 - This low score reflects the complete disconnect between question and answer.`;
-    return analysis;
-  }
-  
-  // Analysis for other types of responses
-  analysis += `The response contains ${responseText.split(' ').length} words and `;
-  
-  if (preAnalysis.appearsOffTopic) {
-    analysis += `appears to be answering a different question than what was asked. `;
-    analysis += `${preAnalysis.flags.join('. ')}. `;
-  } else if (questionType === 'behavioral') {
-    analysis += `addresses the behavioral question with `;
-    analysis += responseText.toLowerCase().includes('challenge') ? 'some mention of challenges' : 'limited focus on personal experience';
-  } else {
-    analysis += `provides technical information that is `;
-    analysis += score >= 60 ? 'generally accurate' : 'limited in accuracy or depth';
-  }
-  
-  analysis += ` Score: ${score}/100.`;
-  return analysis;
-}
-
-// Export the enhanced function
-export { generateDetailedFeedback };
-
-function validateFeedback(aiAnalysis, responseText, code, questionType) {
-  const wordCount = responseText.trim().split(/\s+/).length;
-  const isVeryShort = responseText.trim().length < 15 || wordCount < 5;
-  const meaninglessResponses = ['yes', 'no', 'ok', 'sure', 'maybe', 'i dont know', 'idk', 'not sure', 'good'];
-  const isRubbish = meaninglessResponses.includes(responseText.trim().toLowerCase()) || isVeryShort;
-  
-  let adjustedScore = Math.min(100, Math.max(0, aiAnalysis.score || 50));
-  
-  if (isRubbish) {
-    adjustedScore = Math.min(adjustedScore, 20);
-  }
-  
-  if (questionType === 'coding' && (!code || code.trim().length < 30)) {
-    adjustedScore = Math.min(adjustedScore, 35);
-  }
-  
-  return {
-    score: adjustedScore,
-    strengths: Array.isArray(aiAnalysis.strengths) ? aiAnalysis.strengths.slice(0, 4) : ['Provided a response'],
-    improvements: Array.isArray(aiAnalysis.improvements) ? aiAnalysis.improvements.slice(0, 4) : ['Work on providing more detailed explanations'],
-    detailedAnalysis: aiAnalysis.detailedAnalysis || `Response analyzed with ${wordCount} words. ${isRubbish ? 'Response lacks sufficient detail and substance.' : 'Shows effort in answering the question.'}`,
-    communicationClarity: isRubbish ? Math.min(3, aiAnalysis.communicationClarity || 1) : Math.min(10, Math.max(1, aiAnalysis.communicationClarity || 5)),
-    technicalAccuracy: isRubbish ? Math.min(3, aiAnalysis.technicalAccuracy || 1) : Math.min(10, Math.max(1, aiAnalysis.technicalAccuracy || 5))
-  };
-}
-
-function generateImprovedFallbackFeedback(question, questionType, responseText, code) {
-  const wordCount = responseText.trim().split(/\s+/).length;
-  const responseLength = responseText.trim().length;
-  const isVeryShort = responseLength < 15 || wordCount < 5;
-  const meaninglessResponses = ['yes', 'no', 'ok', 'sure', 'maybe', 'i dont know', 'idk', 'not sure', 'good'];
-  const isRubbish = meaninglessResponses.includes(responseText.trim().toLowerCase()) || isVeryShort;
-
-  let baseScore = 50;
-  let strengths = [];
-  let improvements = [];
-  let analysis = '';
-
-  if (isRubbish) {
-    baseScore = 15;
-    strengths = ['Attempted to respond to the question'];
-    improvements = [
-      'Provide much more detailed explanations',
-      'Show your understanding with specific examples',
-      'Elaborate on your thought process'
-    ];
-    analysis = `Response to "${question}" is too brief (${wordCount} words) and lacks the detail expected. The answer "${responseText.trim()}" does not demonstrate understanding of what was asked.`;
-  } else {
-    if (questionType === 'behavioral') {
-      const hasExample = responseText.toLowerCase().includes('when') || 
-                        responseText.toLowerCase().includes('time') ||
-                        responseText.toLowerCase().includes('project') ||
-                        responseText.toLowerCase().includes('experience');
-      
-      if (hasExample) {
-        baseScore += 20;
-        strengths.push('Provided specific examples from personal experience');
-      } else {
-        improvements.push('Include specific examples and situations in behavioral responses');
-      }
-
-      const showsLearning = responseText.toLowerCase().includes('learn') ||
-                           responseText.toLowerCase().includes('challenge') ||
-                           responseText.toLowerCase().includes('improve');
-      
-      if (showsLearning) {
-        baseScore += 15;
-        strengths.push('Demonstrated learning mindset and growth orientation');
-      }
-    }
-
-    if (questionType === 'technical') {
-      const techTerms = ['algorithm', 'function', 'variable', 'object', 'class', 'method', 'array', 'data', 'structure', 'database', 'api'];
-      const foundTerms = techTerms.filter(term => responseText.toLowerCase().includes(term));
-      
-      if (foundTerms.length >= 2) {
-        baseScore += 20;
-        strengths.push('Used appropriate technical terminology');
-      } else if (foundTerms.length > 0) {
-        baseScore += 10;
-        strengths.push('Showed basic technical vocabulary');
-      } else {
-        improvements.push('Use more technical terms relevant to the question');
-      }
-
-      if (responseText.includes('example') || responseText.includes('for instance')) {
-        baseScore += 10;
-        strengths.push('Provided examples to illustrate concepts');
-      }
-    }
-
-    if (questionType === 'coding') {
-      if (code && code.trim().length > 30) {
-        baseScore += 25;
-        strengths.push('Provided code implementation');
-        
-        if (code.includes('function') || code.includes('def') || code.includes('class')) {
-          baseScore += 10;
-          strengths.push('Used proper function structure');
-        }
-        
-        if (code.includes('return') && !code.includes('return null') && !code.includes('return 0;')) {
-          baseScore += 10;
-          strengths.push('Implemented return logic');
-        }
-      } else {
-        baseScore -= 20;
-        improvements.push('Provide actual code implementation, not just comments');
-      }
-    }
-
-    if (wordCount >= 30) {
-      baseScore += 15;
-      strengths.push('Provided comprehensive response with good detail');
-    } else if (wordCount >= 15) {
-      baseScore += 8;
-      strengths.push('Gave adequate detail in response');
-    }
-
-    analysis = `Response to "${question}" contains ${wordCount} words. `;
-    
-    if (questionType === 'coding' && code) {
-      analysis += `Code implementation provided with ${code.split('\n').length} lines. `;
-    }
-    
-    analysis += `The response shows ${baseScore >= 70 ? 'good' : baseScore >= 50 ? 'adequate' : 'basic'} understanding of what was asked.`;
-  }
-
-  if (strengths.length === 0) {
-    strengths = ['Made an attempt to answer the question'];
-  }
-  
-  if (improvements.length === 0) {
-    improvements = ['Provide more detailed explanations', 'Show deeper understanding of the concepts'];
-  }
-
-  return {
-    score: Math.min(95, Math.max(5, baseScore)),
-    strengths,
-    improvements,
-    detailedAnalysis: analysis,
-    communicationClarity: isRubbish ? 2 : Math.min(8, Math.max(3, Math.round(wordCount / 5))),
-    technicalAccuracy: isRubbish ? 2 : Math.min(8, Math.max(3, questionType === 'technical' ? 6 : 5))
-  };
 }
 
 async function generateOverallFeedback(responses, resumeText, jobDescription) {

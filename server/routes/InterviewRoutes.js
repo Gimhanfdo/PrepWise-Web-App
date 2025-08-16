@@ -16,11 +16,13 @@ import {
   analyzeResponse,
   getUserCV,  
   createInterviewWithProfileCV,
-  createInterview
+  createInterview,
+  skipQuestion
 } from '../controllers/interviewController.js';
 
 const interviewRouter = express.Router();
 
+// AssemblyAI configuration
 const assemblyAIConfig = {
   baseUrl: "https://api.assemblyai.com",
   headers: {
@@ -28,6 +30,7 @@ const assemblyAIConfig = {
   }
 };
 
+// Disk storage for audio files
 const diskStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = 'uploads/audio';
@@ -44,7 +47,7 @@ const diskStorage = multer.diskStorage({
 const uploadToDisk = multer({
   storage: diskStorage,
   limits: {
-    fileSize: 25 * 1024 * 1024,
+    fileSize: 25 * 1024 * 1024, // 25MB
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['audio/webm', 'audio/wav', 'audio/mp3', 'audio/m4a'];
@@ -56,10 +59,11 @@ const uploadToDisk = multer({
   }
 });
 
+// Memory storage for temporary uploads
 const uploadToMemory = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024,
+    fileSize: 10 * 1024 * 1024, // 10MB
   },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('audio/') || file.mimetype === 'application/octet-stream') {
@@ -70,10 +74,12 @@ const uploadToMemory = multer({
   }
 });
 
+// AssemblyAI transcription function
 const transcribeWithAssemblyAI = async (audioPath) => {
   try {
     console.log('Starting AssemblyAI transcription for:', audioPath);
 
+    // Upload audio to AssemblyAI
     const audioData = fs.readFileSync(audioPath);
     const uploadResponse = await axios.post(
       `${assemblyAIConfig.baseUrl}/v2/upload`, 
@@ -84,6 +90,7 @@ const transcribeWithAssemblyAI = async (audioPath) => {
     const audioUrl = uploadResponse.data.upload_url;
     console.log('Audio uploaded to AssemblyAI:', audioUrl);
 
+    // Request transcription
     const transcriptionData = {
       audio_url: audioUrl,
       speech_model: "universal",
@@ -98,6 +105,7 @@ const transcribeWithAssemblyAI = async (audioPath) => {
     const transcriptId = transcriptionResponse.data.id;
     console.log('Transcription requested with ID:', transcriptId);
 
+    // Poll for completion
     const pollingEndpoint = `${assemblyAIConfig.baseUrl}/v2/transcript/${transcriptId}`;
     
     while (true) {
@@ -129,6 +137,7 @@ const transcribeWithAssemblyAI = async (audioPath) => {
   }
 };
 
+// Transcription endpoint
 export const transcribeAudio = async (req, res) => {
   try {
     console.log('Transcription request received');
@@ -163,6 +172,7 @@ export const transcribeAudio = async (req, res) => {
         text_preview: transcription.text?.substring(0, 100) || 'No text'
       });
 
+      // Cleanup file after 5 seconds
       setTimeout(() => {
         try {
           if (fs.existsSync(audioFile.path)) {
@@ -210,6 +220,7 @@ export const transcribeAudio = async (req, res) => {
   }
 };
 
+// Mock transcription for testing
 const mockTranscribeAudio = async (req, res) => {
   try {
     const audioFile = req.file;
@@ -239,6 +250,7 @@ const mockTranscribeAudio = async (req, res) => {
   }
 };
 
+// Code execution storage
 const codeExecutionStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = 'uploads/code';
@@ -256,7 +268,7 @@ const codeExecutionStorage = multer.diskStorage({
 const codeUpload = multer({
   storage: codeExecutionStorage,
   limits: {
-    fileSize: 1 * 1024 * 1024,
+    fileSize: 1 * 1024 * 1024, // 1MB
   },
   fileFilter: (req, file, cb) => {
     const allowedExtensions = ['.js', '.py', '.java', '.cpp', '.c', '.go', '.rs', '.php', '.rb', '.swift', '.kt', '.scala', '.ts', '.cs', '.dart'];
@@ -270,6 +282,7 @@ const codeUpload = multer({
   }
 });
 
+// Code execution function
 const executeCode = async (code, language) => {
   return new Promise((resolve, reject) => {
     let command, args, fileExtension;
@@ -406,6 +419,7 @@ const executeCode = async (code, language) => {
         }
       };
 
+      // Handle compiled languages that need a second execution step
       if (language.toLowerCase() === 'java' && exitCode === 0) {
         const javaProcess = spawn('java', ['Solution'], {
           timeout: 5000,
@@ -545,6 +559,7 @@ const executeCode = async (code, language) => {
       reject(new Error(`Process error: ${error.message}`));
     });
 
+    // Timeout safety
     setTimeout(() => {
       process.kill('SIGTERM');
       reject(new Error('Code execution timeout'));
@@ -552,6 +567,7 @@ const executeCode = async (code, language) => {
   });
 };
 
+// Code execution endpoint
 interviewRouter.post('/execute-code', userAuth, async (req, res) => {
   try {
     const { code, language } = req.body;
@@ -585,30 +601,36 @@ interviewRouter.post('/execute-code', userAuth, async (req, res) => {
   }
 });
 
+// Apply authentication middleware to all routes below
 interviewRouter.use(userAuth);
 
+// CV and Interview management routes
 interviewRouter.get('/cv', getUserCV);
-
 interviewRouter.post('/create', createInterview);
 interviewRouter.post('/create-with-profile-cv', createInterviewWithProfileCV);
 
+// Audio transcription routes
 interviewRouter.post('/transcribe', uploadToDisk.single('audio'), transcribeAudio);
 interviewRouter.post('/transcribe-mock', uploadToMemory.single('audio'), mockTranscribeAudio);
 
+// Interview management routes
 interviewRouter.get('/:interviewId', getInterview);
 interviewRouter.put('/:interviewId/start', startInterview);
 interviewRouter.post('/:interviewId/answer', uploadToDisk.single('audio'), submitAnswer);
 interviewRouter.post('/:interviewId/submit-answer', uploadToMemory.single('audio'), submitAnswer);
+interviewRouter.post('/:interviewId/skip', skipQuestion);
 interviewRouter.get('/:interviewId/next-question', getNextQuestion);
 interviewRouter.put('/:interviewId/complete', completeInterview);
 
+// Feedback and analysis routes
 interviewRouter.get('/:interviewId/feedback', getInterviewFeedback);
-
 interviewRouter.post('/analyze-response', analyzeResponse);
 
+// User history routes
 interviewRouter.get('/user/history', getUserInterviews);
 interviewRouter.get('/history', getUserInterviews);
 
+// Error handling middleware
 interviewRouter.use((error, req, res, next) => {
   if (error instanceof multer.MulterError) {
     if (error.code === 'LIMIT_FILE_SIZE') {
