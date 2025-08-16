@@ -137,21 +137,52 @@ const MockInterviewSystem = () => {
     setTextAnswer(e.target.value);
   }, []);
 
-  const handleCodeChange = (e) => {
-  setCode(e.target.value);
-  };
+  const handleCodeChange = useCallback((e) => {
+    setCode(e.target.value);
+  }, []);
 
   const handleTranscriptionChange = useCallback((e) => {
     setTranscription(e.target.value);
   }, []);
 
-  const handleLanguageChange = (e) => {
-  const newLanguage = e.target.value;
-  setLanguage(newLanguage);
-  const langTemplate = supportedLanguages.find(l => l.value === newLanguage)?.template || '';
-  setCode(currentQuestion?.starterCode?.[newLanguage] || langTemplate);
-  setCodeOutput('');
-  };
+  const handleLanguageChange = useCallback((e) => {
+    const newLanguage = e.target.value;
+    setLanguage(newLanguage);
+    const langTemplate = supportedLanguages.find(l => l.value === newLanguage)?.template || '';
+    setCode(currentQuestion?.starterCode?.[newLanguage] || langTemplate);
+    setCodeOutput('');
+  }, [currentQuestion, supportedLanguages]);
+
+  const createFallbackFeedback = useCallback(() => {
+    const validResponses = responses.filter(r => !r.skipped);
+    const averageScore = validResponses.length > 0 
+      ? Math.round(validResponses.reduce((sum, r) => sum + (r.score || 50), 0) / validResponses.length)
+      : 50;
+
+    return {
+      score: averageScore,
+      feedback: {
+        technicalSkills: {
+          score: Math.max(averageScore - 10, 0),
+          feedback: 'Technical analysis completed. Review coding responses for improvement opportunities.'
+        },
+        communicationSkills: {
+          score: Math.min(averageScore + 5, 100),
+          feedback: 'Communication assessment completed. Consider practicing clear explanations.'
+        },
+        problemSolving: {
+          score: averageScore,
+          feedback: 'Problem-solving approach analyzed. Continue practicing systematic thinking.'
+        },
+        recommendations: [
+          'Practice more coding problems similar to those encountered',
+          'Work on explaining technical concepts clearly',
+          'Focus on systematic problem-solving approaches',
+          'Review computer science fundamentals'
+        ]
+      }
+    };
+  }, [responses]);
 
   useEffect(() => {
     checkAuthentication();
@@ -554,66 +585,62 @@ Note: The actual CV text extraction would require server-side processing of the 
   };
 
   const executeCode = useCallback(() => {
-  if (!code.trim()) {
-    setCodeOutput('Please write some code before running.');
-    return;
-  }
+    if (!code.trim()) {
+      setCodeOutput('Please write some code before running.');
+      return;
+    }
 
-  try {
-    setIsRunningCode(true);
-    setCodeOutput('Running code...\n');
-    addDebugLog(`Executing ${language} code...`);
-    
-    if (language === 'javascript') {
-      const originalConsoleLog = console.log;
-      const originalConsoleError = console.error;
-      let output = '';
+    try {
+      setIsRunningCode(true);
+      setCodeOutput('Running code...\n');
+      addDebugLog(`Executing ${language} code...`);
       
-      // Override console methods to capture output
-      console.log = (...args) => {
-        output += args.map(arg => 
-          typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-        ).join(' ') + '\n';
-      };
-      
-      console.error = (...args) => {
-        output += 'ERROR: ' + args.map(arg => String(arg)).join(' ') + '\n';
-      };
-      
-      try {
-        // Wrap code in try-catch and execute
-        const wrappedCode = `
-          try {
-            ${code}
-          } catch (error) {
-            console.error(error.message);
+      if (language === 'javascript') {
+        const originalConsoleLog = console.log;
+        const originalConsoleError = console.error;
+        let output = '';
+        
+        console.log = (...args) => {
+          output += args.map(arg => 
+            typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+          ).join(' ') + '\n';
+        };
+        
+        console.error = (...args) => {
+          output += 'ERROR: ' + args.map(arg => String(arg)).join(' ') + '\n';
+        };
+        
+        try {
+          const wrappedCode = `
+            try {
+              ${code}
+            } catch (error) {
+              console.error(error.message);
+            }
+          `;
+          
+          const result = new Function('console', wrappedCode)(console);
+          
+          if (result !== undefined) {
+            output += '\nReturn value: ' + (typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)) + '\n';
           }
-        `;
-        
-        const result = new Function('console', wrappedCode)(console);
-        
-        if (result !== undefined) {
-          output += '\nReturn value: ' + (typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)) + '\n';
+          
+          if (!output.trim()) {
+            output = 'Code executed successfully (no output generated)\n';
+          }
+          
+        } catch (error) {
+          output += 'Execution Error: ' + error.message + '\n';
+        } finally {
+          console.log = originalConsoleLog;
+          console.error = originalConsoleError;
         }
         
-        if (!output.trim()) {
-          output = 'Code executed successfully (no output generated)\n';
-        }
+        setCodeOutput(output);
+        addDebugLog(`JavaScript executed successfully: ${output.substring(0, 50)}...`);
         
-      } catch (error) {
-        output += 'Execution Error: ' + error.message + '\n';
-      } finally {
-        // Restore original console methods
-        console.log = originalConsoleLog;
-        console.error = originalConsoleError;
-      }
-      
-      setCodeOutput(output);
-      addDebugLog(`JavaScript executed successfully: ${output.substring(0, 50)}...`);
-      
-    } else if (language === 'python') {
-      // Python simulation
-      const simulatedOutput = `Python Code Simulation:
+      } else if (language === 'python') {
+        const simulatedOutput = `Python Code Simulation:
 ${code}
 
 [Simulated Output]
@@ -624,14 +651,13 @@ ${code.includes('def ') ? 'Function definitions found.' : ''}
 ${code.includes('class ') ? 'Class definitions found.' : ''}
 
 Note: This is a frontend simulation. Real execution happens on the backend.`;
-      
-      setCodeOutput(simulatedOutput);
-      addDebugLog(`Python simulation completed`);
-      
-    } else {
-      // Generic simulation for other languages
-      const languageLabel = supportedLanguages.find(l => l.value === language)?.label || language;
-      const simulatedOutput = `${languageLabel} Code Simulation:
+        
+        setCodeOutput(simulatedOutput);
+        addDebugLog(`Python simulation completed`);
+        
+      } else {
+        const languageLabel = supportedLanguages.find(l => l.value === language)?.label || language;
+        const simulatedOutput = `${languageLabel} Code Simulation:
 
 ${code.substring(0, 300)}${code.length > 300 ? '\n...[code truncated]' : ''}
 
@@ -646,157 +672,156 @@ would happen on the server with proper ${languageLabel} environment.
 Estimated execution time: < 1 second
 Memory usage: Normal
 Status: Ready for submission`;
+        
+        setCodeOutput(simulatedOutput);
+        addDebugLog(`Simulated execution for ${language}`);
+      }
       
-      setCodeOutput(simulatedOutput);
-      addDebugLog(`Simulated execution for ${language}`);
+    } catch (error) {
+      const errorMsg = `Execution Error: ${error.message}`;
+      setCodeOutput(errorMsg);
+      addDebugLog(`Code execution error: ${error.message}`, 'error');
+    } finally {
+      setIsRunningCode(false);
     }
-    
-  } catch (error) {
-    const errorMsg = `Execution Error: ${error.message}`;
-    setCodeOutput(errorMsg);
-    addDebugLog(`Code execution error: ${error.message}`, 'error');
-  } finally {
-    setIsRunningCode(false);
-  }
-}, [code, language, supportedLanguages, addDebugLog]);
+  }, [code, language, supportedLanguages, addDebugLog]);
 
   const isSetupValid = useCallback(() => {
     return interviewData.jobDescription && interviewData.resumeText;
   }, [interviewData]);
 
   const createInterview = useCallback(async () => {
-  if (!user) {
-    setError('Please log in to start an interview');
-    return;
-  }
-
-  setLoading(true);
-  setError('');
-  addDebugLog('Creating interview...');
-
-  try {
-    const endpoint = cvMode === 'profile' && profileCV 
-      ? '/api/interviews/create-with-profile-cv'
-      : '/api/interviews/create';
-
-    const requestBody = {
-      jobTitle: 'Software Engineering Intern',
-      jobDescription: interviewData.jobDescription.trim(),
-      difficulty: 'intermediate', // Add difficulty level
-      questionCount: 5, // Specify number of questions
-      ...(cvMode === 'profile' && profileCV 
-        ? { useProfileCV: true }
-        : { resumeText: interviewData.resumeText.trim() }
-      )
-    };
-
-    addDebugLog(`Creating interview with endpoint: ${endpoint}`);
-    addDebugLog(`Request body: ${JSON.stringify({...requestBody, resumeText: requestBody.resumeText ? `${requestBody.resumeText.substring(0, 100)}...` : undefined})}`);
-
-    const interviewResponse = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-      },
-      credentials: 'include',
-      body: JSON.stringify(requestBody)
-    });
-
-    if (!interviewResponse.ok) {
-      throw new Error(`HTTP ${interviewResponse.status}: ${interviewResponse.statusText}`);
+    if (!user) {
+      setError('Please log in to start an interview');
+      return;
     }
 
-    const interviewResult = await interviewResponse.json();
-    addDebugLog(`Interview creation response: ${JSON.stringify({
-      success: interviewResult.success,
-      interviewId: interviewResult.interview?.id,
-      questionsCount: interviewResult.interview?.questions?.length,
-      error: interviewResult.error
-    })}`);
-    
-    if (!interviewResult.success) {
-      throw new Error(interviewResult.error || 'Failed to create interview');
-    }
+    setLoading(true);
+    setError('');
+    addDebugLog('Creating interview...');
 
-    if (!interviewResult.interview || !interviewResult.interview.questions || interviewResult.interview.questions.length === 0) {
-      throw new Error('Interview created but no questions were generated');
-    }
+    try {
+      const endpoint = cvMode === 'profile' && profileCV 
+        ? '/api/interviews/create-with-profile-cv'
+        : '/api/interviews/create';
 
-    setInterview(interviewResult.interview);
-    setQuestions(interviewResult.interview.questions);
-    addDebugLog(`Interview created successfully with ${interviewResult.interview.questions.length} questions`);
-    
-    await startInterview(interviewResult.interview.id);
-    
-  } catch (err) {
-    addDebugLog(`Interview creation failed: ${err.message}`, 'error');
-    setError(`Failed to create interview: ${err.message}`);
-  } finally {
-    setLoading(false);
-  }
-}, [user, interviewData, cvMode, profileCV, addDebugLog]);
+      const requestBody = {
+        jobTitle: 'Software Engineering Intern',
+        jobDescription: interviewData.jobDescription.trim(),
+        difficulty: 'intermediate',
+        questionCount: 5,
+        ...(cvMode === 'profile' && profileCV 
+          ? { useProfileCV: true }
+          : { resumeText: interviewData.resumeText.trim() }
+        )
+      };
 
-const moveToNextQuestion = async () => {
-  addDebugLog(`Getting next question (${questionIndex + 2}/${questions.length})...`);
-  
-  try {
-    const nextResponse = await fetch(`/api/interviews/${interview.id}/next-question`, {
-      method: 'GET',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-      },
-      credentials: 'include'
-    });
+      addDebugLog(`Creating interview with endpoint: ${endpoint}`);
+      addDebugLog(`Request body: ${JSON.stringify({...requestBody, resumeText: requestBody.resumeText ? `${requestBody.resumeText.substring(0, 100)}...` : undefined})}`);
 
-    if (!nextResponse.ok) {
-      throw new Error(`HTTP ${nextResponse.status}: ${nextResponse.statusText}`);
-    }
+      const interviewResponse = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
+        credentials: 'include',
+        body: JSON.stringify(requestBody)
+      });
 
-    const nextResult = await nextResponse.json();
-    addDebugLog(`Next question response: ${JSON.stringify(nextResult)}`);
-    
-    if (nextResult.success && !nextResult.completed) {
-      const nextQuestion = nextResult.question || questions[questionIndex + 1];
-      setCurrentQuestion(nextQuestion);
-      setQuestionIndex(prev => prev + 1);
+      if (!interviewResponse.ok) {
+        throw new Error(`HTTP ${interviewResponse.status}: ${interviewResponse.statusText}`);
+      }
+
+      const interviewResult = await interviewResponse.json();
+      addDebugLog(`Interview creation response: ${JSON.stringify({
+        success: interviewResult.success,
+        interviewId: interviewResult.interview?.id,
+        questionsCount: interviewResult.interview?.questions?.length,
+        error: interviewResult.error
+      })}`);
       
-      // Reset form state for next question
-      resetQuestionState(nextQuestion);
+      if (!interviewResult.success) {
+        throw new Error(interviewResult.error || 'Failed to create interview');
+      }
+
+      if (!interviewResult.interview || !interviewResult.interview.questions || interviewResult.interview.questions.length === 0) {
+        throw new Error('Interview created but no questions were generated');
+      }
+
+      setInterview(interviewResult.interview);
+      setQuestions(interviewResult.interview.questions);
+      addDebugLog(`Interview created successfully with ${interviewResult.interview.questions.length} questions`);
       
-      addDebugLog(`Moved to question ${questionIndex + 2}: ${nextQuestion.question.substring(0, 50)}...`);
-    } else {
-      addDebugLog('All questions completed, finishing interview...');
+      await startInterview(interviewResult.interview.id);
+      
+    } catch (err) {
+      addDebugLog(`Interview creation failed: ${err.message}`, 'error');
+      setError(`Failed to create interview: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [user, interviewData, cvMode, profileCV, addDebugLog]);
+
+  const moveToNextQuestion = async () => {
+    addDebugLog(`Getting next question (${questionIndex + 2}/${questions.length})...`);
+    
+    try {
+      const nextResponse = await fetch(`/api/interviews/${interview.id}/next-question`, {
+        method: 'GET',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
+        credentials: 'include'
+      });
+
+      if (!nextResponse.ok) {
+        throw new Error(`HTTP ${nextResponse.status}: ${nextResponse.statusText}`);
+      }
+
+      const nextResult = await nextResponse.json();
+      addDebugLog(`Next question response: ${JSON.stringify(nextResult)}`);
+      
+      if (nextResult.success && !nextResult.completed) {
+        const nextQuestion = nextResult.question || questions[questionIndex + 1];
+        setCurrentQuestion(nextQuestion);
+        setQuestionIndex(prev => prev + 1);
+        
+        resetQuestionState(nextQuestion);
+        
+        addDebugLog(`Moved to question ${questionIndex + 2}: ${nextQuestion.question.substring(0, 50)}...`);
+      } else {
+        addDebugLog('All questions completed, finishing interview...');
+        await completeInterview();
+      }
+    } catch (err) {
+      addDebugLog(`Next question failed: ${err.message}`, 'error');
       await completeInterview();
     }
-  } catch (err) {
-    addDebugLog(`Next question failed: ${err.message}`, 'error');
-    await completeInterview(); // Fallback to complete interview
-  }
-};
+  };
 
-const resetQuestionState = (nextQuestion) => {
-  setAudioBlob(null);
-  setRecordingTime(0);
-  setTextAnswer('');
-  setTranscription('');
-  setTranscriptionError('');
-  setError('');
-  
-  const isNextCoding = nextQuestion.type === 'coding' || nextQuestion.type === 'technical_coding';
-  setShowCodeEditor(isNextCoding);
-  
-  if (isNextCoding) {
-    const template = nextQuestion.starterCode?.[language] || 
-                    supportedLanguages.find(l => l.value === language)?.template || '';
-    setCode(template);
-  } else {
-    setCode('');
-  }
-  
-  setCodeOutput('');
-};
+  const resetQuestionState = (nextQuestion) => {
+    setAudioBlob(null);
+    setRecordingTime(0);
+    setTextAnswer('');
+    setTranscription('');
+    setTranscriptionError('');
+    setError('');
+    
+    const isNextCoding = nextQuestion.type === 'coding' || nextQuestion.type === 'technical_coding';
+    setShowCodeEditor(isNextCoding);
+    
+    if (isNextCoding) {
+      const template = nextQuestion.starterCode?.[language] || 
+                      supportedLanguages.find(l => l.value === language)?.template || '';
+      setCode(template);
+    } else {
+      setCode('');
+    }
+    
+    setCodeOutput('');
+  };
 
   const startInterview = async (interviewId) => {
     try {
@@ -839,268 +864,260 @@ const resetQuestionState = (nextQuestion) => {
   };
 
   const skipQuestion = async () => {
-  setLoading(true);
-  setError('');
-  addDebugLog(`Skipping question ${questionIndex + 1}...`);
+    setLoading(true);
+    setError('');
+    addDebugLog(`Skipping question ${questionIndex + 1}...`);
 
-  try {
-    const actualResponseTime = 5;
+    try {
+      const actualResponseTime = 5;
 
-    const submitData = {
-      questionId: currentQuestion.questionId,
-      responseTime: actualResponseTime,
-      answerMode: 'skipped',
-      responseText: 'Question skipped by candidate',
-      code: null,
-      language: null,
-      skipped: true
-    };
+      const submitData = {
+        questionId: currentQuestion.questionId,
+        responseTime: actualResponseTime,
+        answerMode: 'skipped',
+        responseText: 'Question skipped by candidate',
+        code: null,
+        language: null,
+        skipped: true
+      };
 
-    addDebugLog(`Submitting skip to backend: ${JSON.stringify(submitData)}`);
+      addDebugLog(`Submitting skip to backend: ${JSON.stringify(submitData)}`);
 
-    const submitResponse = await fetch(`/api/interviews/${interview.id}/submit-answer`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-      },
-      credentials: 'include',
-      body: JSON.stringify(submitData)
-    });
+      const submitResponse = await fetch(`/api/interviews/${interview.id}/submit-answer`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
+        credentials: 'include',
+        body: JSON.stringify(submitData)
+      });
 
-    if (!submitResponse.ok) {
-      throw new Error(`HTTP ${submitResponse.status}: ${submitResponse.statusText}`);
-    }
+      if (!submitResponse.ok) {
+        throw new Error(`HTTP ${submitResponse.status}: ${submitResponse.statusText}`);
+      }
 
-    const submitResult = await submitResponse.json();
-    addDebugLog(`Skip response: ${JSON.stringify(submitResult)}`);
-    
-    if (!submitResult.success) {
-      throw new Error(submitResult.error || 'Failed to skip question');
-    }
+      const submitResult = await submitResponse.json();
+      addDebugLog(`Skip response: ${JSON.stringify(submitResult)}`);
+      
+      if (!submitResult.success) {
+        throw new Error(submitResult.error || 'Failed to skip question');
+      }
 
-    // Use backend feedback for skipped question
-    const skipFeedback = submitResult.feedback || {
-      score: 0,
-      strengths: [],
-      improvements: ['Question was skipped - consider attempting similar questions in practice'],
-      detailedAnalysis: 'Question was skipped by the candidate.',
-      communicationClarity: 0,
-      technicalAccuracy: 0,
-      questionRelevance: 0,
-      responseType: 'skipped'
-    };
+      const skipFeedback = submitResult.feedback || {
+        score: 0,
+        strengths: [],
+        improvements: ['Question was skipped - consider attempting similar questions in practice'],
+        detailedAnalysis: 'Question was skipped by the candidate.',
+        communicationClarity: 0,
+        technicalAccuracy: 0,
+        questionRelevance: 0,
+        responseType: 'skipped'
+      };
 
-    setQuestionFeedbacks(prev => ({
-      ...prev,
-      [currentQuestion.questionId]: skipFeedback
-    }));
+      setQuestionFeedbacks(prev => ({
+        ...prev,
+        [currentQuestion.questionId]: skipFeedback
+      }));
 
-    const response = {
-      questionId: currentQuestion.questionId,
-      question: currentQuestion.question,
-      questionType: currentQuestion.type,
-      transcription: null,
-      textResponse: null,
-      responseTime: actualResponseTime,
-      code: null,
-      language: null,
-      answerMode: 'skipped',
-      timestamp: new Date().toISOString(),
-      feedback: skipFeedback,
-      skipped: true,
-      score: 0
-    };
+      const response = {
+        questionId: currentQuestion.questionId,
+        question: currentQuestion.question,
+        questionType: currentQuestion.type,
+        transcription: null,
+        textResponse: null,
+        responseTime: actualResponseTime,
+        code: null,
+        language: null,
+        answerMode: 'skipped',
+        timestamp: new Date().toISOString(),
+        feedback: skipFeedback,
+        skipped: true,
+        score: 0
+      };
 
-    setResponses(prev => [...prev, response]);
-    addDebugLog(`Question ${questionIndex + 1} skipped successfully`);
+      setResponses(prev => [...prev, response]);
+      addDebugLog(`Question ${questionIndex + 1} skipped successfully`);
 
-    if (questionIndex < questions.length - 1) {
-      await moveToNextQuestion();
-    } else {
-      await completeInterview();
-    }
-        
-  } catch (err) {
-    addDebugLog(`Skip question failed: ${err.message}`, 'error');
-    setError(`Failed to skip question: ${err.message}`);
-  } finally {
-    setLoading(false);
-  }
-};
-
-const submitAnswer = async () => {
-  const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
-  let responseText = '';
-  
-  if (isCodingQuestion) {
-    responseText = code || 'No code provided';
-  } else {
-    responseText = answerMode === 'audio' ? transcription : textAnswer;
-  }
-  
-  if (!isValidAnswer(responseText, currentQuestion?.type, isCodingQuestion ? code : null)) {
-    setError('Please provide a meaningful response before submitting');
-    return;
-  }
-
-  setLoading(true);
-  setError('');
-  addDebugLog(`Submitting answer for question ${questionIndex + 1}...`);
-
-  try {
-    const questionStartTime = Date.now() - ((responses.length + 1) * 120000);
-    const actualResponseTime = Math.max(Math.floor((Date.now() - questionStartTime) / 1000), 30);
-
-    // Submit data to backend for AI analysis
-    const submitData = {
-      questionId: currentQuestion.questionId,
-      responseTime: actualResponseTime,
-      answerMode: isCodingQuestion ? 'code' : answerMode,
-      responseText: responseText,
-      code: isCodingQuestion ? code : null,
-      language: isCodingQuestion ? language : null
-      // Remove client-side calculated score and feedback
-    };
-
-    addDebugLog(`Submitting to backend: ${JSON.stringify({...submitData, responseText: submitData.responseText.substring(0, 50) + '...'})}`);
-
-    const submitResponse = await fetch(`/api/interviews/${interview.id}/submit-answer`, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-      },
-      credentials: 'include',
-      body: JSON.stringify(submitData)
-    });
-
-    if (!submitResponse.ok) {
-      throw new Error(`HTTP ${submitResponse.status}: ${submitResponse.statusText}`);
-    }
-
-    const submitResult = await submitResponse.json();
-    addDebugLog(`Submit response: ${JSON.stringify(submitResult)}`);
-    
-    if (!submitResult.success) {
-      throw new Error(submitResult.error || 'Failed to submit answer');
-    }
-
-    // Use the AI-generated feedback from backend
-    const aiFeedback = submitResult.feedback || {
-      score: 50,
-      strengths: ['Response submitted successfully'],
-      improvements: ['Continue practicing'],
-      detailedAnalysis: 'Response analyzed by AI',
-      communicationClarity: 5,
-      technicalAccuracy: 5,
-      questionRelevance: 5,
-      responseType: 'submitted'
-    };
-
-    // Store the real AI feedback
-    setQuestionFeedbacks(prev => ({
-      ...prev,
-      [currentQuestion.questionId]: aiFeedback
-    }));
-
-    const response = {
-      questionId: currentQuestion.questionId,
-      question: currentQuestion.question,
-      questionType: currentQuestion.type,
-      transcription: answerMode === 'audio' && !isCodingQuestion ? transcription : null,
-      textResponse: answerMode === 'text' && !isCodingQuestion ? textAnswer : null,
-      responseTime: actualResponseTime,
-      code: isCodingQuestion ? code : null,
-      language: isCodingQuestion ? language : null,
-      answerMode: isCodingQuestion ? 'code' : answerMode,
-      timestamp: new Date().toISOString(),
-      feedback: aiFeedback, // Use AI feedback
-      score: aiFeedback.score || 50
-    };
-
-    setResponses(prev => [...prev, response]);
-    addDebugLog(`Answer submitted successfully for question ${questionIndex + 1}`);
-
-    // Move to next question or complete interview
-    if (questionIndex < questions.length - 1) {
-      await moveToNextQuestion();
-    } else {
-      await completeInterview();
-    }
-        
-  } catch (err) {
-    addDebugLog(`Submit answer failed: ${err.message}`, 'error');
-    setError(`Failed to submit answer: ${err.message}`);
-  } finally {
-    setLoading(false);
-  }
-};
-
-const completeInterview = async () => {
-  try {
-    addDebugLog('Completing interview...');
-    
-    const completeResponse = await fetch(`/api/interviews/${interview.id}/complete`, {
-      method: 'PUT',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-      },
-      credentials: 'include'
-    });
-
-    if (!completeResponse.ok) {
-      throw new Error(`HTTP ${completeResponse.status}: ${completeResponse.statusText}`);
-    }
-
-    const completeResult = await completeResponse.json();
-    addDebugLog(`Complete interview response: ${JSON.stringify(completeResult)}`);
-    
-    if (!completeResult.success) {
-      throw new Error(completeResult.error || 'Failed to complete interview');
-    }
-
-    // Always try to get AI-generated overall feedback from backend
-    const feedbackResponse = await fetch(`/api/interviews/${interview.id}/feedback`, {
-      method: 'GET',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-      },
-      credentials: 'include'
-    });
-
-    if (feedbackResponse.ok) {
-      const feedbackResult = await feedbackResponse.json();
-      addDebugLog(`Feedback response: ${JSON.stringify(feedbackResult)}`);
-
-      if (feedbackResult.success && feedbackResult.feedback) {
-        // Use the AI-generated overall feedback from backend
-        setFeedback(feedbackResult.feedback);
-        addDebugLog('Using AI-generated overall feedback from backend');
+      if (questionIndex < questions.length - 1) {
+        await moveToNextQuestion();
       } else {
-        addDebugLog('Backend feedback not available, using fallback');
+        await completeInterview();
+      }
+          
+    } catch (err) {
+      addDebugLog(`Skip question failed: ${err.message}`, 'error');
+      setError(`Failed to skip question: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitAnswer = async () => {
+    const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
+    let responseText = '';
+    
+    if (isCodingQuestion) {
+      responseText = code || 'No code provided';
+    } else {
+      responseText = answerMode === 'audio' ? transcription : textAnswer;
+    }
+    
+    if (!isValidAnswer(responseText, currentQuestion?.type, isCodingQuestion ? code : null)) {
+      setError('Please provide a meaningful response before submitting');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    addDebugLog(`Submitting answer for question ${questionIndex + 1}...`);
+
+    try {
+      const questionStartTime = Date.now() - ((responses.length + 1) * 120000);
+      const actualResponseTime = Math.max(Math.floor((Date.now() - questionStartTime) / 1000), 30);
+
+      const submitData = {
+        questionId: currentQuestion.questionId,
+        responseTime: actualResponseTime,
+        answerMode: isCodingQuestion ? 'code' : answerMode,
+        responseText: responseText,
+        code: isCodingQuestion ? code : null,
+        language: isCodingQuestion ? language : null
+      };
+
+      addDebugLog(`Submitting to backend: ${JSON.stringify({...submitData, responseText: submitData.responseText.substring(0, 50) + '...'})}`);
+
+      const submitResponse = await fetch(`/api/interviews/${interview.id}/submit-answer`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
+        credentials: 'include',
+        body: JSON.stringify(submitData)
+      });
+
+      if (!submitResponse.ok) {
+        throw new Error(`HTTP ${submitResponse.status}: ${submitResponse.statusText}`);
+      }
+
+      const submitResult = await submitResponse.json();
+      addDebugLog(`Submit response: ${JSON.stringify(submitResult)}`);
+      
+      if (!submitResult.success) {
+        throw new Error(submitResult.error || 'Failed to submit answer');
+      }
+
+      const aiFeedback = submitResult.feedback || {
+        score: 50,
+        strengths: ['Response submitted successfully'],
+        improvements: ['Continue practicing'],
+        detailedAnalysis: 'Response analyzed by AI',
+        communicationClarity: 5,
+        technicalAccuracy: 5,
+        questionRelevance: 5,
+        responseType: 'submitted'
+      };
+
+      setQuestionFeedbacks(prev => ({
+        ...prev,
+        [currentQuestion.questionId]: aiFeedback
+      }));
+
+      const response = {
+        questionId: currentQuestion.questionId,
+        question: currentQuestion.question,
+        questionType: currentQuestion.type,
+        transcription: answerMode === 'audio' && !isCodingQuestion ? transcription : null,
+        textResponse: answerMode === 'text' && !isCodingQuestion ? textAnswer : null,
+        responseTime: actualResponseTime,
+        code: isCodingQuestion ? code : null,
+        language: isCodingQuestion ? language : null,
+        answerMode: isCodingQuestion ? 'code' : answerMode,
+        timestamp: new Date().toISOString(),
+        feedback: aiFeedback,
+        score: aiFeedback.score || 50
+      };
+
+      setResponses(prev => [...prev, response]);
+      addDebugLog(`Answer submitted successfully for question ${questionIndex + 1}`);
+
+      if (questionIndex < questions.length - 1) {
+        await moveToNextQuestion();
+      } else {
+        await completeInterview();
+      }
+          
+    } catch (err) {
+      addDebugLog(`Submit answer failed: ${err.message}`, 'error');
+      setError(`Failed to submit answer: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const completeInterview = async () => {
+    try {
+      addDebugLog('Completing interview...');
+      
+      const completeResponse = await fetch(`/api/interviews/${interview.id}/complete`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
+        credentials: 'include'
+      });
+
+      if (!completeResponse.ok) {
+        throw new Error(`HTTP ${completeResponse.status}: ${completeResponse.statusText}`);
+      }
+
+      const completeResult = await completeResponse.json();
+      addDebugLog(`Complete interview response: ${JSON.stringify(completeResult)}`);
+      
+      if (!completeResult.success) {
+        throw new Error(completeResult.error || 'Failed to complete interview');
+      }
+
+      const feedbackResponse = await fetch(`/api/interviews/${interview.id}/feedback`, {
+        method: 'GET',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
+        credentials: 'include'
+      });
+
+      if (feedbackResponse.ok) {
+        const feedbackResult = await feedbackResponse.json();
+        addDebugLog(`Feedback response: ${JSON.stringify(feedbackResult)}`);
+
+        if (feedbackResult.success && feedbackResult.feedback) {
+          setFeedback(feedbackResult.feedback);
+          addDebugLog('Using AI-generated overall feedback from backend');
+        } else {
+          addDebugLog('Backend feedback not available, using fallback');
+          setFeedback(createFallbackFeedback());
+        }
+      } else {
+        addDebugLog('Feedback endpoint failed, using fallback');
         setFeedback(createFallbackFeedback());
       }
-    } else {
-      addDebugLog('Feedback endpoint failed, using fallback');
-      setFeedback(createFallbackFeedback());
-    }
 
-    setCurrentStep('feedback');
-    stopTimer();
-    addDebugLog(`Interview completed successfully`);
-    
-  } catch (err) {
-    addDebugLog(`Complete interview failed: ${err.message}`, 'error');
-    setError(`Failed to complete interview: ${err.message}`);
-    
-    setFeedback(createFallbackFeedback());
-    setCurrentStep('feedback');
-    stopTimer();
-  }
-};
+      setCurrentStep('feedback');
+      stopTimer();
+      addDebugLog(`Interview completed successfully`);
+      
+    } catch (err) {
+      addDebugLog(`Complete interview failed: ${err.message}`, 'error');
+      setError(`Failed to complete interview: ${err.message}`);
+      
+      setFeedback(createFallbackFeedback());
+      setCurrentStep('feedback');
+      stopTimer();
+    }
+  };
 
   const startTimer = () => {
     timerRef.current = setInterval(() => {
@@ -1160,20 +1177,20 @@ const completeInterview = async () => {
   }, []);
 
   useEffect(() => {
-  if (currentQuestion) {
-    const isCoding = currentQuestion.type === 'coding' || currentQuestion.type === 'technical_coding';
-    setShowCodeEditor(isCoding);
-    
-    if (isCoding && currentQuestion.starterCode) {
-      const newCode = currentQuestion.starterCode[language] || 
-                     supportedLanguages.find(l => l.value === language)?.template || '';
-      setCode(newCode);
-    } else if (!isCoding) {
-      setCode('');
-      setShowCodeEditor(false);
+    if (currentQuestion) {
+      const isCoding = currentQuestion.type === 'coding' || currentQuestion.type === 'technical_coding';
+      setShowCodeEditor(isCoding);
+      
+      if (isCoding && currentQuestion.starterCode) {
+        const newCode = currentQuestion.starterCode[language] || 
+                       supportedLanguages.find(l => l.value === language)?.template || '';
+        setCode(newCode);
+      } else if (!isCoding) {
+        setCode('');
+        setShowCodeEditor(false);
+      }
     }
-  }
-}, [currentQuestion, language, supportedLanguages]);
+  }, [currentQuestion, language, supportedLanguages]);
 
   const CVSection = useMemo(() => (
     <div className="mb-4">
@@ -1474,122 +1491,122 @@ const completeInterview = async () => {
   ), [user, interviewData, debugMode, debugLogs, audioPermission, audioError, error, loading, isSetupValid, createInterview, handleJobDescriptionChange, CVSection]);
 
   const InterviewPhase = useMemo(() => {
-  const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
-  
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      <div className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-3">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
-                <Brain className="w-4 h-4 text-white" />
+    const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
+    
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+        <div className="bg-white border-b border-gray-200 shadow-sm">
+          <div className="max-w-7xl mx-auto px-6 py-3">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+                  <Brain className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-lg font-semibold text-gray-900">Mock Interview</h1>
+                  <p className="text-xs text-gray-600">Question {questionIndex + 1} of {questions.length}</p>
+                </div>
               </div>
-              <div>
-                <h1 className="text-lg font-semibold text-gray-900">Mock Interview</h1>
-                <p className="text-xs text-gray-600">Question {questionIndex + 1} of {questions.length}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-gray-600">
-                <Clock className="w-4 h-4" />
-                <span className="font-mono text-sm">
-                  {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
-                </span>
-              </div>
-              <div className="w-24">
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-gradient-to-r from-blue-600 to-indigo-600 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${((questionIndex + 1) / questions.length) * 100}%` }}
-                  ></div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Clock className="w-4 h-4" />
+                  <span className="font-mono text-sm">
+                    {Math.floor(timer / 60)}:{(timer % 60).toString().padStart(2, '0')}
+                  </span>
+                </div>
+                <div className="w-24">
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-gradient-to-r from-blue-600 to-indigo-600 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${((questionIndex + 1) / questions.length) * 100}%` }}
+                    ></div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-       <div className="max-w-7xl mx-auto px-6 py-6">
-        <div className={`grid gap-6 ${showCodeEditor && isCodingQuestion ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 max-w-4xl mx-auto'}`}>
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-            <div className="flex items-start gap-3 mb-4">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
-                isCodingQuestion ? 'bg-gradient-to-r from-purple-500 to-pink-500' :
-                currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-gradient-to-r from-indigo-500 to-blue-500' :
-                currentQuestion?.type === 'behavioral' ? 'bg-gradient-to-r from-green-500 to-teal-500' :
-                'bg-gradient-to-r from-blue-500 to-cyan-500'
-              }`}>
-                {isCodingQuestion ? <Code className="w-6 h-6 text-white" /> : <MessageCircle className="w-6 h-6 text-white" />}
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                    isCodingQuestion ? 'bg-purple-100 text-purple-800' :
-                    currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-indigo-100 text-indigo-800' :
-                    currentQuestion?.type === 'behavioral' ? 'bg-green-100 text-green-800' :
-                    'bg-blue-100 text-blue-800'
-                  }`}>
-                    {currentQuestion?.type?.replace('_', ' ').toUpperCase()}
-                  </span>
+        <div className="max-w-7xl mx-auto px-6 py-6">
+          <div className={`grid gap-6 ${showCodeEditor && isCodingQuestion ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 max-w-4xl mx-auto'}`}>
+            <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+              <div className="flex items-start gap-3 mb-4">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center shadow-lg ${
+                  isCodingQuestion ? 'bg-gradient-to-r from-purple-500 to-pink-500' :
+                  currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-gradient-to-r from-indigo-500 to-blue-500' :
+                  currentQuestion?.type === 'behavioral' ? 'bg-gradient-to-r from-green-500 to-teal-500' :
+                  'bg-gradient-to-r from-blue-500 to-cyan-500'
+                }`}>
+                  {isCodingQuestion ? <Code className="w-6 h-6 text-white" /> : <MessageCircle className="w-6 h-6 text-white" />}
                 </div>
-                <h2 className="text-lg font-bold text-gray-900 leading-relaxed">
-                  {currentQuestion?.question}
-                </h2>
-              </div>
-            </div>
-
-        {!isCodingQuestion && (
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-3">Response Method:</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => setAnswerMode('audio')}
-                    className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 ${
-                      answerMode === 'audio' 
-                        ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-lg' 
-                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                      <Headphones className="w-4 h-4 text-blue-600" />
-                    </div>
-                    <div className="text-left">
-                      <div className="text-sm font-medium">Audio</div>
-                      <div className="text-xs text-gray-500">Speak answer</div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => setAnswerMode('text')}
-                    className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 ${
-                      answerMode === 'text' 
-                        ? 'bg-green-50 border-green-500 text-green-700 shadow-lg' 
-                        : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                      <Type className="w-4 h-4 text-green-600" />
-                    </div>
-                    <div className="text-left">
-                      <div className="text-sm font-medium">Text</div>
-                      <div className="text-xs text-gray-500">Type answer</div>
-                    </div>
-                  </button>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                      isCodingQuestion ? 'bg-purple-100 text-purple-800' :
+                      currentQuestion?.type === 'technical' || currentQuestion?.type === 'technical_conceptual' ? 'bg-indigo-100 text-indigo-800' :
+                      currentQuestion?.type === 'behavioral' ? 'bg-green-100 text-green-800' :
+                      'bg-blue-100 text-blue-800'
+                    }`}>
+                      {currentQuestion?.type?.replace('_', ' ').toUpperCase()}
+                    </span>
+                  </div>
+                  <h2 className="text-lg font-bold text-gray-900 leading-relaxed">
+                    {currentQuestion?.question}
+                  </h2>
                 </div>
               </div>
-            )}
 
-             {isCodingQuestion && !showCodeEditor && (
-              <div className="mb-4">
-                <button
-                  onClick={() => setShowCodeEditor(true)}
-                  className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-4 py-2 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-sm"
-                >
-                  <Terminal className="w-4 h-4" />
-                  Open Code Editor
-                </button>
-              </div>
-            )}
+              {!isCodingQuestion && (
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-3">Response Method:</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => setAnswerMode('audio')}
+                      className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 ${
+                        answerMode === 'audio' 
+                          ? 'bg-blue-50 border-blue-500 text-blue-700 shadow-lg' 
+                          : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <Headphones className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-sm font-medium">Audio</div>
+                        <div className="text-xs text-gray-500">Speak answer</div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setAnswerMode('text')}
+                      className={`flex items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200 ${
+                        answerMode === 'text' 
+                          ? 'bg-green-50 border-green-500 text-green-700 shadow-lg' 
+                          : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                        <Type className="w-4 h-4 text-green-600" />
+                      </div>
+                      <div className="text-left">
+                        <div className="text-sm font-medium">Text</div>
+                        <div className="text-xs text-gray-500">Type answer</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {isCodingQuestion && !showCodeEditor && (
+                <div className="mb-4">
+                  <button
+                    onClick={() => setShowCodeEditor(true)}
+                    className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white px-4 py-2 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 text-sm"
+                  >
+                    <Terminal className="w-4 h-4" />
+                    Open Code Editor
+                  </button>
+                </div>
+              )}
 
               {!isCodingQuestion && answerMode === 'audio' && (
                 <div className="space-y-4">
@@ -1770,12 +1787,7 @@ const completeInterview = async () => {
                   <div className="flex items-center gap-3">
                     <select
                       value={language}
-                      onChange={(e) => {
-                        const newLang = e.target.value;
-                        setLanguage(newLang);
-                        const template = supportedLanguages.find(l => l.value === newLang)?.template || '';
-                        setCode(template);
-                      }}
+                      onChange={handleLanguageChange}
                       className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                     >
                       {supportedLanguages.map(lang => (
@@ -1785,29 +1797,9 @@ const completeInterview = async () => {
                       ))}
                     </select>
                     <button
-                      onClick={() => {
-                        setIsRunningCode(true);
-                        setTimeout(() => {
-                          let output = '';
-                          if (language === 'javascript') {
-                            try {
-                              const originalLog = console.log;
-                              console.log = (...args) => { output += args.join(' ') + '\n'; };
-                              eval(code);
-                              console.log = originalLog;
-                              if (!output) output = 'Code executed successfully';
-                            } catch (e) {
-                              output = 'Error: ' + e.message;
-                            }
-                          } else {
-                            output = `${language} code ready for execution:\n\n${code}`;
-                          }
-                          setCodeOutput(output);
-                          setIsRunningCode(false);
-                        }, 300);
-                      }}
+                      onClick={executeCode}
                       disabled={isRunningCode}
-                      className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
+                      className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg text-sm transition-colors"
                     >
                       {isRunningCode ? 'Running...' : 'Run Code'}
                     </button>
@@ -1819,7 +1811,7 @@ const completeInterview = async () => {
                     <label className="block text-sm font-medium text-gray-700 mb-2">Your Code:</label>
                     <textarea
                       value={code}
-                      onChange={(e) => setCode(e.target.value)}
+                      onChange={handleCodeChange}
                       className="w-full h-64 px-4 py-3 border-2 border-gray-300 rounded-lg text-sm bg-white focus:border-purple-500 focus:outline-none resize-none"
                       placeholder={`Write your ${language} code here...`}
                       style={{ fontFamily: 'monospace' }}
@@ -1868,7 +1860,7 @@ const completeInterview = async () => {
         <audio ref={audioPlaybackRef} className="hidden" />
       </div>
     );
-  }, [questionIndex, questions.length, timer, currentQuestion, answerMode, isRecording, loading, audioBlob, isPlaying, recordingTime, audioError, isTranscribing, transcriptionError, transcription, textAnswer, error, debugMode, debugLogs, showCodeEditor, language, code, codeOutput, isRunningCode, supportedLanguages, responses]);
+  }, [questionIndex, questions.length, timer, currentQuestion, answerMode, isRecording, loading, audioBlob, isPlaying, recordingTime, audioError, isTranscribing, transcriptionError, transcription, textAnswer, error, debugMode, debugLogs, showCodeEditor, language, code, codeOutput, isRunningCode, supportedLanguages, responses, handleLanguageChange, handleCodeChange, executeCode]);
 
   const FeedbackPhase = useMemo(() => (
     <div className="min-h-screen bg-gradient-to-br from-green-50 via-blue-50 to-indigo-50">
