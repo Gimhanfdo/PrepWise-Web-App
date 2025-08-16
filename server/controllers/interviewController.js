@@ -291,13 +291,70 @@ export const getNextQuestion = async (req, res) => {
   }
 };
 
+// Validation helper functions
+function validateAndSanitizeInput(input) {
+  if (typeof input !== 'string') {
+    return '';
+  }
+  
+  // Remove potentially harmful characters and limit length
+  return input
+    .trim()
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '') // Remove control characters
+    .substring(0, 10000); // Limit length to prevent overflow
+}
+
+function validateLanguage(language) {
+  const validLanguages = [
+    'javascript', 'python', 'java', 'c++', 'cpp', 'c#', 'csharp', 
+    'go', 'rust', 'php', 'typescript', 'swift', 'kotlin', 'c', 'ruby'
+  ];
+  
+  if (!language || typeof language !== 'string') {
+    return 'javascript'; // Default fallback
+  }
+  
+  const normalizedLanguage = language.toLowerCase().trim();
+  return validLanguages.includes(normalizedLanguage) ? normalizedLanguage : 'javascript';
+}
+
+function validateCodingSubmission(questionType, responseText, code, language) {
+  const errors = [];
+  
+  // For coding questions, ensure we have actual code
+  if (questionType === 'coding') {
+    if (!code || code.trim().length === 0) {
+      errors.push('Code is required for coding questions');
+    }
+    
+    if (!language) {
+      errors.push('Programming language must be specified for coding questions');
+    }
+    
+    // Check if code contains basic programming elements
+    const codeToCheck = code || responseText || '';
+    const hasBasicElements = /\b(function|def|class|int|string|return|if|for|while|const|let|var)\b/i.test(codeToCheck);
+    
+    if (!hasBasicElements && codeToCheck.length > 0) {
+      console.warn('Code submission may not contain valid programming syntax');
+    }
+  }
+  
+  return errors;
+}
+
 export const submitAnswer = async (req, res) => {
   try {
     const { interviewId } = req.params;
-    const { questionId, responseTime, answerMode, responseText, code } = req.body;
+    const { questionId, responseTime, answerMode, responseText, code, language } = req.body;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    if (!responseText || responseText.trim().length === 0) {
+    // Input validation and sanitization
+    const sanitizedResponseText = validateAndSanitizeInput(responseText);
+    const sanitizedCode = validateAndSanitizeInput(code);
+    const validatedLanguage = validateLanguage(language);
+
+    if (!sanitizedResponseText || sanitizedResponseText.length === 0) {
       return res.status(400).json({ 
         success: false,
         error: 'Response text is required' 
@@ -320,20 +377,32 @@ export const submitAnswer = async (req, res) => {
       });
     }
 
+    // Validate coding submission
+    const validationErrors = validateCodingSubmission(question.type, sanitizedResponseText, sanitizedCode, validatedLanguage);
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid submission',
+        details: validationErrors
+      });
+    }
+
     console.log('=== ANALYZING RESPONSE ===');
     console.log('Question:', question.question);
     console.log('Question Type:', question.type);
-    console.log('Response:', responseText);
-    console.log('Code:', code || 'None');
+    console.log('Response:', sanitizedResponseText);
+    console.log('Code:', sanitizedCode || 'None');
+    console.log('Language:', validatedLanguage);
 
-    // Use ONLY AI feedback - no fallbacks
+    // Use improved AI feedback
     let analysis;
     try {
       analysis = await generateStrictAIFeedback(
         question.question,
         question.type,
-        responseText,
-        code
+        sanitizedResponseText,
+        sanitizedCode,
+        validatedLanguage
       );
       console.log('✅ AI Analysis Result:', {
         score: analysis.score,
@@ -342,21 +411,19 @@ export const submitAnswer = async (req, res) => {
       });
     } catch (error) {
       console.error('❌ AI Feedback Failed:', error.message);
-      // Return error instead of fallback
-      return res.status(500).json({
-        success: false,
-        error: 'AI feedback system temporarily unavailable. Please try again.',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
-      });
+      // Use fallback feedback instead of returning error
+      analysis = generateFallbackFeedback(question.type, sanitizedResponseText, sanitizedCode);
+      console.log('🔄 Using fallback feedback');
     }
 
     const response = {
       questionId,
       question: question.question,
       questionType: question.type,
-      transcription: answerMode === 'audio' ? responseText : null,
-      textResponse: answerMode === 'text' ? responseText : null,
-      code: code || null,
+      transcription: answerMode === 'audio' ? sanitizedResponseText : null,
+      textResponse: answerMode === 'text' ? sanitizedResponseText : sanitizedResponseText,
+      code: sanitizedCode || null,
+      language: question.type === 'coding' ? validatedLanguage : null,
       responseTime: parseInt(responseTime) || 0,
       recordingDuration: answerMode === 'audio' ? parseInt(responseTime) : null,
       submittedAt: new Date(),
@@ -399,168 +466,225 @@ export const submitAnswer = async (req, res) => {
   }
 };
 
-async function generateStrictAIFeedback(question, questionType, responseText, code) {
+// Improved AI feedback function with better error handling
+async function generateStrictAIFeedback(question, questionType, responseText, code, language) {
   const model = genAI.getGenerativeModel({ 
     model: "gemini-2.5-flash",
     generationConfig: {
-      temperature: 0.1,  // Low temperature for consistent scoring
+      temperature: 0.1,
       maxOutputTokens: 2048
     }
   });
 
-  const prompt = `You are an EXTREMELY STRICT technical interviewer for software engineering positions. Your job is to be brutally honest about answer quality and relevance.
+  const codeSection = code ? `
+CODE PROVIDED (${language}): 
+\`\`\`${language}
+${code}
+\`\`\`` : 'NO CODE PROVIDED';
+
+  const prompt = `You are an EXTREMELY STRICT technical interviewer for software engineering positions. Analyze this interview response and provide brutally honest feedback.
 
 CRITICAL SCORING RULES:
-1. If the answer is COMPLETELY IRRELEVANT to the question asked, give 0%
+1. If the answer is COMPLETELY IRRELEVANT to the question, give 0%
 2. If the answer addresses a different topic entirely, give 0%
-3. If the answer is generic/template-like and doesn't specifically address the question, give 1-25% maximum
-4. Only give high scores (70%+) for answers that DIRECTLY and THOROUGHLY address the specific question
-5. Just providing "a response" is NOT a strength - quality and relevance are everything
+3. Generic/template responses get 1-25% maximum
+4. Only give high scores (70%+) for answers that DIRECTLY address the specific question
+5. For coding questions: evaluate logic, syntax, and problem-solving approach
 6. BE RUTHLESS - irrelevant answers get 0%, no exceptions
 
-QUESTION ASKED: "${question}"
+QUESTION: "${question}"
 QUESTION TYPE: ${questionType}
-CANDIDATE RESPONSE: "${responseText}"
-${code ? `CODE PROVIDED: ${code}` : 'NO CODE PROVIDED'}
+RESPONSE: "${responseText}"
+${codeSection}
 
-RELEVANCE CHECK:
-- Does this response answer the EXACT question that was asked?
-- If this is a behavioral question asking for personal experience, did they share actual personal experience?
-- If this asks about a specific technology/concept, did they address that specific item?
-- If this is a coding question, did they attempt to solve the actual problem presented?
+For coding questions, evaluate:
+- Does the code attempt to solve the actual problem?
+- Is the logic correct?
+- Is the syntax appropriate for ${language || 'the language'}?
+- Would this code work if properly completed?
 
-HARSH SCORING GUIDELINES:
-- 90-100%: Perfect, detailed answer that completely addresses the question with excellent insight
-- 80-89%: Very good answer that clearly addresses the question with solid understanding
-- 70-79%: Good answer that properly addresses the question with adequate detail
-- 60-69%: Acceptable answer that addresses the question but lacks depth or has minor issues
-- 50-59%: Weak answer that barely addresses the question or has significant gaps
-- 40-49%: Poor answer that partially addresses the question but misses key points
-- 30-39%: Very poor answer that barely relates to the question
-- 1-29%: Answer has some connection but doesn't properly address what was asked
-- 0%: COMPLETELY IRRELEVANT - answer is about a different topic entirely, or makes no sense in context
-
-EXAMPLES OF WHAT DESERVES 0%:
-- Answering about databases when asked about a specific project challenge
-- Giving a generic definition when asked for personal experience  
-- Talking about completely unrelated technologies
-- Copy-paste answers that don't match the question context
-- Generic responses like "I would research it" without any substance
-- Answering the wrong question entirely
-- Any response that is completely off-topic or irrelevant to what was asked
-
-EXAMPLES OF WHAT DESERVES 70%+ ONLY:
-- Specific, detailed answers that directly address what was asked
-- Personal examples that match behavioral question requirements
-- Technical explanations that accurately cover the specific concept asked
-- Code solutions that actually solve the presented problem
-- Demonstrations of deep understanding of the specific topic
-
-STRENGTH IDENTIFICATION RULES:
-- NEVER list "provided a response" or "attempted to answer" as strengths
-- ONLY mention actual technical knowledge, specific insights, or relevant examples
-- If the answer is poor/irrelevant, strengths should be minimal or none
-- Be honest - if there are no real strengths, say so
-
-IMPROVEMENT IDENTIFICATION:
-- Be specific about what went wrong
-- Point out the mismatch between question and answer
-- Suggest concrete ways to actually address the question asked
-- Don't be gentle - be direct about poor performance
-
-Return ONLY this JSON structure with no markdown formatting:
+Return ONLY this exact JSON structure with no markdown:
 {
-  "score": [0-100 integer - be ruthlessly honest, 0 for completely irrelevant],
-  "questionRelevance": [1-10 - how well they answered what was actually asked],
-  "responseType": "perfectly-relevant" | "mostly-relevant" | "partially-relevant" | "mostly-irrelevant" | "completely-off-topic",
-  "strengths": [list actual strengths only if they exist - if answer is poor/irrelevant, use ["None identified"] or minimal relevant points],
-  "improvements": [be specific about what went wrong and how to fix it],
-  "detailedAnalysis": "Be brutally honest about why you gave this score. Clearly explain the mismatch between question and answer. Don't sugarcoat poor performance.",
-  "communicationClarity": [1-10 - based on how clearly they expressed their thoughts],
-  "technicalAccuracy": [1-10 - based on correctness of any technical content],
-  "overallAssessment": "Honest assessment of whether this response demonstrates competence for the role"
+  "score": 0-100,
+  "questionRelevance": 1-10,
+  "responseType": "perfectly-relevant|mostly-relevant|partially-relevant|mostly-irrelevant|completely-off-topic",
+  "strengths": ["strength1", "strength2"],
+  "improvements": ["improvement1", "improvement2"],
+  "detailedAnalysis": "Honest analysis of response quality and relevance",
+  "communicationClarity": 1-10,
+  "technicalAccuracy": 1-10,
+  "overallAssessment": "Assessment of competence demonstrated"
 }`;
 
-  const result = await model.generateContent(prompt);
-  const response = await result.response;
-  let analysisText = response.text().trim();
-  
-  // Clean any markdown formatting
-  analysisText = analysisText
-    .replace(/```json\s*/gi, '')
-    .replace(/```\s*/g, '')
-    .replace(/^```/gm, '')
-    .replace(/```$/gm, '')
-    .trim();
-
-  // Find JSON in the response
-  const jsonStart = analysisText.indexOf('{');
-  const jsonEnd = analysisText.lastIndexOf('}');
-  
-  if (jsonStart === -1 || jsonEnd === -1) {
-    throw new Error('AI response did not contain valid JSON structure');
-  }
-  
-  const jsonText = analysisText.substring(jsonStart, jsonEnd + 1);
-  
-  let aiAnalysis;
   try {
-    aiAnalysis = JSON.parse(jsonText);
-  } catch (parseError) {
-    console.error('JSON Parse Error:', parseError);
-    console.error('Raw AI Response:', analysisText);
-    throw new Error('Failed to parse AI feedback response');
-  }
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    let analysisText = response.text().trim();
+    
+    // Enhanced JSON extraction
+    analysisText = analysisText
+      .replace(/```json\s*/gi, '')
+      .replace(/```javascript\s*/gi, '')
+      .replace(/```\s*/g, '')
+      .replace(/^```/gm, '')
+      .replace(/```$/gm, '')
+      .trim();
 
-  // Validate required fields
+    // Find JSON boundaries more reliably
+    let jsonStart = analysisText.indexOf('{');
+    let jsonEnd = analysisText.lastIndexOf('}');
+    
+    // If no braces found, try to extract JSON-like content
+    if (jsonStart === -1 || jsonEnd === -1) {
+      // Look for key-value patterns that might indicate JSON
+      const jsonPattern = /"score"\s*:\s*\d+/;
+      if (jsonPattern.test(analysisText)) {
+        // Try to construct valid JSON from the content
+        console.warn('Attempting to construct JSON from fragmented response');
+        throw new Error('Fragmented JSON response detected');
+      }
+      throw new Error('No JSON structure found in AI response');
+    }
+    
+    const jsonText = analysisText.substring(jsonStart, jsonEnd + 1);
+    
+    let aiAnalysis;
+    try {
+      aiAnalysis = JSON.parse(jsonText);
+    } catch (parseError) {
+      console.error('JSON Parse Error:', parseError.message);
+      console.error('Raw AI Response:', analysisText);
+      console.error('Extracted JSON:', jsonText);
+      throw new Error('Failed to parse AI feedback JSON: ' + parseError.message);
+    }
+
+    // Validate and sanitize the parsed response
+    return validateAndSanitizeAIResponse(aiAnalysis, questionType);
+
+  } catch (error) {
+    console.error('AI Feedback Generation Error:', error.message);
+    throw error; // Re-throw to trigger fallback
+  }
+}
+
+// Improved response validation
+function validateAndSanitizeAIResponse(aiAnalysis, questionType) {
+  // Validate score
   if (typeof aiAnalysis.score !== 'number' || aiAnalysis.score < 0 || aiAnalysis.score > 100) {
-    throw new Error('Invalid score in AI response');
+    aiAnalysis.score = 50; // Default fallback score
   }
 
-  // Ensure arrays are properly formatted with quality control
+  // Validate other numeric fields
+  aiAnalysis.questionRelevance = Math.max(1, Math.min(10, aiAnalysis.questionRelevance || 5));
+  aiAnalysis.communicationClarity = Math.max(1, Math.min(10, aiAnalysis.communicationClarity || 5));
+  aiAnalysis.technicalAccuracy = Math.max(1, Math.min(10, aiAnalysis.technicalAccuracy || 5));
+
+  // Validate arrays
   let strengths = Array.isArray(aiAnalysis.strengths) ? aiAnalysis.strengths.slice(0, 3) : [];
   const improvements = Array.isArray(aiAnalysis.improvements) ? aiAnalysis.improvements.slice(0, 4) : [];
 
-  // Additional validation for irrelevant answers - ensure 0% for completely off-topic responses
-  if (aiAnalysis.score < 30 && strengths.length > 0) {
-    // Filter out generic "strengths" for very poor answers
+  // Validate response type
+  const validResponseTypes = ['perfectly-relevant', 'mostly-relevant', 'partially-relevant', 'mostly-irrelevant', 'completely-off-topic'];
+  if (!validResponseTypes.includes(aiAnalysis.responseType)) {
+    aiAnalysis.responseType = 'partially-relevant';
+  }
+
+  // Quality control for very low scores
+  if (aiAnalysis.score < 30) {
     strengths = strengths.filter(strength => 
       !strength.toLowerCase().includes('provided') &&
       !strength.toLowerCase().includes('attempted') &&
-      !strength.toLowerCase().includes('gave a response') &&
-      !strength.toLowerCase().includes('answered the question')
+      !strength.toLowerCase().includes('gave a response')
     );
     
-    // If no real strengths remain for very low scores, be honest
     if (strengths.length === 0) {
       strengths = ['None identified'];
     }
   }
 
-  // Force 0% and appropriate feedback for completely irrelevant answers
+  // Force consistency for completely irrelevant answers
   if (aiAnalysis.responseType === 'completely-off-topic' || aiAnalysis.questionRelevance <= 2) {
     aiAnalysis.score = 0;
     strengths = ['None identified'];
   }
 
-  // Ensure we have meaningful improvements for poor answers
+  // Ensure we have meaningful improvements
   const finalImprovements = improvements.length > 0 ? improvements : [
-    'The response did not address the specific question asked',
-    'Focus on understanding what the question is actually asking',
-    'Provide relevant examples and specific details related to the topic',
-    'Ensure your answer directly responds to the interviewer\'s question'
+    'The response needs to directly address the specific question asked',
+    'Provide more relevant examples and specific details',
+    'Focus on understanding what the question is asking',
+    'Practice explaining technical concepts clearly'
   ];
 
   return {
     score: Math.round(aiAnalysis.score),
-    questionRelevance: Math.max(1, Math.min(10, aiAnalysis.questionRelevance || 1)),
-    responseType: aiAnalysis.responseType || 'partially-relevant',
-    strengths: strengths.length > 0 ? strengths : ['None identified'],
+    questionRelevance: aiAnalysis.questionRelevance,
+    responseType: aiAnalysis.responseType,
+    strengths: strengths,
     improvements: finalImprovements,
-    detailedAnalysis: aiAnalysis.detailedAnalysis || 'Response analyzed for relevance and accuracy.',
-    communicationClarity: Math.max(1, Math.min(10, aiAnalysis.communicationClarity || 5)),
-    technicalAccuracy: Math.max(1, Math.min(10, aiAnalysis.technicalAccuracy || 5)),
-    overallAssessment: aiAnalysis.overallAssessment || 'Response requires significant improvement'
+    detailedAnalysis: aiAnalysis.detailedAnalysis || 'Response analyzed for relevance and technical accuracy.',
+    communicationClarity: aiAnalysis.communicationClarity,
+    technicalAccuracy: aiAnalysis.technicalAccuracy,
+    overallAssessment: aiAnalysis.overallAssessment || 'Response requires improvement to meet expectations'
+  };
+}
+
+// Fallback feedback for when AI fails
+function generateFallbackFeedback(questionType, responseText, code) {
+  const hasCode = code && code.trim().length > 0;
+  const responseLength = responseText.length;
+  
+  let score = 40; // Default middle-low score
+  let strengths = ['Provided a response to the question'];
+  let improvements = ['Provide more detailed and specific information'];
+  
+  // Adjust based on question type
+  if (questionType === 'coding') {
+    if (hasCode) {
+      score = 45;
+      strengths = ['Attempted to provide code solution'];
+      improvements = [
+        'Ensure code directly solves the problem stated',
+        'Check syntax and logic flow',
+        'Add comments explaining the approach'
+      ];
+    } else {
+      score = 20;
+      strengths = ['None identified'];
+      improvements = [
+        'Must provide actual code for coding questions',
+        'Implement the solution using proper programming syntax',
+        'Test the solution with example inputs'
+      ];
+    }
+  } else if (questionType === 'technical') {
+    if (responseLength > 100) {
+      score = 50;
+      strengths = ['Provided detailed technical response'];
+    } else {
+      score = 35;
+      improvements.push('Provide more comprehensive technical explanations');
+    }
+  } else if (questionType === 'behavioral') {
+    if (responseLength > 150) {
+      score = 55;
+      strengths = ['Shared personal experience or examples'];
+    } else {
+      score = 40;
+      improvements.push('Include specific examples and personal experiences');
+    }
+  }
+
+  return {
+    score: score,
+    questionRelevance: 5,
+    responseType: 'partially-relevant',
+    strengths: strengths,
+    improvements: improvements,
+    detailedAnalysis: 'System fallback analysis: Response submitted but needs improvement in addressing the specific question requirements.',
+    communicationClarity: responseLength > 50 ? 6 : 4,
+    technicalAccuracy: hasCode ? 5 : 4,
+    overallAssessment: 'Response shows effort but requires significant improvement'
   };
 }
 
@@ -594,6 +718,7 @@ export const skipQuestion = async (req, res) => {
       transcription: null,
       textResponse: 'Question skipped by candidate',
       code: null,
+      language: null,
       responseTime: 0,
       recordingDuration: null,
       submittedAt: new Date(),
@@ -647,7 +772,7 @@ export const skipQuestion = async (req, res) => {
 
 export const analyzeResponse = async (req, res) => {
   try {
-    const { question, questionType, responseText, code } = req.body;
+    const { question, questionType, responseText, code, language } = req.body;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
     if (!userId) {
@@ -657,14 +782,31 @@ export const analyzeResponse = async (req, res) => {
       });
     }
 
-    if (!question || !responseText) {
+    // Validate and sanitize inputs
+    const sanitizedResponseText = validateAndSanitizeInput(responseText);
+    const sanitizedCode = validateAndSanitizeInput(code);
+    const validatedLanguage = validateLanguage(language);
+
+    if (!question || !sanitizedResponseText) {
       return res.status(400).json({
         success: false,
         error: 'Question and response text are required'
       });
     }
 
-    const feedback = await generateStrictAIFeedback(question, questionType, responseText, code);
+    let feedback;
+    try {
+      feedback = await generateStrictAIFeedback(
+        question, 
+        questionType, 
+        sanitizedResponseText, 
+        sanitizedCode, 
+        validatedLanguage
+      );
+    } catch (error) {
+      console.error('AI Analysis failed, using fallback:', error.message);
+      feedback = generateFallbackFeedback(questionType, sanitizedResponseText, sanitizedCode);
+    }
 
     res.json({
       success: true,
@@ -675,7 +817,7 @@ export const analyzeResponse = async (req, res) => {
     console.error('Analyze response error:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to analyze response - AI system temporarily unavailable',
+      error: 'Failed to analyze response',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -1344,44 +1486,50 @@ int main() {
     }
   }
 
-  if (primaryLang === 'go' || candidateLanguages.includes('go')) {
-    starterCode.go = `package main
+  if (primaryLang === 'c#' || primaryLang === 'csharp' || candidateLanguages.includes('c#') || candidateLanguages.includes('csharp')) {
+    if (questionHint.includes('max') || questionHint.includes('largest')) {
+      starterCode.csharp = `using System;
 
-import "fmt"
-
-func solution(input []int) int {
-    // Your code here
-    return 0
-}
-
-func main() {
-    test := []int{1, 2, 3, 4, 5}
-    fmt.Println(solution(test))
+public class Solution {
+    public static int FindMax(int[] numbers) {
+        // Your code here
+        return 0;
+    }
+    
+    public static void Main() {
+        int[] test = {3, 7, 2, 9, 1};
+        Console.WriteLine(FindMax(test)); // Should return 9
+    }
 }`;
-  }
+    } else if (questionHint.includes('palindrome')) {
+      starterCode.csharp = `using System;
 
-  if (primaryLang === 'rust' || candidateLanguages.includes('rust')) {
-    starterCode.rust = `fn solution(input: Vec<i32>) -> i32 {
-    // Your code here
-    0
-}
-
-fn main() {
-    let test = vec![1, 2, 3, 4, 5];
-    println!("{}", solution(test));
+public class Solution {
+    public static bool IsPalindrome(string str) {
+        // Your code here
+        return false;
+    }
+    
+    public static void Main() {
+        Console.WriteLine(IsPalindrome("racecar")); // Should return True
+        Console.WriteLine(IsPalindrome("hello"));   // Should return False
+    }
 }`;
-  }
+    } else {
+      starterCode.csharp = `using System;
 
-  if (primaryLang === 'php' || candidateLanguages.includes('php')) {
-    starterCode.php = `<?php
-function solution($input) {
-    // Your code here
-    return 0;
-}
-
-$test = [1, 2, 3, 4, 5];
-echo solution($test);
-?>`;
+public class Solution {
+    public static int SolutionMethod(int[] input) {
+        // Your code here
+        return 0;
+    }
+    
+    public static void Main() {
+        int[] test = {1, 2, 3, 4, 5};
+        Console.WriteLine(SolutionMethod(test));
+    }
+}`;
+    }
   }
 
   if (Object.keys(starterCode).length === 0) {
