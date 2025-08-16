@@ -401,7 +401,7 @@ export const submitAnswer = async (req, res) => {
 
 async function generateStrictAIFeedback(question, questionType, responseText, code) {
   const model = genAI.getGenerativeModel({ 
-    model: "gemini-2.0-flash-exp",
+    model: "gemini-2.5-flash",
     generationConfig: {
       temperature: 0.1,  // Low temperature for consistent scoring
       maxOutputTokens: 2048

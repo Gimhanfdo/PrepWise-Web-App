@@ -137,21 +137,45 @@ const MockInterviewSystem = () => {
     setTextAnswer(e.target.value);
   }, []);
 
+  // FIXED: Removed debug logging from direct input handler to prevent re-renders during typing
   const handleCodeChange = useCallback((e) => {
-    setCode(e.target.value);
-  }, []);
+    const newValue = e.target.value;
+    setCode(newValue);
+  }, []); // No dependencies that could cause re-renders
+
+  // FIXED: Debounced debug logging - only logs after user stops typing
+  useEffect(() => {
+    if (debugMode && code) {
+      const timeoutId = setTimeout(() => {
+        addDebugLog(`Code updated: "${code.substring(0, 50)}..."`);
+      }, 1000); // Only log after user stops typing for 1 second
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [code, debugMode, addDebugLog]);
 
   const handleTranscriptionChange = useCallback((e) => {
     setTranscription(e.target.value);
   }, []);
 
+  // FIXED: More careful language change handling
   const handleLanguageChange = useCallback((e) => {
     const newLanguage = e.target.value;
     setLanguage(newLanguage);
-    const langTemplate = supportedLanguages.find(l => l.value === newLanguage)?.template || '';
-    setCode(currentQuestion?.starterCode?.[newLanguage] || langTemplate);
+    
+    // Only reset code if it's truly empty or matches template exactly
+    const currentTemplate = supportedLanguages.find(l => l.value === language)?.template || '';
+    const normalizedCode = code.replace(/\s+/g, '').toLowerCase();
+    const normalizedTemplate = currentTemplate.replace(/\s+/g, '').toLowerCase();
+    
+    // Only auto-replace if code is empty or exactly matches the template
+    if (!code.trim() || normalizedCode === normalizedTemplate) {
+      const langTemplate = supportedLanguages.find(l => l.value === newLanguage)?.template || '';
+      setCode(currentQuestion?.starterCode?.[newLanguage] || langTemplate);
+    }
+    
     setCodeOutput('');
-  }, [currentQuestion, supportedLanguages]);
+  }, [currentQuestion, supportedLanguages, code, language]);
 
   const createFallbackFeedback = useCallback(() => {
     const validResponses = responses.filter(r => !r.skipped);
@@ -229,6 +253,12 @@ const MockInterviewSystem = () => {
       setError(`Authentication failed: ${err.message}`);
     }
   };
+
+  const isCodingQuestion = useMemo(() => {
+    return currentQuestion?.type === 'coding' || 
+           currentQuestion?.type === 'technical_coding' || 
+           currentQuestion?.type === 'problem-solving'; 
+  }, [currentQuestion?.type]);
 
   const loadProfileCV = async () => {
     try {
@@ -809,9 +839,10 @@ Status: Ready for submission`;
     setTranscriptionError('');
     setError('');
     
-    const isNextCoding = nextQuestion.type === 'coding' || nextQuestion.type === 'technical_coding';
+    const isNextCoding = nextQuestion.type === 'coding' || 
+                        nextQuestion.type === 'technical_coding' ||
+                        nextQuestion.type === 'problem-solving';
     setShowCodeEditor(isNextCoding);
-    
     if (isNextCoding) {
       const template = nextQuestion.starterCode?.[language] || 
                       supportedLanguages.find(l => l.value === language)?.template || '';
@@ -1161,6 +1192,24 @@ Status: Ready for submission`;
     }
   }, [profileCV]);
 
+  // FIXED: More controlled question change effect - removed 'code' dependency to prevent interference
+  useEffect(() => {
+    if (currentQuestion) {
+      const isCoding = currentQuestion.type === 'coding' || currentQuestion.type === 'technical_coding';
+      setShowCodeEditor(isCoding);
+      
+      // Only set initial code if we don't already have meaningful code
+      if (isCoding && currentQuestion.starterCode && (!code || code.trim().length < 10)) {
+        const newCode = currentQuestion.starterCode[language] || 
+                       supportedLanguages.find(l => l.value === language)?.template || '';
+        setCode(newCode);
+      } else if (!isCoding) {
+        setCode('');
+        setShowCodeEditor(false);
+      }
+    }
+  }, [currentQuestion, language, supportedLanguages]); // Removed 'code' from dependencies
+
   useEffect(() => {
     return () => {
       stopTimer();
@@ -1175,22 +1224,6 @@ Status: Ready for submission`;
       }
     };
   }, []);
-
-  useEffect(() => {
-    if (currentQuestion) {
-      const isCoding = currentQuestion.type === 'coding' || currentQuestion.type === 'technical_coding';
-      setShowCodeEditor(isCoding);
-      
-      if (isCoding && currentQuestion.starterCode) {
-        const newCode = currentQuestion.starterCode[language] || 
-                       supportedLanguages.find(l => l.value === language)?.template || '';
-        setCode(newCode);
-      } else if (!isCoding) {
-        setCode('');
-        setShowCodeEditor(false);
-      }
-    }
-  }, [currentQuestion, language, supportedLanguages]);
 
   const CVSection = useMemo(() => (
     <div className="mb-4">
@@ -1809,12 +1842,18 @@ Status: Ready for submission`;
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Your Code:</label>
+                    {/* FIXED: Textarea with stable key and controlled value */}
                     <textarea
+                      key={`code-editor-${currentQuestion?.questionId}-${language}`}
                       value={code}
                       onChange={handleCodeChange}
                       className="w-full h-64 px-4 py-3 border-2 border-gray-300 rounded-lg text-sm bg-white focus:border-purple-500 focus:outline-none resize-none"
                       placeholder={`Write your ${language} code here...`}
                       style={{ fontFamily: 'monospace' }}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck="false"
                     />
                   </div>
 
