@@ -1352,145 +1352,194 @@ Status: Ready for submission`;
     };
   }, []);
 
-  const CVSection = useMemo(() => (
-    <div className="mb-4">
-      <label className="block text-sm font-medium text-gray-700 mb-2">Resume/CV *</label>
+  const handleManualCvChange = useCallback((e) => {
+  const text = e.target.value;
+  setInterviewData(prev => ({ ...prev, resumeText: text }));
+  
+  // Validate minimum content
+  if (text.length > 0 && text.length < 50) {
+    setCvError('Please provide more detailed CV information (at least 50 characters)');
+  } else {
+    setCvError('');
+  }
+}, []);
+
+// Enhanced CV section component
+const CVSection = useMemo(() => (
+  <div className="mb-4">
+    <label className="block text-sm font-medium text-gray-700 mb-2">Resume/CV *</label>
+    
+    {/* CV Mode Selection */}
+    <div className="flex gap-2 mb-3 flex-wrap">
+      <button
+        onClick={() => handleCvModeChange('profile')}
+        disabled={!profileCV}
+        className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors ${
+          cvMode === 'profile' 
+            ? 'bg-blue-100 border-blue-500 text-blue-700' 
+            : profileCV
+              ? 'bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100'
+              : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+        }`}
+      >
+        <User className="w-4 h-4" />
+        Profile CV
+        {profileCV && <CheckCircle className="w-4 h-4 text-green-500" />}
+      </button>
       
-      <div className="flex gap-2 mb-3">
+      <button
+        onClick={() => handleCvModeChange('upload')}
+        className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors ${
+          cvMode === 'upload' 
+            ? 'bg-purple-100 border-purple-500 text-purple-700' 
+            : 'bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100'
+        }`}
+      >
+        <Upload className="w-4 h-4" />
+        Upload File
+      </button>
+
+      <button
+        onClick={() => handleCvModeChange('manual')}
+        className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors ${
+          cvMode === 'manual' 
+            ? 'bg-green-100 border-green-500 text-green-700' 
+            : 'bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100'
+        }`}
+      >
+        <Type className="w-4 h-4" />
+        Type Manually
+      </button>
+
+      {profileCV && (
         <button
-          onClick={() => handleCvModeChange('profile')}
-          disabled={!profileCV}
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors ${
-            cvMode === 'profile' 
-              ? 'bg-blue-100 border-blue-500 text-blue-700' 
-              : profileCV
-                ? 'bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100'
-                : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
-          }`}
+          onClick={loadProfileCV}
+          disabled={cvLoading}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 border border-gray-300 text-gray-600 hover:bg-gray-200 transition-colors text-sm"
         >
-          <User className="w-4 h-4" />
-          Profile CV
-          {profileCV && <CheckCircle className="w-4 h-4 text-green-500" />}
+          <RefreshCw className={`w-4 h-4 ${cvLoading ? 'animate-spin' : ''}`} />
+          Refresh
         </button>
-        
-        <button
-          onClick={() => handleCvModeChange('upload')}
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors ${
-            cvMode === 'upload' 
-              ? 'bg-purple-100 border-purple-500 text-purple-700' 
-              : 'bg-gray-50 border-gray-300 text-gray-600 hover:bg-gray-100'
-          }`}
-        >
-          <Upload className="w-4 h-4" />
-          Upload File
-        </button>
-
-        {profileCV && (
-          <button
-            onClick={loadProfileCV}
-            disabled={cvLoading}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-100 border border-gray-300 text-gray-600 hover:bg-gray-200 transition-colors text-sm"
-          >
-            <RefreshCw className={`w-4 h-4 ${cvLoading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        )}
-      </div>
-
-      {cvMode === 'profile' && profileCV && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
-          <div className="flex items-start justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <FileCheck className="w-4 h-4 text-blue-600" />
-              <h4 className="text-sm font-medium text-blue-900">Profile CV Loaded</h4>
-            </div>
-            <span className="text-xs text-blue-600">
-              {profileCV.age ? `${profileCV.age} old` : 'Current'}
-            </span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-            <div>
-              <span className="font-medium text-blue-700">File:</span>
-              <span className="ml-1 text-blue-600">{profileCV.fileName}</span>
-            </div>
-            <div>
-              <span className="font-medium text-blue-700">Size:</span>
-              <span className="ml-1 text-blue-600">{profileCV.fileSize ? `${Math.round(profileCV.fileSize / 1024)}KB` : 'N/A'}</span>
-            </div>
-            <div>
-              <span className="font-medium text-blue-700">Length:</span>
-              <span className="ml-1 text-blue-600">{profileCV.text.length} chars</span>
-            </div>
-          </div>
-          
-          <div className="mt-2 p-2 bg-white rounded border border-blue-200">
-            <div className="text-xs text-blue-700 mb-1">Preview:</div>
-            <div className="text-xs text-gray-700 max-h-20 overflow-y-auto">
-              {profileCV.text.substring(0, 200)}
-              {profileCV.text.length > 200 && '...'}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {cvMode === 'upload' && (
-        <div className="space-y-3">
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,.txt,.docx"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-            <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2" />
-            <div className="text-sm text-gray-600 mb-1">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="text-blue-600 hover:text-blue-700 font-medium"
-              >
-                Click to upload
-              </button>
-            </div>
-            <div className="text-xs text-gray-500">
-              PDF, TXT, or DOCX (Max 5MB)
-            </div>
-          </div>
-
-          {uploadedFile && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-2">
-              <div className="flex items-center gap-2">
-                <FileCheck className="w-4 h-4 text-green-600" />
-                <span className="text-sm font-medium text-green-800">
-                  {uploadedFile.name} ({Math.round(uploadedFile.size / 1024)}KB)
-                </span>
-              </div>
-            </div>
-          )}
-
-          <div>
-            <textarea
-              value={interviewData.resumeText}
-              onChange={(e) => setInterviewData(prev => ({ ...prev, resumeText: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-32 resize-none text-sm"
-              placeholder="Paste your resume/CV text here..."
-            />
-            <div className="mt-1 flex justify-between text-xs text-gray-500">
-              <span>Characters: {interviewData.resumeText.length}</span>
-              <span>Words: {interviewData.resumeText.split(' ').filter(word => word.length > 0).length}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {cvError && (
-        <div className="mt-2 flex items-center gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
-          <AlertCircle className="w-4 h-4 text-red-500" />
-          <span className="text-red-700 text-xs">{cvError}</span>
-        </div>
       )}
     </div>
-  ), [cvMode, profileCV, interviewData.resumeText, cvLoading, cvError, uploadedFile, handleCvModeChange, loadProfileCV]);
+
+    {/* Profile CV Display */}
+    {cvMode === 'profile' && profileCV && (
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+        <div className="flex items-start justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <FileCheck className="w-4 h-4 text-blue-600" />
+            <h4 className="text-sm font-medium text-blue-900">Profile CV Loaded</h4>
+          </div>
+          <span className="text-xs text-blue-600">
+            {profileCV.age ? `${profileCV.age} old` : 'Current'}
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+          <div>
+            <span className="font-medium text-blue-700">File:</span>
+            <span className="ml-1 text-blue-600">{profileCV.fileName}</span>
+          </div>
+          <div>
+            <span className="font-medium text-blue-700">Size:</span>
+            <span className="ml-1 text-blue-600">{profileCV.fileSize ? `${Math.round(profileCV.fileSize / 1024)}KB` : 'N/A'}</span>
+          </div>
+          <div>
+            <span className="font-medium text-blue-700">Length:</span>
+            <span className="ml-1 text-blue-600">{profileCV.text.length} chars</span>
+          </div>
+        </div>
+        
+        <div className="mt-2 p-2 bg-white rounded border border-blue-200">
+          <div className="text-xs text-blue-700 mb-1">Preview:</div>
+          <div className="text-xs text-gray-700 max-h-20 overflow-y-auto">
+            {profileCV.text.substring(0, 200)}
+            {profileCV.text.length > 200 && '...'}
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* File Upload Mode */}
+    {cvMode === 'upload' && (
+      <div className="space-y-3">
+        <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.txt,.docx,.doc"
+            onChange={handleFileUpload}
+            className="hidden"
+            disabled={cvLoading}
+          />
+          <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2" />
+          <div className="text-sm text-gray-600 mb-1">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={cvLoading}
+              className="text-blue-600 hover:text-blue-700 font-medium disabled:text-gray-400"
+            >
+              {cvLoading ? 'Processing...' : 'Click to upload'}
+            </button>
+          </div>
+          <div className="text-xs text-gray-500">
+            PDF, TXT, DOC, or DOCX (Max 5MB)
+          </div>
+        </div>
+
+        {cvLoading && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <div className="flex items-center gap-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
+              <span className="text-sm font-medium text-blue-800">Processing CV file...</span>
+            </div>
+          </div>
+        )}
+
+        {uploadedFile && !cvLoading && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-2">
+            <div className="flex items-center gap-2">
+              <FileCheck className="w-4 h-4 text-green-600" />
+              <span className="text-sm font-medium text-green-800">
+                {uploadedFile.name} ({Math.round(uploadedFile.size / 1024)}KB) - Processed
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+
+    {/* Manual CV Entry or Text Preview */}
+    {(cvMode === 'manual' || cvMode === 'upload') && (
+      <div className="mt-3">
+        <label className="block text-xs font-medium text-gray-700 mb-2">
+          {cvMode === 'manual' ? 'Enter your CV/Resume text:' : 'Extracted CV content:'}
+        </label>
+        <textarea
+          value={interviewData.resumeText}
+          onChange={cvMode === 'manual' ? handleManualCvChange : (e) => setInterviewData(prev => ({ ...prev, resumeText: e.target.value }))}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-32 resize-none text-sm"
+          placeholder={cvMode === 'manual' 
+            ? "Enter your professional experience, skills, education, and qualifications..."
+            : "CV content will appear here after file upload..."
+          }
+          disabled={cvMode === 'upload' && cvLoading}
+        />
+        <div className="mt-1 flex justify-between text-xs text-gray-500">
+          <span>Characters: {interviewData.resumeText.length}</span>
+          <span>Words: {interviewData.resumeText.split(' ').filter(word => word.length > 0).length}</span>
+        </div>
+      </div>
+    )}
+
+    {cvError && (
+      <div className="mt-2 flex items-center gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+        <AlertCircle className="w-4 h-4 text-red-500" />
+        <span className="text-red-700 text-xs">{cvError}</span>
+      </div>
+    )}
+  </div>
+), [cvMode, profileCV, interviewData.resumeText, cvLoading, cvError, uploadedFile, handleCvModeChange, loadProfileCV, handleFileUpload, handleManualCvChange]);
 
   const SetupPhase = useMemo(() => (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">

@@ -6,7 +6,7 @@ import userModel from '../models/userModel.js';
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
 
 // Utility functions
 function convertMarkdownToHTML(text) {
@@ -142,7 +142,35 @@ const calculateTechnicalMatch = (resumeText, jobDesc) => {
   return maxPossibleScore > 0 ? (totalScore / maxPossibleScore) : 0;
 };
 
-// Get similarity score using Gemini API
+// Enhanced score parsing function
+function parseScoreFromResponse(responseText) {
+  console.log("Raw Gemini response:", responseText);
+  
+  // Try to extract just the number from the response
+  const patterns = [
+    /^(\d*\.?\d+)$/,                    // Just a number: "0.56"
+    /score[:\s]*(\d*\.?\d+)/i,          // "Score: 0.56"
+    /(\d*\.?\d+)[^\d]*$/,               // Number at the end: "0.56 (good match)"
+    /^[^\d]*(\d*\.?\d+)/,               // Number at the start: "Result: 0.56"
+    /(\d*\.?\d+)/                       // First number found anywhere
+  ];
+
+  for (const pattern of patterns) {
+    const match = responseText.trim().match(pattern);
+    if (match) {
+      const score = parseFloat(match[1]);
+      console.log(`Extracted score using pattern ${pattern}: ${score}`);
+      if (!isNaN(score) && score >= 0 && score <= 1) {
+        return score;
+      }
+    }
+  }
+
+  console.warn("Could not extract valid score from response:", responseText);
+  return null;
+}
+
+// Get similarity score using Gemini API with enhanced parsing
 const getSimilarityScore = async (resumeText, jobDesc) => {
   try {
     // Pre-screening for non-CS roles
@@ -186,7 +214,7 @@ CS/SOFTWARE ENGINEERING ROLES include:
 NON-CS ROLES (return 0.0):
 - Medical, Legal, Education, Retail, Food Service, Marketing, Sales, HR
 
-If NOT a CS/Software Engineering role, return: 0.0
+If NOT a CS/Software Engineering role, return exactly: 0.0
 
 For CS/SOFTWARE ENGINEERING roles, evaluate match quality:
 
@@ -212,17 +240,24 @@ ${truncatedJobDesc}
 
 Technical baseline score: ${technicalMatchScore.toFixed(2)}
 
-Return ONLY a decimal between 0.0-1.0:`;
+RESPONSE FORMAT REQUIREMENT:
+Return ONLY a single decimal number between 0.0 and 1.0, nothing else.
+Example: 0.67
+Do NOT include explanations, text, or additional formatting.`;
 
     const result = await model.generateContent(prompt);
     const response = result.response;
     const scoreText = response.text().trim();
-    const aiScore = parseFloat(scoreText);
+    
+    // Use enhanced parsing function
+    const aiScore = parseScoreFromResponse(scoreText);
 
-    if (isNaN(aiScore) || aiScore < 0 || aiScore > 1) {
-      console.warn("Invalid AI score, using technical match score");
+    if (aiScore === null) {
+      console.warn("Invalid AI score, using technical match score. Response was:", scoreText);
       return Math.max(0, Math.min(1, technicalMatchScore));
     }
+
+    console.log(`✅ Successfully parsed AI score: ${aiScore}`);
 
     // Blend AI score with technical match for consistency
     const finalScore = (aiScore * 0.7) + (technicalMatchScore * 0.3);
@@ -234,7 +269,7 @@ Return ONLY a decimal between 0.0-1.0:`;
   }
 };
 
-// Extract technologies using Gemini API
+// Extract technologies using Gemini API with structured JSON response
 const extractTechnologiesFromResume = async (resumeText) => {
   try {
     const prompt = `Analyze this resume and extract ONLY technical skills relevant to Computer Science/Software Engineering.
@@ -249,44 +284,67 @@ Focus on:
 Resume text:
 ${resumeText.substring(0, 3000)}
 
-Return JSON array with format:
+Return ONLY a valid JSON array with this exact format:
 [
   {"name": "Python", "category": "Programming Languages", "confidenceLevel": 8},
   {"name": "React", "category": "Web Frameworks", "confidenceLevel": 6}
 ]
 
-Categories: "Programming Languages", "Web Frameworks", "Development Tools", "Databases", "CS Concepts", "Other Technical"
-
-Only include technical skills relevant to software development. Return only the JSON array.`;
+Categories must be one of: "Programming Languages", "Web Frameworks", "Development Tools", "Databases", "CS Concepts", "Other Technical"
+Confidence level must be 1-10.
+Only include technical skills relevant to software development.
+Return ONLY the JSON array, no other text.`;
 
     const result = await model.generateContent(prompt);
     const response = result.response;
     const content = response.text().trim();
     
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      const technologies = JSON.parse(jsonMatch[0]);
-      return technologies.filter(tech => 
-        tech.name && 
-        tech.category && 
-        tech.confidenceLevel >= 1 && 
-        tech.confidenceLevel <= 10
-      );
+    console.log("Technology extraction response:", content.substring(0, 200) + "...");
+    
+    // Enhanced JSON parsing
+    let jsonMatch = content.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      // Try to find JSON between code blocks
+      jsonMatch = content.match(/```(?:json)?\s*(\[[\s\S]*\])\s*```/);
+      if (jsonMatch) {
+        jsonMatch[0] = jsonMatch[1];
+      }
     }
     
-    return [];
+    if (jsonMatch) {
+      try {
+        const technologies = JSON.parse(jsonMatch[0]);
+        const validTechnologies = technologies.filter(tech => 
+          tech.name && 
+          tech.category && 
+          tech.confidenceLevel >= 1 && 
+          tech.confidenceLevel <= 10
+        );
+        console.log(`✅ Successfully extracted ${validTechnologies.length} technologies`);
+        return validTechnologies;
+      } catch (parseError) {
+        console.error("JSON parsing error for technologies:", parseError.message);
+      }
+    }
+    
+    console.warn("Could not parse technologies, returning fallback");
+    return getFallbackTechnologies();
   } catch (error) {
     console.error("Technology extraction error:", error);
-    // Return fallback technologies if API fails
-    return [
-      { name: 'JavaScript', category: 'Programming Languages', confidenceLevel: 5 },
-      { name: 'Python', category: 'Programming Languages', confidenceLevel: 5 },
-      { name: 'Git', category: 'Development Tools', confidenceLevel: 5 }
-    ];
+    return getFallbackTechnologies();
   }
 };
 
-// Get structured recommendations using Gemini API
+// Fallback technologies
+function getFallbackTechnologies() {
+  return [
+    { name: 'JavaScript', category: 'Programming Languages', confidenceLevel: 5 },
+    { name: 'Python', category: 'Programming Languages', confidenceLevel: 5 },
+    { name: 'Git', category: 'Development Tools', confidenceLevel: 5 }
+  ];
+}
+
+// Get structured recommendations using Gemini API with enhanced JSON parsing
 const getStructuredRecommendations = async (resumeText, jobDesc) => {
   try {
     const maxLength = 4500;
@@ -301,9 +359,9 @@ const getStructuredRecommendations = async (resumeText, jobDesc) => {
 
 VERIFICATION: Confirm this is a CS/Software Engineering internship.
 
-If this is NOT a CS/Software Engineering internship, respond: NON_CS_ROLE
+If this is NOT a CS/Software Engineering internship, respond exactly: NON_CS_ROLE
 
-For CS/SOFTWARE ENGINEERING internships, provide analysis in this exact JSON format:
+For CS/SOFTWARE ENGINEERING internships, provide analysis in this exact JSON format (no additional text):
 
 {
   "strengths": [
@@ -342,11 +400,15 @@ Resume:
 ${truncatedResume}
 
 Job Description:
-${truncatedJobDesc}`;
+${truncatedJobDesc}
+
+Return ONLY the JSON object, no other text or formatting.`;
 
     const result = await model.generateContent(prompt);
     const response = result.response;
     const responseText = response.text().trim();
+
+    console.log("Recommendations response preview:", responseText.substring(0, 100) + "...");
 
     if (responseText === "NON_CS_ROLE" || responseText.includes("NON_CS_ROLE")) {
       return {
@@ -356,24 +418,39 @@ ${truncatedJobDesc}`;
     }
 
     try {
-      // Clean and parse JSON response
+      // Enhanced JSON parsing
       let cleanText = responseText.replace(/```json\s*|```\s*/g, '').trim();
-      const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
+      
+      // Try to find JSON object
+      let jsonMatch = cleanText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         cleanText = jsonMatch[0];
       }
+      
       const structuredData = JSON.parse(cleanText);
+      
+      // Validate structure
+      const requiredFields = ['strengths', 'contentWeaknesses', 'structureWeaknesses', 'contentRecommendations', 'structureRecommendations'];
+      const isValid = requiredFields.every(field => Array.isArray(structuredData[field]));
+      
+      if (!isValid) {
+        console.warn("Invalid structure in recommendations response, using defaults");
+        return getDefaultCSRecommendations();
+      }
+      
+      console.log("✅ Successfully parsed structured recommendations");
       
       return {
         isNonTechRole: false,
-        strengths: Array.isArray(structuredData.strengths) ? structuredData.strengths : [],
-        contentWeaknesses: Array.isArray(structuredData.contentWeaknesses) ? structuredData.contentWeaknesses : [],
-        structureWeaknesses: Array.isArray(structuredData.structureWeaknesses) ? structuredData.structureWeaknesses : [],
-        contentRecommendations: Array.isArray(structuredData.contentRecommendations) ? structuredData.contentRecommendations : [],
-        structureRecommendations: Array.isArray(structuredData.structureRecommendations) ? structuredData.structureRecommendations : []
+        strengths: structuredData.strengths,
+        contentWeaknesses: structuredData.contentWeaknesses,
+        structureWeaknesses: structuredData.structureWeaknesses,
+        contentRecommendations: structuredData.contentRecommendations,
+        structureRecommendations: structuredData.structureRecommendations
       };
     } catch (parseError) {
-      console.error("JSON parsing failed:", parseError.message);
+      console.error("JSON parsing failed for recommendations:", parseError.message);
+      console.log("Raw response was:", responseText);
       return getDefaultCSRecommendations();
     }
 
@@ -525,7 +602,7 @@ async function performCVAnalysis(cvText, jobDescriptions) {
 // Main controller function - analyzeResume
 export const analyzeResume = async (req, res) => {
   try {
-    console.log('=== ANALYZE RESUME WITH REAL GEMINI API ===');
+    console.log('=== ANALYZE RESUME WITH ENHANCED GEMINI API ===');
     console.log('User ID:', req.user?.id);
     console.log('Use Profile CV:', req.body.useProfileCV);
 
@@ -610,19 +687,19 @@ export const analyzeResume = async (req, res) => {
     // Validate resume content
     validateResumeContent(resumeText);
 
-    console.log('🔍 Starting real Gemini API analysis...');
+    console.log('🔍 Starting enhanced Gemini API analysis...');
     
     // Perform actual analysis using Gemini API
     const { analysis: analysisResults, extractedTechnologies } = await performCVAnalysis(resumeText, jobDescriptions);
 
-    console.log('✅ Real Gemini analysis completed');
+    console.log('✅ Enhanced Gemini analysis completed');
     console.log('Results summary:', analysisResults.map((r, i) => `Job ${i + 1}: ${r.matchPercentage}%`));
     console.log('Technologies extracted:', extractedTechnologies.length);
 
     // Return real analysis results
     res.json({
       success: true,
-      message: 'Resume analysis completed successfully using Gemini API',
+      message: 'Resume analysis completed successfully using enhanced Gemini API',
       resumeHash,
       resumeText: useProfileCV ? 'Profile CV content' : `Uploaded: ${resumeFileName}`,
       extractedTechnologies,
@@ -633,8 +710,9 @@ export const analyzeResume = async (req, res) => {
         analysisDate: new Date().toISOString(),
         jobDescriptionCount: jobDescriptions.length,
         technologiesFound: extractedTechnologies.length,
-        apiUsed: 'Gemini 2.5 Flash',
-        realAnalysis: true
+        apiUsed: 'Gemini 2.5 Flash Enhanced',
+        realAnalysis: true,
+        enhancedParsing: true
       }
     });
 
@@ -914,8 +992,9 @@ export const saveAnalysis = async (req, res) => {
       if (!analysis.analysisMetadata) {
         analysis.analysisMetadata = {};
       }
-      analysis.analysisMetadata.geminiModel = "gemini-2.5-flash";
+      analysis.analysisMetadata.geminiModel = "gemini-2.5-pro";
       analysis.analysisMetadata.processingDate = new Date().toISOString();
+      analysis.analysisMetadata.enhancedParsing = true;
       
       await analysis.save();
       console.log('✅ Updated existing analysis successfully');
@@ -934,8 +1013,9 @@ export const saveAnalysis = async (req, res) => {
         isSaved: shouldSave,
         usedProfileCV: false, // Default to false unless specified
         analysisMetadata: {
-          geminiModel: "gemini-2.5-flash",
-          processingDate: new Date().toISOString()
+          geminiModel: "gemini-2.5-pro",
+          processingDate: new Date().toISOString(),
+          enhancedParsing: true
         }
       });
       
@@ -1293,7 +1373,8 @@ export const getTechnologyStats = async (req, res) => {
           ),
           mostFrequentCategory: Object.values(categories)
             .sort((a, b) => b.count - a.count)[0]?.name || 'None',
-          geminiAnalyses: analyses.filter(a => a.analysisMetadata?.geminiModel?.includes('gemini')).length
+          geminiAnalyses: analyses.filter(a => a.analysisMetadata?.geminiModel?.includes('gemini')).length,
+          enhancedAnalyses: analyses.filter(a => a.analysisMetadata?.enhancedParsing).length
         }
       }
     });
@@ -1380,5 +1461,7 @@ export {
   convertMarkdownToHTML,
   stripHTMLToText,
   validateResumeContent,
-  validateJobDescription
+  validateJobDescription,
+  parseScoreFromResponse,
+  getFallbackTechnologies
 };

@@ -22,6 +22,19 @@ const ArrowLeft = () => (
   </svg>
 );
 
+const ArrowRight = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <line x1="5" y1="12" x2="19" y2="12"></line>
+    <polyline points="12,5 19,12 12,19"></polyline>
+  </svg>
+);
+
+const MessageCircle = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+  </svg>
+);
+
 const Loader = ({ className }) => (
   <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" strokeDasharray="31.416" strokeDashoffset="31.416">
@@ -50,6 +63,7 @@ const SWOTAnalysis = ({
   jobDescriptions = [],
   extractedTechnologies = [],
   onBack = null,
+  onGoToInterview = null,
   userId = null
 }) => {
   const [step, setStep] = useState('rating');
@@ -59,17 +73,17 @@ const SWOTAnalysis = ({
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Initialize technologies when extractedTechnologies prop changes - DEFAULT TO 5
+  // Initialize technologies when extractedTechnologies prop changes - ALWAYS DEFAULT TO 5
   useEffect(() => {
     console.log("SWOT: Received extractedTechnologies:", extractedTechnologies);
     if (extractedTechnologies && extractedTechnologies.length > 0) {
       const initializedTechnologies = extractedTechnologies.map(tech => ({
         name: tech.name,
         category: tech.category,
-        confidenceLevel: 5 // CHANGED: Default to 5 (intermediate level)
+        confidenceLevel: 5 // ALWAYS default to 5 (intermediate level)
       }));
       setTechnologies(initializedTechnologies);
-      console.log("SWOT: Initialized technologies with 5 default:", initializedTechnologies);
+      console.log("SWOT: All technologies initialized with default rating of 5:", initializedTechnologies);
     }
   }, [extractedTechnologies]);
 
@@ -80,7 +94,7 @@ const SWOTAnalysis = ({
     setTechnologies(updatedTechnologies);
   };
 
-  // UPDATED: API call without validation since all start at 5
+  // Save ratings to backend
   const handleSaveRatings = async () => {
     if (!resumeHash) {
       setError('Resume hash is required. Please analyze your resume first.');
@@ -140,7 +154,7 @@ const SWOTAnalysis = ({
     }
   };
 
-  // UPDATED: Get confidence level color - no special handling for 0 needed
+  // Get confidence level color
   const getConfidenceColor = (level) => {
     if (level >= 8) return 'text-green-600 bg-green-100';
     if (level >= 6) return 'text-blue-600 bg-blue-100';
@@ -148,7 +162,7 @@ const SWOTAnalysis = ({
     return 'text-red-600 bg-red-100';
   };
 
-  // UPDATED: Get confidence level text - no special handling for 0 needed
+  // Get confidence level text
   const getConfidenceText = (level) => {
     if (level >= 8) return 'Expert';
     if (level >= 6) return 'Proficient';
@@ -166,7 +180,7 @@ const SWOTAnalysis = ({
     return groups;
   }, {});
 
-  // UPDATED: Calculate statistics - no need to handle 0 ratings
+  // Calculate statistics
   const getStatistics = () => {
     return {
       total: technologies.length,
@@ -191,7 +205,7 @@ const SWOTAnalysis = ({
             <span className="text-blue-800 font-semibold">{technologies.length} technologies found</span>
           </div>
           <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2">
-            <span className="text-green-800 font-medium">All pre-rated at intermediate level (5/10)</span>
+            <span className="text-green-800 font-medium">All start at intermediate level (5/10)</span>
           </div>
         </div>
       </div>
@@ -408,12 +422,24 @@ const SWOTAnalysis = ({
             <ArrowLeft />
             <span className="ml-2">Update Ratings</span>
           </button>
+          
           {onBack && (
             <button
               onClick={onBack}
               className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
             >
               Back to CV Analysis
+            </button>
+          )}
+          
+          {onGoToInterview && (
+            <button
+              onClick={onGoToInterview}
+              className="px-8 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center font-semibold"
+            >
+              <MessageCircle />
+              <span className="ml-2">Start Interview Practice</span>
+              <ArrowRight />
             </button>
           )}
         </div>
