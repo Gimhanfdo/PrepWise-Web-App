@@ -5,6 +5,7 @@ import { AppContext } from '../context/AppContext';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import NavBar from "../components/NavBar";
 
 const UserProfile = () => {
   const navigate = useNavigate();
@@ -1806,6 +1807,8 @@ const renderCVTab = () => (
   ];
 
   return (
+    <div className="min-h-screen bg-gray-50">
+          <NavBar />
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
@@ -1914,6 +1917,7 @@ const renderCVTab = () => (
               </ul>
             </nav>
           </div>
+      
 
           {/* Main Content */}
           <div className="lg:col-span-3">
@@ -1927,6 +1931,7 @@ const renderCVTab = () => (
         </div>
       </div>
     </div>
+  </div>
   );
 };
 
