@@ -1,6 +1,9 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { CheckCircle, XCircle, AlertTriangle, Lightbulb, FileText, Layout, Target, BarChart3, ArrowLeft, Star, TrendingUp, Settings, Upload, Plus, Trash2, Save, RefreshCw, User } from "lucide-react";
 import NavBar from "../components/NavBar";
+import { useNavigate } from "react-router-dom";
+
+
 // Enhanced Skills Assessment Component
 const SkillsAssessment = ({ 
   resumeHash = null, 
@@ -353,11 +356,12 @@ const SkillsAssessment = ({
       )}
     </div>
   );
+  const navigate = useNavigate();
 
   const renderSuccessStep = () => (
     <div className="min-h-screen bg-gray-50">
                       <NavBar/>
-                      <br />
+                      <br/>
     <div className="space-y-6 md:space-y-8 text-center max-w-5xl mx-auto">
       <div className="w-24 h-24 bg-gradient-to-br from-emerald-100 to-emerald-200 rounded-3xl flex items-center justify-center mx-auto shadow-lg">
         <CheckCircle className="w-12 h-12 text-emerald-600" />
@@ -423,6 +427,7 @@ const SkillsAssessment = ({
         </div>
       </div>
 
+      
       {/* Action Buttons */}
       <div className="flex flex-col sm:flex-row gap-4 justify-center px-4">
         <button
@@ -441,6 +446,13 @@ const SkillsAssessment = ({
             Back to CV Analysis
           </button>
         )}
+        <button
+          onClick={() => navigate('/interview')}
+          className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-white text-indigo-600 border-2 border-indigo-600 rounded-xl hover:bg-indigo-50 transition-all shadow-lg hover:shadow-xl"
+          >
+          <ArrowRight className="w-4 h-4" />
+          Proceed to Mock Interview 
+      </button>
       </div>
     </div>
     </div>
