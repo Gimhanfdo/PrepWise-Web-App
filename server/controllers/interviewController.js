@@ -718,7 +718,7 @@ export const submitAnswer = async (req, res) => {
 
 async function generateStrictAIFeedback(question, questionType, responseText, code, language, isSkipped = false) {
   const model = genAI.getGenerativeModel({ 
-    model: "gemini-2.5-pro",
+    model: "gemini-2.5-flash",
     generationConfig: { temperature: 0.1, maxOutputTokens: 2048 }
   });
 
@@ -1311,7 +1311,7 @@ function extractJobKeywords(jobDescription) {
 
 async function generateInterviewQuestions(resumeText, jobDescription) {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
     const cvKeywords = extractCVKeywords(resumeText);
     const jobKeywords = extractJobKeywords(jobDescription);
@@ -1821,7 +1821,7 @@ function cleanAndExtractJSON(text) {
 
 async function generateOverallFeedback(responses, resumeText, jobDescription) {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
     const scores = responses.map(r => r.feedback?.score || 0);
     const averageScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
