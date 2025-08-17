@@ -6,7 +6,7 @@ import userModel from '../models/userModel.js';
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash"});
 
 // Utility functions
 function convertMarkdownToHTML(text) {
@@ -992,7 +992,7 @@ export const saveAnalysis = async (req, res) => {
       if (!analysis.analysisMetadata) {
         analysis.analysisMetadata = {};
       }
-      analysis.analysisMetadata.geminiModel = "gemini-2.5-pro";
+      analysis.analysisMetadata.geminiModel = "gemini-2.5-flash";
       analysis.analysisMetadata.processingDate = new Date().toISOString();
       analysis.analysisMetadata.enhancedParsing = true;
       
@@ -1013,7 +1013,7 @@ export const saveAnalysis = async (req, res) => {
         isSaved: shouldSave,
         usedProfileCV: false, // Default to false unless specified
         analysisMetadata: {
-          geminiModel: "gemini-2.5-pro",
+          geminiModel: "gemini-2.5-flash",
           processingDate: new Date().toISOString(),
           enhancedParsing: true
         }
