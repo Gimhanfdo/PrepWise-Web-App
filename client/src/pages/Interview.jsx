@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Mic, MicOff,Award, Play, Pause, ChevronRight, Clock, User, FileText, BarChart3, CheckCircle, AlertCircle, Volume2, Code, Terminal, Send, Type, Headphones, Upload, Download, FileCheck, RefreshCw, Zap, Target, Trophy, Star, TrendingUp, Brain, MessageCircle, SkipForward } from 'lucide-react';
+import { Mic, MicOff, Play, Pause, ChevronRight, Clock, User, FileText, BarChart3, CheckCircle, AlertCircle, Volume2, Code, Terminal, Send, Type, Headphones, Upload, Download, FileCheck, RefreshCw, Zap, Target, Trophy, Star, TrendingUp, Brain, MessageCircle, SkipForward } from 'lucide-react';
 
 const MockInterviewSystem = () => {
   const [currentStep, setCurrentStep] = useState('setup'); 
@@ -58,17 +58,38 @@ const MockInterviewSystem = () => {
   const audioChunksRef = useRef([]);
   const fileInputRef = useRef(null);
 
+  // FIXED: Updated supported languages with correct templates
   const supportedLanguages = [
-    { value: 'javascript', label: 'JavaScript', template: 'function solution() {\n    // Your code here\n    return result;\n}' },
-    { value: 'python', label: 'Python', template: 'def solution():\n    # Your code here\n    return result' },
-    { value: 'java', label: 'Java', template: 'public class Solution {\n    public static void main(String[] args) {\n        // Your code here\n    }\n}' },
-    { value: 'cpp', label: 'C++', template: '#include <iostream>\nusing namespace std;\n\nint main() {\n    // Your code here\n    return 0;\n}' },
-    { value: 'c', label: 'C', template: '#include <stdio.h>\n\nint main() {\n    // Your code here\n    return 0;\n}' },
-    { value: 'csharp', label: 'C#', template: 'using System;\n\nclass Program {\n    static void Main() {\n        // Your code here\n    }\n}' },
-    { value: 'typescript', label: 'TypeScript', template: 'function solution(): any {\n    // Your code here\n    return result;\n}' },
-    { value: 'go', label: 'Go', template: 'package main\n\nimport "fmt"\n\nfunc main() {\n    // Your code here\n}' },
-    { value: 'rust', label: 'Rust', template: 'fn main() {\n    // Your code here\n}' },
-    { value: 'php', label: 'PHP', template: '<?php\n// Your code here\n?>' }
+    { 
+      value: 'javascript', 
+      label: 'JavaScript', 
+      template: 'function solution() {\n    // Your code here\n    return result;\n}'
+    },
+    { 
+      value: 'python', 
+      label: 'Python', 
+      template: 'def solution():\n    # Your code here\n    return result'
+    },
+    { 
+      value: 'java', 
+      label: 'Java', 
+      template: 'public class Solution {\n    public static void main(String[] args) {\n        // Your code here\n    }\n    \n    public static int solution() {\n        // Your solution here\n        return 0;\n    }\n}'
+    },
+    { 
+      value: 'c', 
+      label: 'C', 
+      template: '#include <stdio.h>\n\nint main() {\n    // Your code here\n    return 0;\n}'
+    },
+    { 
+      value: 'csharp', 
+      label: 'C#', 
+      template: 'using System;\n\nclass Program {\n    static void Main() {\n        // Your code here\n    }\n    \n    static int Solution() {\n        // Your solution here\n        return 0;\n    }\n}'
+    },
+    { 
+      value: 'php', 
+      label: 'PHP', 
+      template: '<?php\nfunction solution() {\n    // Your code here\n    return $result;\n}\n?>'
+    }
   ];
 
   const addDebugLog = useCallback((message, type = 'info') => {
@@ -82,7 +103,7 @@ const MockInterviewSystem = () => {
   }, []);
 
   const isValidAnswer = useCallback((responseText, questionType, codeText = null) => {
-    if (questionType === 'coding' || questionType === 'technical_coding') {
+    if (questionType === 'coding' || questionType === 'technical_coding' || questionType === 'problem-solving') {
       if (!codeText || codeText.trim().length === 0) return false;
       
       const normalizedCode = codeText.replace(/\s+/g, ' ').trim();
@@ -92,7 +113,7 @@ const MockInterviewSystem = () => {
       
       if (normalizedCode === normalizedTemplate) return false;
       
-      const codeWithoutComments = codeText.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '').trim();
+      const codeWithoutComments = codeText.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '').replace(/#.*$/gm, '').trim();
       if (codeWithoutComments.length < 20) return false;
       
       const meaningfulCodePattern = /[{};()=+\-*/><%]/;
@@ -137,18 +158,18 @@ const MockInterviewSystem = () => {
     setTextAnswer(e.target.value);
   }, []);
 
-  // FIXED: Removed debug logging from direct input handler to prevent re-renders during typing
+  // FIXED: Simplified code change handler without debug interference
   const handleCodeChange = useCallback((e) => {
     const newValue = e.target.value;
     setCode(newValue);
-  }, []); // No dependencies that could cause re-renders
+  }, []);
 
-  // FIXED: Debounced debug logging - only logs after user stops typing
+  // FIXED: Debounced debug logging
   useEffect(() => {
     if (debugMode && code) {
       const timeoutId = setTimeout(() => {
         addDebugLog(`Code updated: "${code.substring(0, 50)}..."`);
-      }, 1000); // Only log after user stops typing for 1 second
+      }, 1000);
       
       return () => clearTimeout(timeoutId);
     }
@@ -158,12 +179,11 @@ const MockInterviewSystem = () => {
     setTranscription(e.target.value);
   }, []);
 
-  // FIXED: More careful language change handling
+  // FIXED: Better language change handling
   const handleLanguageChange = useCallback((e) => {
     const newLanguage = e.target.value;
     setLanguage(newLanguage);
     
-    // Only reset code if it's truly empty or matches template exactly
     const currentTemplate = supportedLanguages.find(l => l.value === language)?.template || '';
     const normalizedCode = code.replace(/\s+/g, '').toLowerCase();
     const normalizedTemplate = currentTemplate.replace(/\s+/g, '').toLowerCase();
@@ -894,6 +914,7 @@ Status: Ready for submission`;
     }
   };
 
+  // FIXED: Updated skipQuestion function for coding questions
   const skipQuestion = async () => {
     setLoading(true);
     setError('');
@@ -901,15 +922,23 @@ Status: Ready for submission`;
 
     try {
       const actualResponseTime = 5;
+      const isCodingQuestion = currentQuestion?.type === 'coding' || 
+                              currentQuestion?.type === 'technical_coding' || 
+                              currentQuestion?.type === 'problem-solving';
 
       const submitData = {
         questionId: currentQuestion.questionId,
         responseTime: actualResponseTime,
         answerMode: 'skipped',
         responseText: 'Question skipped by candidate',
-        code: null,
-        language: null,
-        skipped: true
+        skipped: true,
+        questionType: currentQuestion.type,
+        difficulty: currentQuestion.difficulty || 'intermediate',
+        // Include code fields for coding questions to match expected schema
+        ...(isCodingQuestion && {
+          code: null,
+          language: language
+        })
       };
 
       addDebugLog(`Submitting skip to backend: ${JSON.stringify(submitData)}`);
@@ -925,6 +954,8 @@ Status: Ready for submission`;
       });
 
       if (!submitResponse.ok) {
+        const errorText = await submitResponse.text();
+        addDebugLog(`Skip submission failed: ${submitResponse.status} - ${errorText}`, 'error');
         throw new Error(`HTTP ${submitResponse.status}: ${submitResponse.statusText}`);
       }
 
@@ -959,7 +990,7 @@ Status: Ready for submission`;
         textResponse: null,
         responseTime: actualResponseTime,
         code: null,
-        language: null,
+        language: isCodingQuestion ? language : null,
         answerMode: 'skipped',
         timestamp: new Date().toISOString(),
         feedback: skipFeedback,
@@ -1010,7 +1041,6 @@ Status: Ready for submission`;
       const questionStartTime = Date.now() - ((responses.length + 1) * 120000);
       const actualResponseTime = Math.max(Math.floor((Date.now() - questionStartTime) / 1000), 30);
 
-      // UPDATED: Enhanced submit data for coding questions
       const submitData = {
         questionId: currentQuestion.questionId,
         responseTime: actualResponseTime,
@@ -1018,7 +1048,6 @@ Status: Ready for submission`;
         responseText: responseText,
         code: isCodingQuestion ? code : null,
         language: isCodingQuestion ? language : null,
-        // ADDED: Additional metadata for better feedback generation
         questionType: currentQuestion.type,
         difficulty: currentQuestion.difficulty || 'intermediate',
         expectedComplexity: currentQuestion.expectedComplexity || 'medium'
@@ -1037,6 +1066,8 @@ Status: Ready for submission`;
       });
 
       if (!submitResponse.ok) {
+        const errorText = await submitResponse.text();
+        addDebugLog(`Submit answer failed: ${submitResponse.status} - ${errorText}`, 'error');
         throw new Error(`HTTP ${submitResponse.status}: ${submitResponse.statusText}`);
       }
 
@@ -1047,7 +1078,7 @@ Status: Ready for submission`;
         throw new Error(submitResult.error || 'Failed to submit answer');
       }
 
-      // UPDATED: Enhanced feedback processing for coding questions
+      // FIXED: Process AI feedback with better JSON handling
       const aiFeedback = submitResult.feedback ? 
         processCodingFeedback(submitResult.feedback, isCodingQuestion) : 
         createFallbackFeedback(isCodingQuestion);
@@ -1057,7 +1088,6 @@ Status: Ready for submission`;
         [currentQuestion.questionId]: aiFeedback
       }));
 
-      // UPDATED: Enhanced response object with additional coding metadata
       const response = {
         questionId: currentQuestion.questionId,
         question: currentQuestion.question,
@@ -1071,7 +1101,6 @@ Status: Ready for submission`;
         timestamp: new Date().toISOString(),
         feedback: aiFeedback,
         score: aiFeedback.score || 50,
-        // ADDED: Coding-specific metrics
         codeMetrics: isCodingQuestion ? aiFeedback.codeMetrics : null,
         algorithmicThinking: isCodingQuestion ? aiFeedback.algorithmicThinking : null,
         codeQuality: isCodingQuestion ? aiFeedback.codeQuality : null
@@ -1094,73 +1123,99 @@ Status: Ready for submission`;
     }
   };
 
+    // FIXED: Enhanced processCodingFeedback function
     const processCodingFeedback = (rawFeedback, isCodingQuestion) => {
+    // Handle case where rawFeedback might be a string
+    let feedback;
+    if (typeof rawFeedback === 'string') {
+      try {
+        // Try to extract JSON from string
+        const jsonMatch = rawFeedback.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          feedback = JSON.parse(jsonMatch[0]);
+        } else {
+          // If no JSON found, create structured feedback from string
+          feedback = {
+            score: 50,
+            strengths: [],
+            improvements: [rawFeedback.substring(0, 100) + '...'],
+            detailedAnalysis: rawFeedback
+          };
+        }
+      } catch (parseError) {
+        addDebugLog(`Failed to parse AI feedback JSON: ${parseError.message}`, 'error');
+        feedback = {
+          score: 50,
+          strengths: [],
+          improvements: ['AI feedback parsing failed - using fallback'],
+          detailedAnalysis: rawFeedback
+        };
+      }
+    } else {
+      feedback = rawFeedback;
+    }
+
     if (!isCodingQuestion) {
       return {
-        score: rawFeedback.score || 50,
-        strengths: rawFeedback.strengths || [],
-        improvements: rawFeedback.improvements || [],
-        detailedAnalysis: rawFeedback.detailedAnalysis || 'Response analyzed',
-        communicationClarity: rawFeedback.communicationClarity || 5,
-        technicalAccuracy: rawFeedback.technicalAccuracy || 5,
-        questionRelevance: rawFeedback.questionRelevance || 5,
-        responseType: rawFeedback.responseType || 'submitted'
+        score: feedback.score || 50,
+        strengths: Array.isArray(feedback.strengths) ? feedback.strengths : [],
+        improvements: Array.isArray(feedback.improvements) ? feedback.improvements : [],
+        detailedAnalysis: feedback.detailedAnalysis || 'Response analyzed',
+        communicationClarity: feedback.communicationClarity || 5,
+        technicalAccuracy: feedback.technicalAccuracy || 5,
+        questionRelevance: feedback.questionRelevance || 5,
+        responseType: feedback.responseType || 'submitted'
       };
     }
 
-    // ENHANCED: Coding-specific feedback processing
     return {
-      score: rawFeedback.score || 50,
-      strengths: rawFeedback.strengths || [],
-      improvements: rawFeedback.improvements || [],
-      detailedAnalysis: rawFeedback.detailedAnalysis || 'Code solution analyzed',
+      score: feedback.score || 50,
+      strengths: Array.isArray(feedback.strengths) ? feedback.strengths : [],
+      improvements: Array.isArray(feedback.improvements) ? feedback.improvements : [],
+      detailedAnalysis: feedback.detailedAnalysis || 'Code solution analyzed',
       
-      // Standard metrics
-      communicationClarity: rawFeedback.communicationClarity || 5,
-      technicalAccuracy: rawFeedback.technicalAccuracy || 5,
-      questionRelevance: rawFeedback.questionRelevance || 5,
-      responseType: rawFeedback.responseType || 'code-submitted',
+      communicationClarity: feedback.communicationClarity || 5,
+      technicalAccuracy: feedback.technicalAccuracy || 5,
+      questionRelevance: feedback.questionRelevance || 5,
+      responseType: feedback.responseType || 'code-submitted',
       
-      // ADDED: Coding-specific metrics from enhanced API
       codeMetrics: {
-        syntaxCorrectness: rawFeedback.codeMetrics?.syntaxCorrectness || rawFeedback.syntaxCorrectness || 5,
-        logicalFlow: rawFeedback.codeMetrics?.logicalFlow || rawFeedback.logicalFlow || 5,
-        efficiency: rawFeedback.codeMetrics?.efficiency || rawFeedback.efficiency || 5,
-        readability: rawFeedback.codeMetrics?.readability || rawFeedback.readability || 5,
-        bestPractices: rawFeedback.codeMetrics?.bestPractices || rawFeedback.bestPractices || 5
+        syntaxCorrectness: feedback.codeMetrics?.syntaxCorrectness || feedback.syntaxCorrectness || 5,
+        logicalFlow: feedback.codeMetrics?.logicalFlow || feedback.logicalFlow || 5,
+        efficiency: feedback.codeMetrics?.efficiency || feedback.efficiency || 5,
+        readability: feedback.codeMetrics?.readability || feedback.readability || 5,
+        bestPractices: feedback.codeMetrics?.bestPractices || feedback.bestPractices || 5
       },
       
       algorithmicThinking: {
-        problemDecomposition: rawFeedback.algorithmicThinking?.problemDecomposition || rawFeedback.problemDecomposition || 5,
-        algorithmChoice: rawFeedback.algorithmicThinking?.algorithmChoice || rawFeedback.algorithmChoice || 5,
-        edgeCaseHandling: rawFeedback.algorithmicThinking?.edgeCaseHandling || rawFeedback.edgeCaseHandling || 5,
-        timeComplexity: rawFeedback.algorithmicThinking?.timeComplexity || rawFeedback.timeComplexity || 5,
-        spaceComplexity: rawFeedback.algorithmicThinking?.spaceComplexity || rawFeedback.spaceComplexity || 5
+        problemDecomposition: feedback.algorithmicThinking?.problemDecomposition || feedback.problemDecomposition || 5,
+        algorithmChoice: feedback.algorithmicThinking?.algorithmChoice || feedback.algorithmChoice || 5,
+        edgeCaseHandling: feedback.algorithmicThinking?.edgeCaseHandling || feedback.edgeCaseHandling || 5,
+        timeComplexity: feedback.algorithmicThinking?.timeComplexity || feedback.timeComplexity || 5,
+        spaceComplexity: feedback.algorithmicThinking?.spaceComplexity || feedback.spaceComplexity || 5
       },
       
       codeQuality: {
-        structure: rawFeedback.codeQuality?.structure || rawFeedback.structure || 5,
-        naming: rawFeedback.codeQuality?.naming || rawFeedback.naming || 5,
-        comments: rawFeedback.codeQuality?.comments || rawFeedback.comments || 5,
-        modularity: rawFeedback.codeQuality?.modularity || rawFeedback.modularity || 5,
-        errorHandling: rawFeedback.codeQuality?.errorHandling || rawFeedback.errorHandling || 5
+        structure: feedback.codeQuality?.structure || feedback.structure || 5,
+        naming: feedback.codeQuality?.naming || feedback.naming || 5,
+        comments: feedback.codeQuality?.comments || feedback.comments || 5,
+        modularity: feedback.codeQuality?.modularity || feedback.modularity || 5,
+        errorHandling: feedback.codeQuality?.errorHandling || feedback.errorHandling || 5
       },
       
-      // Additional insights
       strengths_detailed: {
-        technical: rawFeedback.strengths_detailed?.technical || [],
-        algorithmic: rawFeedback.strengths_detailed?.algorithmic || [],
-        implementation: rawFeedback.strengths_detailed?.implementation || []
+        technical: feedback.strengths_detailed?.technical || [],
+        algorithmic: feedback.strengths_detailed?.algorithmic || [],
+        implementation: feedback.strengths_detailed?.implementation || []
       },
       
       improvements_detailed: {
-        technical: rawFeedback.improvements_detailed?.technical || [],
-        algorithmic: rawFeedback.improvements_detailed?.algorithmic || [],
-        implementation: rawFeedback.improvements_detailed?.implementation || []
+        technical: feedback.improvements_detailed?.technical || [],
+        algorithmic: feedback.improvements_detailed?.algorithmic || [],
+        implementation: feedback.improvements_detailed?.implementation || []
       }
     };
   };
-
 
   const completeInterview = async () => {
     try {
@@ -1267,23 +1322,20 @@ Status: Ready for submission`;
     }
   }, [profileCV]);
 
-  // FIXED: More controlled question change effect - removed 'code' dependency to prevent interference
+  // FIXED: Simplified question change effect
   useEffect(() => {
     if (currentQuestion) {
       const isCoding = currentQuestion.type === 'coding' || currentQuestion.type === 'technical_coding';
       setShowCodeEditor(isCoding);
       
-      // Only set initial code if we don't already have meaningful code
-      if (isCoding && currentQuestion.starterCode && (!code || code.trim().length < 10)) {
-        const newCode = currentQuestion.starterCode[language] || 
-                       supportedLanguages.find(l => l.value === language)?.template || '';
-        setCode(newCode);
-      } else if (!isCoding) {
-        setCode('');
-        setShowCodeEditor(false);
+      // Only set initial code if it's a coding question and we don't have meaningful code
+      if (isCoding && (!code || code.trim().length < 20)) {
+        const template = currentQuestion.starterCode?.[language] || 
+                        supportedLanguages.find(l => l.value === language)?.template || '';
+        setCode(template);
       }
     }
-  }, [currentQuestion, language, supportedLanguages]); // Removed 'code' from dependencies
+  }, [currentQuestion?.questionId, language]); // Only depend on question ID and language
 
   useEffect(() => {
     return () => {
@@ -1597,6 +1649,7 @@ Status: Ready for submission`;
       </div>
     </div>
   ), [user, interviewData, debugMode, debugLogs, audioPermission, audioError, error, loading, isSetupValid, createInterview, handleJobDescriptionChange, CVSection]);
+
   const InterviewPhase = useMemo(() => {
     const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
     
@@ -1916,7 +1969,6 @@ Status: Ready for submission`;
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Your Code:</label>
-                    {/* FIXED: Textarea with stable key and controlled value */}
                     <textarea
                       key={`code-editor-${currentQuestion?.questionId}-${language}`}
                       value={code}
@@ -1975,133 +2027,7 @@ Status: Ready for submission`;
     );
   }, [questionIndex, questions.length, timer, currentQuestion, answerMode, isRecording, loading, audioBlob, isPlaying, recordingTime, audioError, isTranscribing, transcriptionError, transcription, textAnswer, error, debugMode, debugLogs, showCodeEditor, language, code, codeOutput, isRunningCode, supportedLanguages, responses, handleLanguageChange, handleCodeChange, executeCode]);
 
-  // NEW: Enhanced Coding Question Analysis Component
-const CodingQuestionAnalysis = ({ response, feedback, questionData, index }) => {
-  const isCoding = response.questionType === 'coding' || 
-                  response.questionType === 'technical_coding' || 
-                  response.questionType === 'problem-solving';
-
-  if (!isCoding || !feedback.codeMetrics) {
-    return null;
-  }
-
-  return (
-    <div className="mt-4 space-y-3">
-      {/* Code Metrics */}
-      <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-        <h6 className="text-xs font-semibold text-purple-800 mb-2 flex items-center gap-1">
-          <Code className="w-3 h-3" />
-          Code Quality Metrics
-        </h6>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-          {Object.entries(feedback.codeMetrics).map(([metric, score]) => (
-            <div key={metric} className="bg-white rounded p-2 border border-purple-100">
-              <div className="text-xs text-purple-700 font-medium capitalize">
-                {metric.replace(/([A-Z])/g, ' $1').trim()}
-              </div>
-              <div className="flex items-center gap-1 mt-1">
-                <div className="w-full bg-purple-200 rounded-full h-1.5">
-                  <div 
-                    className="bg-purple-600 h-1.5 rounded-full transition-all duration-500"
-                    style={{ width: `${(score / 10) * 100}%` }}
-                  ></div>
-                </div>
-                <span className="text-xs text-purple-600 font-bold">{score}/10</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Algorithmic Thinking */}
-      {feedback.algorithmicThinking && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-          <h6 className="text-xs font-semibold text-blue-800 mb-2 flex items-center gap-1">
-            <Brain className="w-3 h-3" />
-            Algorithmic Thinking
-          </h6>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            {Object.entries(feedback.algorithmicThinking).map(([metric, score]) => (
-              <div key={metric} className="bg-white rounded p-2 border border-blue-100">
-                <div className="text-xs text-blue-700 font-medium capitalize">
-                  {metric.replace(/([A-Z])/g, ' $1').trim()}
-                </div>
-                <div className="flex items-center gap-1 mt-1">
-                  <div className="w-full bg-blue-200 rounded-full h-1.5">
-                    <div 
-                      className="bg-blue-600 h-1.5 rounded-full transition-all duration-500"
-                      style={{ width: `${(score / 10) * 100}%` }}
-                    ></div>
-                  </div>
-                  <span className="text-xs text-blue-600 font-bold">{score}/10</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Implementation Quality */}
-      {feedback.codeQuality && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-          <h6 className="text-xs font-semibold text-green-800 mb-2 flex items-center gap-1">
-            <Award className="w-3 h-3" />
-            Implementation Quality
-          </h6>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            {Object.entries(feedback.codeQuality).map(([metric, score]) => (
-              <div key={metric} className="bg-white rounded p-2 border border-green-100">
-                <div className="text-xs text-green-700 font-medium capitalize">
-                  {metric.replace(/([A-Z])/g, ' $1').trim()}
-                </div>
-                <div className="flex items-center gap-1 mt-1">
-                  <div className="w-full bg-green-200 rounded-full h-1.5">
-                    <div 
-                      className="bg-green-600 h-1.5 rounded-full transition-all duration-500"
-                      style={{ width: `${(score / 10) * 100}%` }}
-                    ></div>
-                  </div>
-                  <span className="text-xs text-green-600 font-bold">{score}/10</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Detailed Strengths and Improvements for Coding */}
-      {feedback.strengths_detailed && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-          <h6 className="text-xs font-semibold text-emerald-800 mb-2">Detailed Strengths</h6>
-          <div className="space-y-2">
-            {feedback.strengths_detailed.technical?.length > 0 && (
-              <div>
-                <div className="text-xs font-medium text-emerald-700">Technical:</div>
-                <ul className="text-xs text-emerald-600 ml-2">
-                  {feedback.strengths_detailed.technical.map((item, idx) => (
-                    <li key={idx}>• {item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {feedback.strengths_detailed.algorithmic?.length > 0 && (
-              <div>
-                <div className="text-xs font-medium text-emerald-700">Algorithmic:</div>
-                <ul className="text-xs text-emerald-600 ml-2">
-                  {feedback.strengths_detailed.algorithmic.map((item, idx) => (
-                    <li key={idx}>• {item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// UPDATED: Enhanced FeedbackPhase with coding-specific analysis
+// FIXED: Simplified FeedbackPhase without awards component for coding questions
 const FeedbackPhase = useMemo(() => (
   <div className="min-h-screen bg-gradient-to-br from-green-50 via-blue-50 to-indigo-50">
     <div className="container mx-auto px-6 py-8">
@@ -2112,160 +2038,79 @@ const FeedbackPhase = useMemo(() => (
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-3">Interview Complete!</h1>
           <p className="text-lg text-gray-600">
-            Here's your comprehensive performance analysis with detailed coding feedback.
+            Here's your comprehensive performance analysis with detailed feedback.
           </p>
         </div>
 
+        {/* Overall Score Display */}
         {feedback && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
-              <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                <Trophy className="w-6 h-6 text-white" />
-              </div>
-              <div className="text-3xl font-bold text-blue-600 mb-2">{feedback.score || 0}%</div>
-              <div className="text-gray-600 font-medium text-sm">Overall Score</div>
-              <div className={`mt-2 px-3 py-1 rounded-full text-xs font-medium ${
-                (feedback.score || 0) >= 80 ? 'bg-green-100 text-green-800' :
-                (feedback.score || 0) >= 60 ? 'bg-yellow-100 text-yellow-800' :
-                'bg-red-100 text-red-800'
+          <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
+            <div className="text-center mb-6">
+              <div className={`inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold text-white mb-4 ${
+                feedback.score >= 80 ? 'bg-gradient-to-r from-green-500 to-emerald-500' :
+                feedback.score >= 60 ? 'bg-gradient-to-r from-yellow-500 to-orange-500' :
+                'bg-gradient-to-r from-red-500 to-pink-500'
               }`}>
-                {(feedback.score || 0) >= 80 ? 'Excellent' : 
-                 (feedback.score || 0) >= 60 ? 'Good' : 'Needs Work'}
+                {feedback.score}%
               </div>
+              <h2 className="text-2xl font-bold text-gray-900">Overall Score</h2>
+              <p className="text-gray-600">
+                {feedback.score >= 80 ? 'Excellent Performance!' :
+                 feedback.score >= 60 ? 'Good Performance!' :
+                 'Room for Improvement'}
+              </p>
             </div>
 
-            <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
-              <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                <Code className="w-6 h-6 text-white" />
+            {/* Skill Breakdown */}
+            {feedback.feedback && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                {feedback.feedback.technicalSkills && (
+                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                    <h4 className="font-semibold text-blue-900 mb-2">Technical Skills</h4>
+                    <div className="text-2xl font-bold text-blue-600 mb-1">{feedback.feedback.technicalSkills.score}%</div>
+                    <p className="text-sm text-blue-700">{feedback.feedback.technicalSkills.feedback}</p>
+                  </div>
+                )}
+                {feedback.feedback.communicationSkills && (
+                  <div className="bg-green-50 p-4 rounded-lg border border-green-100">
+                    <h4 className="font-semibold text-green-900 mb-2">Communication</h4>
+                    <div className="text-2xl font-bold text-green-600 mb-1">{feedback.feedback.communicationSkills.score}%</div>
+                    <p className="text-sm text-green-700">{feedback.feedback.communicationSkills.feedback}</p>
+                  </div>
+                )}
+                {feedback.feedback.problemSolving && (
+                  <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                    <h4 className="font-semibold text-purple-900 mb-2">Problem Solving</h4>
+                    <div className="text-2xl font-bold text-purple-600 mb-1">{feedback.feedback.problemSolving.score}%</div>
+                    <p className="text-sm text-purple-700">{feedback.feedback.problemSolving.feedback}</p>
+                  </div>
+                )}
               </div>
-              <div className="text-3xl font-bold text-purple-600 mb-2">{feedback.feedback?.technicalSkills?.score || 0}%</div>
-              <div className="text-gray-600 font-medium text-sm">Technical Skills</div>
-              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-1000"
-                  style={{ width: `${feedback.feedback?.technicalSkills?.score || 0}%` }}
-                ></div>
-              </div>
-            </div>
+            )}
 
-            <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
-              <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-teal-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                <MessageCircle className="w-6 h-6 text-white" />
+            {/* Recommendations */}
+            {feedback.feedback?.recommendations && feedback.feedback.recommendations.length > 0 && (
+              <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
+                <h4 className="font-semibold text-indigo-900 mb-3 flex items-center gap-2">
+                  <Target className="w-5 h-5" />
+                  Recommendations for Improvement
+                </h4>
+                <div className="space-y-2">
+                  {feedback.feedback.recommendations.map((rec, index) => (
+                    <div key={index} className="flex items-start gap-3 p-3 bg-white rounded-lg border border-indigo-100">
+                      <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <span className="text-indigo-600 font-bold text-xs">{index + 1}</span>
+                      </div>
+                      <p className="text-gray-700 leading-relaxed text-sm">{rec}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="text-3xl font-bold text-green-600 mb-2">{feedback.feedback?.communicationSkills?.score || 0}%</div>
-              <div className="text-gray-600 font-medium text-sm">Communication</div>
-              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-gradient-to-r from-green-500 to-teal-500 h-2 rounded-full transition-all duration-1000"
-                  style={{ width: `${feedback.feedback?.communicationSkills?.score || 0}%` }}
-                ></div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-lg p-6 text-center border border-gray-100 transform hover:scale-105 transition-transform">
-              <div className="w-12 h-12 bg-gradient-to-r from-orange-500 to-red-500 rounded-full flex items-center justify-center mx-auto mb-3">
-                <Brain className="w-6 h-6 text-white" />
-              </div>
-              <div className="text-3xl font-bold text-orange-600 mb-2">{feedback.feedback?.problemSolving?.score || 0}%</div>
-              <div className="text-gray-600 font-medium text-sm">Problem Solving</div>
-              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-gradient-to-r from-orange-500 to-red-500 h-2 rounded-full transition-all duration-1000"
-                  style={{ width: `${feedback.feedback?.problemSolving?.score || 0}%` }}
-                ></div>
-              </div>
-            </div>
+            )}
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-blue-600" />
-              Performance Analysis
-            </h2>
-            
-            {feedback?.feedback && (
-              <div className="space-y-6">
-                <div className="border-l-4 border-purple-500 pl-4">
-                  <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                    <Code className="w-4 h-4 text-purple-600" />
-                    Technical Skills
-                  </h3>
-                  <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.technicalSkills?.feedback}</p>
-                  <div className="bg-purple-50 rounded-lg p-2">
-                    <div className="text-sm font-medium text-purple-800">Score: {feedback.feedback.technicalSkills?.score}%</div>
-                  </div>
-                </div>
-
-                <div className="border-l-4 border-green-500 pl-4">
-                  <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                    <MessageCircle className="w-4 h-4 text-green-600" />
-                    Communication Skills
-                  </h3>
-                  <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.communicationSkills?.feedback}</p>
-                  <div className="bg-green-50 rounded-lg p-2">
-                    <div className="text-sm font-medium text-green-800">Score: {feedback.feedback.communicationSkills?.score}%</div>
-                  </div>
-                </div>
-
-                <div className="border-l-4 border-orange-500 pl-4">
-                  <h3 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                    <Brain className="w-4 h-4 text-orange-600" />
-                    Problem Solving
-                  </h3>
-                  <p className="text-gray-600 mb-2 leading-relaxed text-sm">{feedback.feedback.problemSolving?.feedback}</p>
-                  <div className="bg-orange-50 rounded-lg p-2">
-                    <div className="text-sm font-medium text-orange-800">Score: {feedback.feedback.problemSolving?.score}%</div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-            <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <Target className="w-5 h-5 text-indigo-600" />
-              Recommendations
-            </h2>
-            
-            {feedback?.feedback?.recommendations && feedback.feedback.recommendations.length > 0 && (
-              <div className="space-y-3">
-                {feedback.feedback.recommendations.map((rec, index) => (
-                  <div key={index} className="flex items-start gap-3 p-3 bg-indigo-50 rounded-lg border border-indigo-100">
-                    <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center flex-shrink-0">
-                      <span className="text-indigo-600 font-bold text-xs">{index + 1}</span>
-                    </div>
-                    <p className="text-gray-700 leading-relaxed text-sm">{rec}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-            
-            <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
-              <h4 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
-                <Star className="w-4 h-4" />
-                Next Steps
-              </h4>
-              <ul className="space-y-1 text-sm text-blue-800">
-                <li className="flex items-center gap-2">
-                  <ChevronRight className="w-3 h-3" />
-                  Review improvement areas
-                </li>
-                <li className="flex items-center gap-2">
-                  <ChevronRight className="w-3 h-3" />
-                  Practice similar questions
-                </li>
-                <li className="flex items-center gap-2">
-                  <ChevronRight className="w-3 h-3" />
-                  Work on technical skills
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        {/* UPDATED: Enhanced Question Analysis with Coding Metrics */}
+        {/* Question Analysis - SIMPLIFIED without awards for coding questions */}
         {Object.keys(questionFeedbacks).length > 0 && (
           <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
             <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
@@ -2318,7 +2163,7 @@ const FeedbackPhase = useMemo(() => (
                     
                     <p className="text-gray-600 text-xs mb-3 leading-relaxed">{questions[index]?.question}</p>
                     
-                    {/* Standard Feedback */}
+                    {/* AI Feedback Only - No Awards Component */}
                     <div className="space-y-2">
                       {feedback.strengths && feedback.strengths.length > 0 && (
                         <div>
@@ -2355,14 +2200,6 @@ const FeedbackPhase = useMemo(() => (
                       )}
                     </div>
 
-                    {/* Enhanced Coding Analysis */}
-                    <CodingQuestionAnalysis 
-                      response={response} 
-                      feedback={feedback} 
-                      questionData={questions[index]} 
-                      index={index} 
-                    />
-
                     {/* Enhanced Code Display */}
                     {response.code && (
                       <div className="mt-3 p-2 bg-gray-50 rounded-lg border">
@@ -2394,6 +2231,7 @@ const FeedbackPhase = useMemo(() => (
           </div>
         )}
 
+        {/* Interview Summary */}
         {responses && responses.length > 0 && (
           <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
             <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
@@ -2427,6 +2265,7 @@ const FeedbackPhase = useMemo(() => (
           </div>
         )}
 
+        {/* Action Buttons */}
         <div className="flex justify-center gap-4">
           <button
             onClick={resetInterview}

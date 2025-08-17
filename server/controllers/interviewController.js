@@ -304,8 +304,12 @@ function validateAndSanitizeInput(input) {
     .substring(0, 10000); // Limit length to prevent overflow
 }
 
-function validateCodingSubmission(questionType, responseText, code, language, expectedLanguage) {
+function validateCodingSubmission(questionType, responseText, code, language, expectedLanguage, isSkipped = false) {
   const errors = [];
+
+  if (isSkipped) {
+    return errors; // No validation errors for skipped questions
+  }
 
   if (questionType === 'coding') {
     // Code presence
@@ -343,7 +347,7 @@ function validateLanguage(language) {
 export const submitAnswer = async (req, res) => {
   try {
     const { interviewId } = req.params;
-    const { questionId, responseTime, answerMode, responseText, code, language } = req.body;
+    const { questionId, responseTime, answerMode, responseText, code, language, skipped } = req.body;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
     // Input validation and sanitization
@@ -374,13 +378,62 @@ export const submitAnswer = async (req, res) => {
       });
     }
 
-    // Validate coding submission
+    // ✅ Skip handling: bypass coding validation entirely
+    if (skipped) {
+      const analysis = await generateStrictAIFeedback(
+        question.question,
+        question.type,
+        sanitizedResponseText,
+        sanitizedCode,
+        validatedLanguage,
+        true // <- tell AI feedback this was skipped
+      );
+
+      const response = {
+        questionId,
+        question: question.question,
+        questionType: question.type,
+        transcription: null,
+        textResponse: sanitizedResponseText,
+        code: null,
+        language: null,
+        responseTime: parseInt(responseTime) || 0,
+        submittedAt: new Date(),
+        feedback: analysis,
+        skipped: true
+      };
+
+      interview.responses.push(response);
+      interview.currentQuestionIndex = interview.responses.length;
+      interview.updatedAt = new Date();
+
+      if (interview.status === 'created') {
+        interview.status = 'in_progress';
+        interview.startedAt = new Date();
+      }
+
+      await interview.save();
+
+      return res.json({
+        success: true,
+        message: 'Question skipped successfully',
+        feedback: analysis,
+        progress: {
+          current: interview.responses.length,
+          total: interview.questions.length,
+          completed: interview.responses.length >= interview.questions.length
+        }
+      });
+    }
+
+    // ✅ Normal submission path (non-skipped)
     const validationErrors = validateCodingSubmission(
       question.type,
       sanitizedResponseText,
       sanitizedCode,
       validatedLanguage,
-      question.language // expected language for the question
+      question.language, // expected language
+      false // <- not skipped
     );
 
     if (validationErrors.length > 0) {
@@ -406,7 +459,8 @@ export const submitAnswer = async (req, res) => {
         question.type,
         sanitizedResponseText,
         sanitizedCode,
-        validatedLanguage
+        validatedLanguage,
+        false // <- not skipped
       );
       console.log('✅ AI Analysis Result:', {
         score: analysis.score,
@@ -429,7 +483,8 @@ export const submitAnswer = async (req, res) => {
       responseTime: parseInt(responseTime) || 0,
       recordingDuration: answerMode === 'audio' ? parseInt(responseTime) : null,
       submittedAt: new Date(),
-      feedback: analysis
+      feedback: analysis,
+      skipped: false
     };
 
     interview.responses.push(response);
@@ -469,11 +524,29 @@ export const submitAnswer = async (req, res) => {
 };
 
 // Improved AI feedback function
-async function generateStrictAIFeedback(question, questionType, responseText, code, language) {
+async function generateStrictAIFeedback(question, questionType, responseText, code, language, isSkipped = false) {
   const model = genAI.getGenerativeModel({ 
     model: "gemini-2.5-flash",
     generationConfig: { temperature: 0.1, maxOutputTokens: 2048 }
   });
+
+  if (isSkipped) {
+    return {
+      score: 0,
+      questionRelevance: 0,
+      responseType: "skipped",
+      correctness: 0,
+      syntax: 0,
+      languageBestPractices: 0,
+      efficiency: 0,
+      structureAndReadability: 0,
+      edgeCaseHandling: 0,
+      strengths: [],
+      improvements: [],
+      detailedAnalysis: "This question was skipped by the candidate.",
+      overallAssessment: "No assessment since the question was skipped."
+    };
+  }
 
   const codeSection = code ? `
 CODE PROVIDED (${language}): 
@@ -484,7 +557,8 @@ ${code}
   const prompt = `You are a senior software engineering interviewer and code reviewer. 
 Analyze this response thoroughly and give strict, constructive feedback. For coding questions, evaluate correctness, syntax, language best practices, efficiency, code structure/readability, and edge case handling.
 
-Provide ONLY JSON using this structure:
+Respond ONLY with JSON wrapped inside <json>...</json> tags, following this structure:
+<json>
 {
   "score": 0-100,
   "questionRelevance": 1-10,
@@ -500,6 +574,7 @@ Provide ONLY JSON using this structure:
   "detailedAnalysis": "Honest analysis of response quality",
   "overallAssessment": "Final verdict on quality"
 }
+</json>
 
 QUESTION: "${question}"
 QUESTION TYPE: ${questionType}
@@ -511,16 +586,13 @@ ${codeSection}`;
     const response = await result.response;
     let analysisText = response.text().trim();
 
-    // Clean JSON
-    analysisText = analysisText.replace(/```json\s*|```javascript\s*|```/gi, '').trim();
-    const jsonStart = analysisText.indexOf('{');
-    const jsonEnd = analysisText.lastIndexOf('}');
+    // Extract JSON inside <json> tags
+    const match = analysisText.match(/<json>([\s\S]*?)<\/json>/i);
+    let jsonText = match ? match[1].trim() : analysisText;
 
-    if (jsonStart === -1 || jsonEnd === -1) {
-      throw new Error('No JSON structure found in AI response');
-    }
+    // Clean markdown wrappers if any
+    jsonText = jsonText.replace(/```json\s*|```javascript\s*|```/gi, '').trim();
 
-    const jsonText = analysisText.substring(jsonStart, jsonEnd + 1);
     let aiAnalysis;
     try {
       aiAnalysis = JSON.parse(jsonText);
@@ -537,6 +609,7 @@ ${codeSection}`;
     throw error;
   }
 }
+
 
 // Enhanced response validation
 function validateAndSanitizeAIResponse(aiAnalysis, questionType) {

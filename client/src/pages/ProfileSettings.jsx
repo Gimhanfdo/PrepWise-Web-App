@@ -1791,21 +1791,7 @@ const renderCVTab = () => (
               )}
             </ul>
           </div>
-        </div>
-
-        {/* Debug Information */}
-        <div className="border border-gray-200 rounded-lg p-4">
-          <h4 className="font-medium text-gray-900 mb-2">Debug Information</h4>
-          <div className="text-sm text-gray-600 space-y-1">
-            <p>User ID: {userData?._id || 'Not available'}</p>
-            <p>CV Status: {cvData ? 'Uploaded' : 'Not uploaded'}</p>
-            <p>Saved Analyses: {savedAnalyses.length}</p>
-            <p>Skills Assessments: {skillsAssessments.length}</p>
-            <p>Backend URL: {backendUrl}</p>
-            <p>Auth Token: {localStorage.getItem('token') ? 'Present' : 'Missing'}</p>
-            <p>PDF Library: {typeof window.jspdf !== 'undefined' ? 'Loaded' : 'Not loaded'}</p>
-          </div>
-        </div>
+        </div>    
       </div>
     </div>
   );
