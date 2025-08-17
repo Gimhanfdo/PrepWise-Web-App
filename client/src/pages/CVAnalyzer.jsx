@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { CheckCircle, XCircle, AlertTriangle, Lightbulb, FileText, Layout, Target, BarChart3, ArrowLeft, Star, TrendingUp, Settings, Upload, Plus, Trash2, Save, RefreshCw, User } from "lucide-react";
-
+import NavBar from "../components/NavBar";
 // Enhanced Skills Assessment Component
 const SkillsAssessment = ({ 
   resumeHash = null, 
@@ -175,9 +175,13 @@ const SkillsAssessment = ({
   );
 
   const renderRatingStep = () => (
+    <div className="min-h-screen bg-gray-50">
+                      <NavBar/>
     <div className="space-y-6 md:space-y-8">
+      <br />
       {/* Header */}
       <div className="text-center">
+        
         <div className="inline-flex items-center gap-2 bg-gradient-to-r from-indigo-100 to-purple-100 text-indigo-800 px-4 py-2 rounded-full text-sm font-medium mb-4 shadow-sm">
           <Star className="w-4 h-4" />
           Skills Assessment
@@ -190,6 +194,7 @@ const SkillsAssessment = ({
           <BarChart3 className="w-5 h-5 text-gray-600" />
           <span className="text-gray-800 font-semibold">{technologies.length} technologies found</span>
         </div>
+      </div>
       </div>
 
       {/* Instructions */}
@@ -350,6 +355,9 @@ const SkillsAssessment = ({
   );
 
   const renderSuccessStep = () => (
+    <div className="min-h-screen bg-gray-50">
+                      <NavBar/>
+                      <br />
     <div className="space-y-6 md:space-y-8 text-center max-w-5xl mx-auto">
       <div className="w-24 h-24 bg-gradient-to-br from-emerald-100 to-emerald-200 rounded-3xl flex items-center justify-center mx-auto shadow-lg">
         <CheckCircle className="w-12 h-12 text-emerald-600" />
@@ -434,6 +442,7 @@ const SkillsAssessment = ({
           </button>
         )}
       </div>
+    </div>
     </div>
   );
 
@@ -1309,7 +1318,10 @@ const handleSaveIndividualAnalysis = async (index) => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
+      <div className="min-h-screen bg-gray-50">
+                      <NavBar />
       <div className="flex flex-col lg:flex-row min-h-screen">
+
         {/* Left Sidebar - 50% width on desktop */}
         <div className="w-full lg:w-1/2 bg-white border-r border-gray-200 shadow-xl">
           <div className="h-full overflow-y-auto custom-scrollbar">
@@ -1448,6 +1460,7 @@ const handleSaveIndividualAnalysis = async (index) => {
             </div>
           </div>
         </div>
+      
 
         {/* Right Content Area - 50% width on desktop */}
         <div className="w-full lg:w-1/2 flex-1 min-h-screen">
@@ -1607,6 +1620,7 @@ const handleSaveIndividualAnalysis = async (index) => {
             </div>
           </div>
         </div>
+      </div>
       </div>
 
       {/* Custom Styles */}

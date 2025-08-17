@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Mic, MicOff, Play, Pause, ChevronRight, Clock, User, FileText, BarChart3, CheckCircle, AlertCircle, Volume2, Code, Terminal, Send, Type, Headphones, Upload, Download, FileCheck, RefreshCw, Zap, Target, Trophy, Star, TrendingUp, Brain, MessageCircle, SkipForward } from 'lucide-react';
+import NavBar from "../components/NavBar";
 
 const MockInterviewSystem = () => {
   const [currentStep, setCurrentStep] = useState('setup'); 
@@ -1633,6 +1634,8 @@ const CVSection = useMemo(() => (
 
   const SetupPhase = useMemo(() => (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
+      <div className="min-h-screen bg-gray-50">
+              <NavBar />
       <div className="container mx-auto px-6 py-8">
         <div className="max-w-3xl mx-auto">
           <div className="text-center mb-8">
@@ -1646,28 +1649,6 @@ const CVSection = useMemo(() => (
               Welcome {user?.name || 'User'}! Prepare for your software engineering internship
             </p>
           </div>
-
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-            {debugMode && (
-              <div className="mb-4 bg-gray-900 text-green-400 p-3 rounded-lg">
-                <div className="flex justify-between items-center mb-2">
-                  <h3 className="text-sm font-medium">Debug Console</h3>
-                  <button 
-                    onClick={() => setDebugLogs([])}
-                    className="text-xs bg-red-600 text-white px-2 py-1 rounded"
-                  >
-                    Clear
-                  </button>
-                </div>
-                <div className="max-h-24 overflow-y-auto text-xs font-mono space-y-1">
-                  {debugLogs.slice(-10).map((log, index) => (
-                    <div key={index} className={`${log.type === 'error' ? 'text-red-400' : log.type === 'warn' ? 'text-yellow-400' : 'text-green-400'}`}>
-                      [{log.timestamp}] {log.message}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
 
             <div className="space-y-4">
               {user && (
@@ -1736,13 +1717,6 @@ const CVSection = useMemo(() => (
                         Test Mic
                       </>
                     )}
-                  </button>
-                  <button
-                    onClick={() => setDebugMode(!debugMode)}
-                    className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded-lg text-xs font-medium transition-colors"
-                  >
-                    <Terminal className="w-3 h-3" />
-                    {debugMode ? 'Hide Debug' : 'Debug'}
                   </button>
                 </div>
                 {audioError && (

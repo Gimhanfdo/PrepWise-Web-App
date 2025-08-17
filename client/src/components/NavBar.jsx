@@ -10,7 +10,7 @@ const NavBar = () => {
   const navigate = useNavigate()
   const { userData, backendUrl, setUserData, setIsLoggedin} = useContext(AppContext);
 
-  const logout = async()=>{
+  const logout = async()=> {
     try {
       axios.defaults.withCredentials = true
       const {data} = await axios.post(backendUrl + '/api/auth/logout')
@@ -25,7 +25,11 @@ const NavBar = () => {
   return (
     <div className="px-4 flex items-center justify-between sm:px-16 py-4 bg-white shadow-md">
 
-      <div className="flex items-center gap-2">
+      {/* Logo redirects to fresher dashboard */}
+      <div 
+        className="flex items-center gap-2 cursor-pointer"
+        onClick={() => navigate('/fresher-dashboard')}
+      >
         <img src={assets.logo} alt="Logo" className="h-20 w-20" />
         {/* <span className="text-sm font-semibold text-gray-800">Personalized Prep. Job-Ready Fast.</span> */}
       </div>
