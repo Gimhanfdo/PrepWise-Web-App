@@ -43,6 +43,11 @@ export const createInterview = async (req, res) => {
     const { jobDescription, resumeText } = req.body;
     const userId = req.user.userId || req.user.id || req.user._id;
 
+    console.log('=== CREATE INTERVIEW ===');
+    console.log('User ID:', userId);
+    console.log('Job Description length:', jobDescription?.length || 0);
+    console.log('Resume Text length:', resumeText?.length || 0);
+
     if (!jobDescription || !resumeText) {
       return res.status(400).json({
         success: false,
@@ -57,7 +62,29 @@ export const createInterview = async (req, res) => {
       });
     }
 
-    const questions = await generateInterviewQuestions(resumeText, jobDescription);
+    console.log('Generating questions...');
+
+    // Generate questions with error handling
+    let questions;
+    try {
+      questions = await generateInterviewQuestions(resumeText, jobDescription);
+    } catch (questionError) {
+      console.error('Question generation failed:', questionError);
+      // Use fallback questions
+      const cvKeywords = extractCVKeywords(resumeText);
+      const jobKeywords = extractJobKeywords(jobDescription);
+      questions = getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywords, jobKeywords);
+    }
+
+    if (!Array.isArray(questions) || questions.length === 0) {
+      console.error('No questions generated');
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to generate interview questions. Please try again.'
+      });
+    }
+
+    console.log('Generated questions count:', questions.length);
 
     const interviewData = {
       userId: userId,
@@ -76,6 +103,8 @@ export const createInterview = async (req, res) => {
 
     const interview = new InterviewModel(interviewData);
     const savedInterview = await interview.save();
+
+    console.log('Interview saved successfully:', savedInterview._id);
 
     res.status(201).json({
       success: true,
@@ -100,7 +129,7 @@ export const createInterview = async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to create interview',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
@@ -109,6 +138,10 @@ export const createInterviewWithProfileCV = async (req, res) => {
   try {
     const { jobDescription } = req.body;
     const userId = req.user.userId || req.user.id || req.user._id;
+
+    console.log('=== CREATE INTERVIEW WITH PROFILE CV ===');
+    console.log('User ID:', userId);
+    console.log('Job Description length:', jobDescription?.length || 0);
 
     if (!jobDescription) {
       return res.status(400).json({
@@ -124,16 +157,64 @@ export const createInterviewWithProfileCV = async (req, res) => {
       });
     }
 
+    // Find user and check CV
     const user = await userModel.findById(userId);
-    if (!user || !user.hasCV) {
+    if (!user) {
+      console.error('User not found:', userId);
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    if (!user.hasCV) {
+      console.error('User has no CV:', userId);
       return res.status(400).json({
         success: false,
         error: 'No CV found in user profile. Please upload a CV first.'
       });
     }
 
-    const actualCVText = user.getCVText();
-    const questions = await generateInterviewQuestions(actualCVText, jobDescription);
+    // Get CV text safely
+    let actualCVText;
+    try {
+      actualCVText = user.getCVText();
+    } catch (cvError) {
+      console.error('Error getting CV text:', cvError);
+      actualCVText = user.currentCV?.text || '';
+    }
+
+    if (!actualCVText || actualCVText.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'CV text is empty or corrupted. Please re-upload your CV.'
+      });
+    }
+
+    console.log('CV Text length:', actualCVText.length);
+    console.log('Generating questions...');
+
+    // Generate questions with error handling
+    let questions;
+    try {
+      questions = await generateInterviewQuestions(actualCVText, jobDescription);
+    } catch (questionError) {
+      console.error('Question generation failed:', questionError);
+      // Use fallback questions
+      const cvKeywords = extractCVKeywords(actualCVText);
+      const jobKeywords = extractJobKeywords(jobDescription);
+      questions = getInternSpecificFallbackQuestions(actualCVText, jobDescription, cvKeywords, jobKeywords);
+    }
+
+    if (!Array.isArray(questions) || questions.length === 0) {
+      console.error('No questions generated');
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to generate interview questions. Please try again.'
+      });
+    }
+
+    console.log('Generated questions count:', questions.length);
 
     const interviewData = {
       userId: userId,
@@ -152,6 +233,8 @@ export const createInterviewWithProfileCV = async (req, res) => {
 
     const interview = new InterviewModel(interviewData);
     const savedInterview = await interview.save();
+
+    console.log('Interview saved successfully:', savedInterview._id);
 
     res.status(201).json({
       success: true,
@@ -176,7 +259,7 @@ export const createInterviewWithProfileCV = async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to create interview with profile CV',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
@@ -523,7 +606,6 @@ export const submitAnswer = async (req, res) => {
   }
 };
 
-// Improved AI feedback function
 async function generateStrictAIFeedback(question, questionType, responseText, code, language, isSkipped = false) {
   const model = genAI.getGenerativeModel({ 
     model: "gemini-2.5-flash",
@@ -557,24 +639,23 @@ ${code}
   const prompt = `You are a senior software engineering interviewer and code reviewer. 
 Analyze this response thoroughly and give strict, constructive feedback. For coding questions, evaluate correctness, syntax, language best practices, efficiency, code structure/readability, and edge case handling.
 
-Respond ONLY with JSON wrapped inside <json>...</json> tags, following this structure:
-<json>
+CRITICAL: Your response MUST be valid JSON only. Do not include any explanatory text, markdown formatting, or wrapper tags. Start directly with { and end with }.
+
 {
-  "score": 0-100,
-  "questionRelevance": 1-10,
-  "responseType": "perfectly-relevant|mostly-relevant|partially-relevant|mostly-irrelevant|completely-off-topic",
-  "correctness": 1-10,
-  "syntax": 1-10,
-  "languageBestPractices": 1-10,
-  "efficiency": 1-10,
-  "structureAndReadability": 1-10,
-  "edgeCaseHandling": 1-10,
+  "score": [number 0-100],
+  "questionRelevance": [number 1-10],
+  "responseType": "[perfectly-relevant|mostly-relevant|partially-relevant|mostly-irrelevant|completely-off-topic]",
+  "correctness": [number 1-10],
+  "syntax": [number 1-10],
+  "languageBestPractices": [number 1-10],
+  "efficiency": [number 1-10],
+  "structureAndReadability": [number 1-10],
+  "edgeCaseHandling": [number 1-10],
   "strengths": ["strength1","strength2","strength3"],
   "improvements": ["improvement1","improvement2","improvement3","improvement4"],
   "detailedAnalysis": "Honest analysis of response quality",
   "overallAssessment": "Final verdict on quality"
 }
-</json>
 
 QUESTION: "${question}"
 QUESTION TYPE: ${questionType}
@@ -586,21 +667,41 @@ ${codeSection}`;
     const response = await result.response;
     let analysisText = response.text().trim();
 
-    // Extract JSON inside <json> tags
-    const match = analysisText.match(/<json>([\s\S]*?)<\/json>/i);
-    let jsonText = match ? match[1].trim() : analysisText;
-
-    // Clean markdown wrappers if any
-    jsonText = jsonText.replace(/```json\s*|```javascript\s*|```/gi, '').trim();
+    // Multiple JSON extraction strategies
+    let jsonText = analysisText;
+    
+    // Strategy 1: Remove common markdown wrappers
+    jsonText = jsonText.replace(/```json\s*/gi, '').replace(/```javascript\s*/gi, '').replace(/```\s*/g, '');
+    
+    // Strategy 2: Extract content between first { and last }
+    const firstBrace = jsonText.indexOf('{');
+    const lastBrace = jsonText.lastIndexOf('}');
+    
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      jsonText = jsonText.substring(firstBrace, lastBrace + 1);
+    }
+    
+    // Strategy 3: Remove any remaining non-JSON text before/after
+    jsonText = jsonText.replace(/^[^{]*/, '').replace(/[^}]*$/, '');
 
     let aiAnalysis;
     try {
       aiAnalysis = JSON.parse(jsonText);
     } catch (parseError) {
       console.error('JSON Parse Error:', parseError.message);
-      console.error('Raw AI Response:', analysisText);
-      console.error('Extracted JSON:', jsonText);
-      throw new Error('Failed to parse AI feedback JSON: ' + parseError.message);
+      console.error('Cleaned JSON attempt:', jsonText.substring(0, 200) + '...');
+      
+      // Try one more extraction method - look for JSON-like structure
+      const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          aiAnalysis = JSON.parse(jsonMatch[0]);
+        } catch (secondParseError) {
+          throw new Error('Failed to parse AI feedback JSON after multiple attempts');
+        }
+      } else {
+        throw new Error('No JSON structure found in AI response');
+      }
     }
 
     return validateAndSanitizeAIResponse(aiAnalysis, questionType);
@@ -610,31 +711,43 @@ ${codeSection}`;
   }
 }
 
-
-// Enhanced response validation
+// Enhanced response validation with better defaults
 function validateAndSanitizeAIResponse(aiAnalysis, questionType) {
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value || min));
-
-  return {
-    score: Math.round(clamp(aiAnalysis.score, 0, 100)),
-    questionRelevance: clamp(aiAnalysis.questionRelevance, 1, 10),
+  
+  // Ensure all required fields exist with proper defaults
+  const validatedResponse = {
+    score: Math.round(clamp(aiAnalysis.score || 40, 0, 100)),
+    questionRelevance: clamp(aiAnalysis.questionRelevance || 5, 1, 10),
     responseType: aiAnalysis.responseType || 'partially-relevant',
-    correctness: clamp(aiAnalysis.correctness, 1, 10),
-    syntax: clamp(aiAnalysis.syntax, 1, 10),
-    languageBestPractices: clamp(aiAnalysis.languageBestPractices, 1, 10),
-    efficiency: clamp(aiAnalysis.efficiency, 1, 10),
-    structureAndReadability: clamp(aiAnalysis.structureAndReadability, 1, 10),
-    edgeCaseHandling: clamp(aiAnalysis.edgeCaseHandling, 1, 10),
-    strengths: Array.isArray(aiAnalysis.strengths) ? aiAnalysis.strengths.slice(0, 3) : ['None identified'],
-    improvements: Array.isArray(aiAnalysis.improvements) ? aiAnalysis.improvements.slice(0, 4) : [
-      'Focus on correct problem-solving approach',
-      'Use best practices for the selected language',
-      'Improve readability and structure',
-      'Handle edge cases and optimize logic'
-    ],
+    correctness: clamp(aiAnalysis.correctness || 5, 1, 10),
+    syntax: clamp(aiAnalysis.syntax || 5, 1, 10),
+    languageBestPractices: clamp(aiAnalysis.languageBestPractices || 5, 1, 10),
+    efficiency: clamp(aiAnalysis.efficiency || 5, 1, 10),
+    structureAndReadability: clamp(aiAnalysis.structureAndReadability || 5, 1, 10),
+    edgeCaseHandling: clamp(aiAnalysis.edgeCaseHandling || 5, 1, 10),
+    strengths: Array.isArray(aiAnalysis.strengths) && aiAnalysis.strengths.length > 0 
+      ? aiAnalysis.strengths.slice(0, 3) 
+      : ['Attempted to provide a response'],
+    improvements: Array.isArray(aiAnalysis.improvements) && aiAnalysis.improvements.length > 0 
+      ? aiAnalysis.improvements.slice(0, 4) 
+      : [
+          'Focus on correct problem-solving approach',
+          'Use best practices for the selected language',
+          'Improve readability and structure',
+          'Handle edge cases and optimize logic'
+        ],
     detailedAnalysis: aiAnalysis.detailedAnalysis || 'Response analyzed for correctness, efficiency, and best practices.',
-    overallAssessment: aiAnalysis.overallAssessment || 'Improvement needed in code quality and correctness'
+    overallAssessment: aiAnalysis.overallAssessment || 'Response shows effort but needs improvement in technical accuracy and approach'
   };
+
+  // Validate responseType is one of expected values
+  const validResponseTypes = ['perfectly-relevant', 'mostly-relevant', 'partially-relevant', 'mostly-irrelevant', 'completely-off-topic'];
+  if (!validResponseTypes.includes(validatedResponse.responseType)) {
+    validatedResponse.responseType = 'partially-relevant';
+  }
+
+  return validatedResponse;
 }
 
 // Fallback feedback for when AI fails
