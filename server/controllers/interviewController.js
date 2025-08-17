@@ -1,6 +1,8 @@
 import InterviewModel from '../models/InterviewModel.js';
 import userModel from '../models/userModel.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import multer from 'multer';
+import pdfParse from 'pdf-parse';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -37,7 +39,115 @@ export const getUserCV = async (req, res) => {
     });
   }
 };
+const cvStorage = multer.memoryStorage();
+const cvUpload = multer({
+  storage: cvStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF files are allowed'), false);
+    }
+  }
+});
 
+// NEW FUNCTION: Add this function to your controller
+export const processCV = async (req, res) => {
+  try {
+    const uploadSingle = cvUpload.single('cv');
+    
+    uploadSingle(req, res, async (uploadError) => {
+      if (uploadError) {
+        console.error('File upload error:', uploadError);
+        return res.status(400).json({
+          success: false,
+          error: uploadError.message || 'File upload failed'
+        });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          error: 'No PDF file provided'
+        });
+      }
+
+      const userId = req.user?.userId || req.user?.id || req.user?._id;
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          error: 'User not authenticated'
+        });
+      }
+
+      try {
+        console.log('Processing PDF file:', {
+          filename: req.file.originalname,
+          size: req.file.size
+        });
+
+        // Extract text from PDF buffer
+        const pdfData = await pdfParse(req.file.buffer);
+        const extractedText = pdfData.text;
+        
+        if (!extractedText || extractedText.trim().length === 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'Could not extract text from the PDF. Please ensure the PDF contains selectable text.'
+          });
+        }
+
+        if (extractedText.length < 50) {
+          return res.status(400).json({
+            success: false,
+            error: 'CV text appears to be too short. Please ensure your CV contains sufficient information.'
+          });
+        }
+
+        // Clean the text
+        const cleanedText = extractedText
+          .replace(/\r\n/g, '\n')
+          .replace(/\r/g, '\n')
+          .replace(/\n{3,}/g, '\n\n')
+          .replace(/[ \t]{2,}/g, ' ')
+          .trim();
+
+        console.log('PDF processed successfully. Length:', cleanedText.length);
+
+        res.json({
+          success: true,
+          message: 'PDF processed successfully',
+          data: {
+            text: cleanedText,
+            fileName: req.file.originalname,
+            fileSize: req.file.size,
+            textLength: cleanedText.length,
+            processedAt: new Date().toISOString()
+          }
+        });
+
+      } catch (extractionError) {
+        console.error('PDF extraction error:', extractionError);
+        res.status(500).json({
+          success: false,
+          error: 'Failed to extract text from PDF. Please ensure the file is not corrupted.',
+          details: process.env.NODE_ENV === 'development' ? extractionError.message : undefined
+        });
+      }
+    });
+
+  } catch (error) {
+    console.error('Process CV error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error while processing PDF',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
 export const createInterview = async (req, res) => {
   try {
     const { jobDescription, resumeText } = req.body;

@@ -17,7 +17,8 @@ import {
   getUserCV,  
   createInterviewWithProfileCV,
   createInterview,
-  skipQuestion
+  skipQuestion,
+  processCV
 } from '../controllers/interviewController.js';
 
 const interviewRouter = express.Router();
@@ -567,7 +568,7 @@ const executeCode = async (code, language) => {
   });
 };
 
-// Code execution endpoint
+// Code execution endpoint (moved before userAuth middleware)
 interviewRouter.post('/execute-code', userAuth, async (req, res) => {
   try {
     const { code, language } = req.body;
@@ -601,17 +602,15 @@ interviewRouter.post('/execute-code', userAuth, async (req, res) => {
   }
 });
 
-// Apply authentication middleware to all routes below
-interviewRouter.use(userAuth);
-
-// CV and Interview management routes
-interviewRouter.get('/cv', getUserCV);
-interviewRouter.post('/create', createInterview);
-interviewRouter.post('/create-with-profile-cv', createInterviewWithProfileCV);
-
-// Audio transcription routes
 interviewRouter.post('/transcribe', uploadToDisk.single('audio'), transcribeAudio);
 interviewRouter.post('/transcribe-mock', uploadToMemory.single('audio'), mockTranscribeAudio);
+
+interviewRouter.use(userAuth);
+
+interviewRouter.get('/cv', getUserCV);
+interviewRouter.post('/process-cv', processCV);
+interviewRouter.post('/create', createInterview);
+interviewRouter.post('/create-with-profile-cv', createInterviewWithProfileCV);
 
 // Interview management routes
 interviewRouter.get('/:interviewId', getInterview);

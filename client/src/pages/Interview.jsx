@@ -393,53 +393,95 @@ Note: The actual CV text extraction would require server-side processing of the 
   };
 
   const handleCvModeChange = useCallback((mode) => {
-    setCvMode(mode);
-    setCvError('');
-    
-    if (mode === 'profile' && profileCV) {
-      setInterviewData(prev => ({ ...prev, resumeText: profileCV.text }));
-    } else if (mode === 'upload') {
+  setCvMode(mode);
+  setCvError('');
+  
+  if (mode === 'profile' && profileCV) {
+    setInterviewData(prev => ({ ...prev, resumeText: profileCV.text }));
+    setUploadedFile(null);
+  } else if (mode === 'upload') {
+    // Keep existing content if file was processed
+    if (!uploadedFile) {
       setInterviewData(prev => ({ ...prev, resumeText: '' }));
-      setUploadedFile(null);
     }
-  }, [profileCV]);
+  } else if (mode === 'manual') {
+    setInterviewData(prev => ({ ...prev, resumeText: '' }));
+    setUploadedFile(null);
+  }
+}, [profileCV, uploadedFile]);
 
   const handleFileUpload = useCallback(async (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+  const file = event.target.files[0];
+  if (!file) return;
 
-    const validTypes = ['application/pdf', 'text/plain', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-    if (!validTypes.includes(file.type)) {
-      setCvError('Please upload a PDF, TXT, or DOCX file');
-      return;
+  const validTypes = [
+    'application/pdf', 
+    'text/plain', 
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword'
+  ];
+  
+  if (!validTypes.includes(file.type)) {
+    setCvError('Please upload a PDF, TXT, DOC, or DOCX file');
+    return;
+  }
+
+  if (file.size > 5 * 1024 * 1024) {
+    setCvError('File size must be less than 5MB');
+    return;
+  }
+
+  setUploadedFile(file);
+  setCvLoading(true);
+  setCvError('');
+  addDebugLog(`Processing file: ${file.name} (${file.size} bytes)`);
+
+  try {
+    // Use the new backend endpoint to process the CV
+    const formData = new FormData();
+    formData.append('cv', file);
+
+    const response = await fetch('/api/interviews/process-cv', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      body: formData
+    });
+
+    const result = await response.json();
+    addDebugLog(`CV processing response: ${JSON.stringify(result)}`);
+
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to process CV file');
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setCvError('File size must be less than 5MB');
-      return;
+    if (!result.data || !result.data.text) {
+      throw new Error('No text content extracted from CV');
     }
 
-    setUploadedFile(file);
+    // Update the interview data with extracted text
+    setInterviewData(prev => ({ 
+      ...prev, 
+      resumeText: result.data.text 
+    }));
+
+    addDebugLog(`CV processed successfully: ${result.data.characterCount} characters, ${result.data.wordCount} words`);
+    
+    // Show success message
     setCvError('');
-    addDebugLog(`File selected: ${file.name} (${file.size} bytes)`);
-
-    try {
-      if (file.type === 'text/plain') {
-        const text = await file.text();
-        setInterviewData(prev => ({ ...prev, resumeText: text }));
-        addDebugLog('Plain text file processed');
-      } else {
-        setInterviewData(prev => ({ 
-          ...prev, 
-          resumeText: `[${file.name}] CV content will be processed by the server. Please ensure your CV contains relevant work experience, skills, and education details.` 
-        }));
-        addDebugLog('PDF/DOCX file uploaded - would be processed by server');
-      }
-    } catch (err) {
-      setCvError('Failed to process file');
-      addDebugLog(`File processing error: ${err.message}`, 'error');
-    }
-  }, [addDebugLog]);
+    
+  } catch (err) {
+    console.error('CV processing error:', err);
+    addDebugLog(`CV processing failed: ${err.message}`, 'error');
+    setCvError(`Failed to process CV: ${err.message}`);
+    setUploadedFile(null);
+    setInterviewData(prev => ({ ...prev, resumeText: '' }));
+  } finally {
+    setCvLoading(false);
+  }
+}, [addDebugLog]);
 
   const initializeAudio = async () => {
     try {
@@ -737,81 +779,95 @@ Status: Ready for submission`;
   }, [code, language, supportedLanguages, addDebugLog]);
 
   const isSetupValid = useCallback(() => {
-    return interviewData.jobDescription && interviewData.resumeText;
-  }, [interviewData]);
+  const hasJobDescription = interviewData.jobDescription && interviewData.jobDescription.trim().length > 0;
+  const hasResumeText = interviewData.resumeText && interviewData.resumeText.trim().length >= 50;
+  
+  return hasJobDescription && hasResumeText;
+}, [interviewData]);
 
   const createInterview = useCallback(async () => {
-    if (!user) {
-      setError('Please log in to start an interview');
-      return;
+  if (!user) {
+    setError('Please log in to start an interview');
+    return;
+  }
+
+  if (!isSetupValid()) {
+    setError('Please provide both job description and CV content');
+    return;
+  }
+
+  setLoading(true);
+  setError('');
+  addDebugLog('Creating interview...');
+
+  try {
+    const endpoint = cvMode === 'profile' && profileCV 
+      ? '/api/interviews/create-with-profile-cv'
+      : '/api/interviews/create';
+
+    const requestBody = {
+      jobTitle: 'Software Engineering Internship',
+      jobDescription: interviewData.jobDescription.trim(),
+      difficulty: 'intermediate',
+      questionCount: 5,
+      ...(cvMode === 'profile' && profileCV 
+        ? { useProfileCV: true }
+        : { resumeText: interviewData.resumeText.trim() }
+      )
+    };
+
+    addDebugLog(`Creating interview with endpoint: ${endpoint}`);
+    addDebugLog(`Request body: ${JSON.stringify({
+      ...requestBody, 
+      resumeText: requestBody.resumeText ? `${requestBody.resumeText.substring(0, 100)}...` : undefined
+    })}`);
+
+    const interviewResponse = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+      },
+      credentials: 'include',
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!interviewResponse.ok) {
+      const errorText = await interviewResponse.text();
+      addDebugLog(`HTTP Error: ${interviewResponse.status} - ${errorText}`, 'error');
+      throw new Error(`HTTP ${interviewResponse.status}: ${interviewResponse.statusText}`);
     }
 
-    setLoading(true);
-    setError('');
-    addDebugLog('Creating interview...');
-
-    try {
-      const endpoint = cvMode === 'profile' && profileCV 
-        ? '/api/interviews/create-with-profile-cv'
-        : '/api/interviews/create';
-
-      const requestBody = {
-        jobTitle: 'Software Engineering Intern',
-        jobDescription: interviewData.jobDescription.trim(),
-        difficulty: 'intermediate',
-        questionCount: 5,
-        ...(cvMode === 'profile' && profileCV 
-          ? { useProfileCV: true }
-          : { resumeText: interviewData.resumeText.trim() }
-        )
-      };
-
-      addDebugLog(`Creating interview with endpoint: ${endpoint}`);
-      addDebugLog(`Request body: ${JSON.stringify({...requestBody, resumeText: requestBody.resumeText ? `${requestBody.resumeText.substring(0, 100)}...` : undefined})}`);
-
-      const interviewResponse = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-        },
-        credentials: 'include',
-        body: JSON.stringify(requestBody)
-      });
-
-      if (!interviewResponse.ok) {
-        throw new Error(`HTTP ${interviewResponse.status}: ${interviewResponse.statusText}`);
-      }
-
-      const interviewResult = await interviewResponse.json();
-      addDebugLog(`Interview creation response: ${JSON.stringify({
-        success: interviewResult.success,
-        interviewId: interviewResult.interview?.id,
-        questionsCount: interviewResult.interview?.questions?.length,
-        error: interviewResult.error
-      })}`);
-      
-      if (!interviewResult.success) {
-        throw new Error(interviewResult.error || 'Failed to create interview');
-      }
-
-      if (!interviewResult.interview || !interviewResult.interview.questions || interviewResult.interview.questions.length === 0) {
-        throw new Error('Interview created but no questions were generated');
-      }
-
-      setInterview(interviewResult.interview);
-      setQuestions(interviewResult.interview.questions);
-      addDebugLog(`Interview created successfully with ${interviewResult.interview.questions.length} questions`);
-      
-      await startInterview(interviewResult.interview.id);
-      
-    } catch (err) {
-      addDebugLog(`Interview creation failed: ${err.message}`, 'error');
-      setError(`Failed to create interview: ${err.message}`);
-    } finally {
-      setLoading(false);
+    const interviewResult = await interviewResponse.json();
+    addDebugLog(`Interview creation response: ${JSON.stringify({
+      success: interviewResult.success,
+      interviewId: interviewResult.interview?.id,
+      questionsCount: interviewResult.interview?.questions?.length,
+      error: interviewResult.error
+    })}`);
+    
+    if (!interviewResult.success) {
+      throw new Error(interviewResult.error || 'Failed to create interview');
     }
-  }, [user, interviewData, cvMode, profileCV, addDebugLog]);
+
+    if (!interviewResult.interview || !interviewResult.interview.questions || interviewResult.interview.questions.length === 0) {
+      throw new Error('Interview created but no questions were generated');
+    }
+
+    setInterview(interviewResult.interview);
+    setQuestions(interviewResult.interview.questions);
+    addDebugLog(`Interview created successfully with ${interviewResult.interview.questions.length} questions`);
+    
+    await startInterview(interviewResult.interview.id);
+    
+  } catch (err) {
+    addDebugLog(`Interview creation failed: ${err.message}`, 'error');
+    setError(`Failed to create interview: ${err.message}`);
+  } finally {
+    setLoading(false);
+  }
+}, [user, interviewData, cvMode, profileCV, addDebugLog, isSetupValid]);
+
 
   const moveToNextQuestion = async () => {
     addDebugLog(`Getting next question (${questionIndex + 2}/${questions.length})...`);
@@ -1356,13 +1412,20 @@ Status: Ready for submission`;
   const text = e.target.value;
   setInterviewData(prev => ({ ...prev, resumeText: text }));
   
+  // Clear uploaded file if user starts typing manually
+  if (uploadedFile && text !== '') {
+    setUploadedFile(null);
+  }
+  
   // Validate minimum content
   if (text.length > 0 && text.length < 50) {
     setCvError('Please provide more detailed CV information (at least 50 characters)');
+  } else if (text.length > 0 && text.split(/\s+/).filter(w => w.length > 0).length < 10) {
+    setCvError('Please provide more comprehensive CV content (at least 10 words)');
   } else {
     setCvError('');
   }
-}, []);
+}, [uploadedFile]);
 
 // Enhanced CV section component
 const CVSection = useMemo(() => (
@@ -1493,41 +1556,68 @@ const CVSection = useMemo(() => (
               <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
               <span className="text-sm font-medium text-blue-800">Processing CV file...</span>
             </div>
+            <div className="text-xs text-blue-600 mt-1">Extracting text content from your document...</div>
           </div>
         )}
 
-        {uploadedFile && !cvLoading && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-2">
-            <div className="flex items-center gap-2">
+        {uploadedFile && !cvLoading && interviewData.resumeText && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-2">
               <FileCheck className="w-4 h-4 text-green-600" />
               <span className="text-sm font-medium text-green-800">
-                {uploadedFile.name} ({Math.round(uploadedFile.size / 1024)}KB) - Processed
+                {uploadedFile.name} ({Math.round(uploadedFile.size / 1024)}KB)
               </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs text-green-700">
+              <div>Characters: {interviewData.resumeText.length}</div>
+              <div>Words: {interviewData.resumeText.split(/\s+/).filter(w => w.length > 0).length}</div>
+            </div>
+            <div className="mt-2 p-2 bg-white rounded border border-green-200">
+              <div className="text-xs text-green-700 mb-1">Extracted Content Preview:</div>
+              <div className="text-xs text-gray-700 max-h-16 overflow-y-auto">
+                {interviewData.resumeText.substring(0, 150)}
+                {interviewData.resumeText.length > 150 && '...'}
+              </div>
             </div>
           </div>
         )}
       </div>
     )}
 
-    {/* Manual CV Entry or Text Preview */}
-    {(cvMode === 'manual' || cvMode === 'upload') && (
+    {/* Manual CV Entry */}
+    {cvMode === 'manual' && (
       <div className="mt-3">
         <label className="block text-xs font-medium text-gray-700 mb-2">
-          {cvMode === 'manual' ? 'Enter your CV/Resume text:' : 'Extracted CV content:'}
+          Enter your CV/Resume text:
         </label>
         <textarea
           value={interviewData.resumeText}
-          onChange={cvMode === 'manual' ? handleManualCvChange : (e) => setInterviewData(prev => ({ ...prev, resumeText: e.target.value }))}
+          onChange={handleManualCvChange}
           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-32 resize-none text-sm"
-          placeholder={cvMode === 'manual' 
-            ? "Enter your professional experience, skills, education, and qualifications..."
-            : "CV content will appear here after file upload..."
-          }
-          disabled={cvMode === 'upload' && cvLoading}
+          placeholder="Enter your professional experience, skills, education, and qualifications..."
         />
         <div className="mt-1 flex justify-between text-xs text-gray-500">
           <span>Characters: {interviewData.resumeText.length}</span>
           <span>Words: {interviewData.resumeText.split(' ').filter(word => word.length > 0).length}</span>
+        </div>
+      </div>
+    )}
+
+    {/* CV Text Display for Upload Mode */}
+    {cvMode === 'upload' && interviewData.resumeText && uploadedFile && !cvLoading && (
+      <div className="mt-3">
+        <label className="block text-xs font-medium text-gray-700 mb-2">
+          Extracted CV Content:
+        </label>
+        <textarea
+          value={interviewData.resumeText}
+          onChange={(e) => setInterviewData(prev => ({ ...prev, resumeText: e.target.value }))}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-32 resize-none text-sm"
+          placeholder="Extracted CV content will appear here..."
+        />
+        <div className="mt-1 flex justify-between text-xs text-gray-500">
+          <span>You can edit the extracted content if needed</span>
+          <span>Characters: {interviewData.resumeText.length}</span>
         </div>
       </div>
     )}
