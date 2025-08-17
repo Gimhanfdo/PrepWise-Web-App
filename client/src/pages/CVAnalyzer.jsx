@@ -36,6 +36,13 @@ const SkillsAssessment = ({
     </svg>
   );
 
+  const ArrowRight = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <line x1="5" y1="12" x2="19" y2="12"></line>
+    <polyline points="12,5 19,12 12,19"></polyline>
+  </svg>
+  );
+
   const ArrowLeft = () => (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <line x1="19" y1="12" x2="5" y2="12"></line>
