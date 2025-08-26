@@ -8,6 +8,7 @@ import skillAssessor from './routes/skillAssessorRoutes.js';
 import userRouter from './routes/userRoutes.js';
 import analysisRouter from './routes/CVanalysisRoutes.js';
 import interviewRouter from './routes/InterviewRoutes.js'; 
+import codeRouter from './routes/codeRoutes.js'; 
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -23,11 +24,15 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(cors({origin: allowedOrigins, credentials: true}));
 
+// Existing routes
 app.use('/api/auth', authRouter)
 app.use('/api/user', userRouter)
 app.use('/api/analyze', analysisRouter);
 app.use('/api/swot', skillAssessor); 
 app.use('/api/interviews', interviewRouter); 
+
+// NEW: Add code execution routes
+app.use('/api/code', codeRouter);
 
 app.use(express.static(path.join(__dirname, '../client/dist')));
 

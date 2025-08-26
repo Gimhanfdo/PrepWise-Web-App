@@ -38,6 +38,7 @@ const MockInterviewSystem = () => {
   const [codeOutput, setCodeOutput] = useState('');
   const [showCodeEditor, setShowCodeEditor] = useState(false);
   const [isRunningCode, setIsRunningCode] = useState(false);
+  const [codeInput, setCodeInput] = useState(''); // For user input during code execution
 
   const [cvMode, setCvMode] = useState('profile');
   const [profileCV, setProfileCV] = useState(null);
@@ -59,37 +60,63 @@ const MockInterviewSystem = () => {
   const audioChunksRef = useRef([]);
   const fileInputRef = useRef(null);
 
-  // FIXED: Updated supported languages with correct templates
+  // UPDATED: JDoodle supported languages with their correct language codes
   const supportedLanguages = [
     { 
-      value: 'javascript', 
-      label: 'JavaScript', 
-      template: 'function solution() {\n    // Your code here\n    return result;\n}'
+      value: 'nodejs', 
+      label: 'JavaScript (Node.js)', 
+      template: 'console.log("Hello World");\n\n// Your code here\nfunction solution() {\n    // Implement your solution\n    return "result";\n}\n\nconsole.log(solution());',
+      jdoodleLanguage: 'nodejs',
+      version: '4'
     },
     { 
-      value: 'python', 
-      label: 'Python', 
-      template: 'def solution():\n    # Your code here\n    return result'
+      value: 'python3', 
+      label: 'Python 3', 
+      template: 'print("Hello World")\n\n# Your code here\ndef solution():\n    # Implement your solution\n    return "result"\n\nprint(solution())',
+      jdoodleLanguage: 'python3',
+      version: '4'
     },
     { 
       value: 'java', 
       label: 'Java', 
-      template: 'public class Solution {\n    public static void main(String[] args) {\n        // Your code here\n    }\n    \n    public static int solution() {\n        // Your solution here\n        return 0;\n    }\n}'
+      template: 'import java.util.*;\n\npublic class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello World");\n        \n        // Your code here\n        System.out.println(solution());\n    }\n    \n    public static String solution() {\n        // Implement your solution\n        return "result";\n    }\n}',
+      jdoodleLanguage: 'java',
+      version: '4'
     },
     { 
       value: 'c', 
       label: 'C', 
-      template: '#include <stdio.h>\n\nint main() {\n    // Your code here\n    return 0;\n}'
+      template: '#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n\nint main() {\n    printf("Hello World\\n");\n    \n    // Your code here\n    printf("%s\\n", solution());\n    \n    return 0;\n}\n\nchar* solution() {\n    // Implement your solution\n    return "result";\n}',
+      jdoodleLanguage: 'c',
+      version: '5'
+    },
+    { 
+      value: 'cpp', 
+      label: 'C++', 
+      template: '#include <iostream>\n#include <vector>\n#include <string>\n#include <algorithm>\nusing namespace std;\n\nstring solution() {\n    // Implement your solution\n    return "result";\n}\n\nint main() {\n    cout << "Hello World" << endl;\n    \n    // Your code here\n    cout << solution() << endl;\n    \n    return 0;\n}',
+      jdoodleLanguage: 'cpp',
+      version: '5'
     },
     { 
       value: 'csharp', 
       label: 'C#', 
-      template: 'using System;\n\nclass Program {\n    static void Main() {\n        // Your code here\n    }\n    \n    static int Solution() {\n        // Your solution here\n        return 0;\n    }\n}'
+      template: 'using System;\nusing System.Collections.Generic;\nusing System.Linq;\n\nclass Program {\n    static void Main() {\n        Console.WriteLine("Hello World");\n        \n        // Your code here\n        Console.WriteLine(Solution());\n    }\n    \n    static string Solution() {\n        // Implement your solution\n        return "result";\n    }\n}',
+      jdoodleLanguage: 'csharp',
+      version: '4'
     },
     { 
       value: 'php', 
       label: 'PHP', 
-      template: '<?php\nfunction solution() {\n    // Your code here\n    return $result;\n}\n?>'
+      template: '<?php\necho "Hello World\\n";\n\n// Your code here\nfunction solution() {\n    // Implement your solution\n    return "result";\n}\n\necho solution() . "\\n";\n?>',
+      jdoodleLanguage: 'php',
+      version: '4'
+    },
+    { 
+      value: 'go', 
+      label: 'Go', 
+      template: 'package main\n\nimport "fmt"\n\nfunc solution() string {\n    // Implement your solution\n    return "result"\n}\n\nfunc main() {\n    fmt.Println("Hello World")\n    \n    // Your code here\n    fmt.Println(solution())\n}',
+      jdoodleLanguage: 'go',
+      version: '4'
     }
   ];
 
@@ -159,13 +186,15 @@ const MockInterviewSystem = () => {
     setTextAnswer(e.target.value);
   }, []);
 
-  // FIXED: Simplified code change handler without debug interference
   const handleCodeChange = useCallback((e) => {
     const newValue = e.target.value;
     setCode(newValue);
   }, []);
 
-  // FIXED: Debounced debug logging
+  const handleCodeInputChange = useCallback((e) => {
+    setCodeInput(e.target.value);
+  }, []);
+
   useEffect(() => {
     if (debugMode && code) {
       const timeoutId = setTimeout(() => {
@@ -180,7 +209,6 @@ const MockInterviewSystem = () => {
     setTranscription(e.target.value);
   }, []);
 
-  // FIXED: Better language change handling
   const handleLanguageChange = useCallback((e) => {
     const newLanguage = e.target.value;
     setLanguage(newLanguage);
@@ -189,14 +217,111 @@ const MockInterviewSystem = () => {
     const normalizedCode = code.replace(/\s+/g, '').toLowerCase();
     const normalizedTemplate = currentTemplate.replace(/\s+/g, '').toLowerCase();
     
-    // Only auto-replace if code is empty or exactly matches the template
     if (!code.trim() || normalizedCode === normalizedTemplate) {
       const langTemplate = supportedLanguages.find(l => l.value === newLanguage)?.template || '';
       setCode(currentQuestion?.starterCode?.[newLanguage] || langTemplate);
     }
     
     setCodeOutput('');
+    setCodeInput(''); // Clear input when changing language
   }, [currentQuestion, supportedLanguages, code, language]);
+
+  // NEW: JDoodle API integration for code execution
+  const executeCodeWithJDoodle = useCallback(async () => {
+    if (!code.trim()) {
+      setCodeOutput('Please write some code before running.');
+      return;
+    }
+
+    try {
+      setIsRunningCode(true);
+      setCodeOutput('Executing code on JDoodle servers...\n');
+      addDebugLog(`Executing ${language} code on JDoodle...`);
+
+      const selectedLang = supportedLanguages.find(l => l.value === language);
+      if (!selectedLang) {
+        throw new Error('Unsupported language selected');
+      }
+
+      // Prepare the request payload for JDoodle API
+      const requestData = {
+        script: code,
+        language: selectedLang.jdoodleLanguage,
+        versionIndex: selectedLang.version,
+        stdin: codeInput || '', // User input for the program
+      };
+
+      addDebugLog(`JDoodle request: ${JSON.stringify({
+        language: requestData.language,
+        versionIndex: requestData.versionIndex,
+        hasStdin: !!requestData.stdin,
+        scriptLength: requestData.script.length
+      })}`);
+
+      // Send request to backend which will handle JDoodle API
+      const response = await fetch('/api/code/execute', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+        },
+        credentials: 'include',
+        body: JSON.stringify(requestData)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const result = await response.json();
+      addDebugLog(`JDoodle response: ${JSON.stringify({
+        success: result.success,
+        hasOutput: !!result.output,
+        hasError: !!result.error,
+        executionTime: result.executionTime,
+        memory: result.memory
+      })}`);
+
+      if (!result.success) {
+        throw new Error(result.error || 'Code execution failed');
+      }
+
+      // Format the output
+      let output = '';
+      
+      // Add execution info
+      if (result.executionTime || result.memory) {
+        output += '=== Execution Info ===\n';
+        if (result.executionTime) output += `Time: ${result.executionTime}\n`;
+        if (result.memory) output += `Memory: ${result.memory}\n`;
+        output += '\n=== Output ===\n';
+      }
+
+      // Add program output
+      if (result.output) {
+        output += result.output;
+      } else {
+        output += 'Program executed successfully (no output)';
+      }
+
+      // Add any errors
+      if (result.error && result.error.trim()) {
+        output += '\n\n=== Errors/Warnings ===\n';
+        output += result.error;
+      }
+
+      setCodeOutput(output);
+      addDebugLog(`Code execution completed successfully`);
+      
+    } catch (error) {
+      const errorMsg = `Execution Error: ${error.message}\n\nPlease check your code and try again.`;
+      setCodeOutput(errorMsg);
+      addDebugLog(`Code execution error: ${error.message}`, 'error');
+    } finally {
+      setIsRunningCode(false);
+    }
+  }, [code, language, codeInput, supportedLanguages, addDebugLog]);
 
   const createFallbackFeedback = useCallback(() => {
     const validResponses = responses.filter(r => !r.skipped);
@@ -401,7 +526,6 @@ Note: The actual CV text extraction would require server-side processing of the 
     setInterviewData(prev => ({ ...prev, resumeText: profileCV.text }));
     setUploadedFile(null);
   } else if (mode === 'upload') {
-    // Keep existing content if file was processed
     if (!uploadedFile) {
       setInterviewData(prev => ({ ...prev, resumeText: '' }));
     }
@@ -438,7 +562,6 @@ Note: The actual CV text extraction would require server-side processing of the 
   addDebugLog(`Processing file: ${file.name} (${file.size} bytes)`);
 
   try {
-    // Use the new backend endpoint to process the CV
     const formData = new FormData();
     formData.append('cv', file);
 
@@ -462,7 +585,6 @@ Note: The actual CV text extraction would require server-side processing of the 
       throw new Error('No text content extracted from CV');
     }
 
-    // Update the interview data with extracted text
     setInterviewData(prev => ({ 
       ...prev, 
       resumeText: result.data.text 
@@ -470,7 +592,6 @@ Note: The actual CV text extraction would require server-side processing of the 
 
     addDebugLog(`CV processed successfully: ${result.data.characterCount} characters, ${result.data.wordCount} words`);
     
-    // Show success message
     setCvError('');
     
   } catch (err) {
@@ -677,108 +798,6 @@ Note: The actual CV text extraction would require server-side processing of the 
     }
   };
 
-  const executeCode = useCallback(() => {
-    if (!code.trim()) {
-      setCodeOutput('Please write some code before running.');
-      return;
-    }
-
-    try {
-      setIsRunningCode(true);
-      setCodeOutput('Running code...\n');
-      addDebugLog(`Executing ${language} code...`);
-      
-      if (language === 'javascript') {
-        const originalConsoleLog = console.log;
-        const originalConsoleError = console.error;
-        let output = '';
-        
-        console.log = (...args) => {
-          output += args.map(arg => 
-            typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-          ).join(' ') + '\n';
-        };
-        
-        console.error = (...args) => {
-          output += 'ERROR: ' + args.map(arg => String(arg)).join(' ') + '\n';
-        };
-        
-        try {
-          const wrappedCode = `
-            try {
-              ${code}
-            } catch (error) {
-              console.error(error.message);
-            }
-          `;
-          
-          const result = new Function('console', wrappedCode)(console);
-          
-          if (result !== undefined) {
-            output += '\nReturn value: ' + (typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result)) + '\n';
-          }
-          
-          if (!output.trim()) {
-            output = 'Code executed successfully (no output generated)\n';
-          }
-          
-        } catch (error) {
-          output += 'Execution Error: ' + error.message + '\n';
-        } finally {
-          console.log = originalConsoleLog;
-          console.error = originalConsoleError;
-        }
-        
-        setCodeOutput(output);
-        addDebugLog(`JavaScript executed successfully: ${output.substring(0, 50)}...`);
-        
-      } else if (language === 'python') {
-        const simulatedOutput = `Python Code Simulation:
-${code}
-
-[Simulated Output]
-This would execute your Python code on the server.
-Your code appears to have valid Python syntax.
-${code.includes('print(') ? 'Print statements detected - output would appear here.' : ''}
-${code.includes('def ') ? 'Function definitions found.' : ''}
-${code.includes('class ') ? 'Class definitions found.' : ''}
-
-Note: This is a frontend simulation. Real execution happens on the backend.`;
-        
-        setCodeOutput(simulatedOutput);
-        addDebugLog(`Python simulation completed`);
-        
-      } else {
-        const languageLabel = supportedLanguages.find(l => l.value === language)?.label || language;
-        const simulatedOutput = `${languageLabel} Code Simulation:
-
-${code.substring(0, 300)}${code.length > 300 ? '\n...[code truncated]' : ''}
-
-[Simulated Compilation/Execution]
-✓ Syntax appears valid for ${languageLabel}
-✓ Code structure looks good
-✓ Ready for server-side execution
-
-Note: This is a frontend preview. Actual compilation and execution 
-would happen on the server with proper ${languageLabel} environment.
-
-Estimated execution time: < 1 second
-Memory usage: Normal
-Status: Ready for submission`;
-        
-        setCodeOutput(simulatedOutput);
-        addDebugLog(`Simulated execution for ${language}`);
-      }
-      
-    } catch (error) {
-      const errorMsg = `Execution Error: ${error.message}`;
-      setCodeOutput(errorMsg);
-      addDebugLog(`Code execution error: ${error.message}`, 'error');
-    } finally {
-      setIsRunningCode(false);
-    }
-  }, [code, language, supportedLanguages, addDebugLog]);
-
   const isSetupValid = useCallback(() => {
   const hasJobDescription = interviewData.jobDescription && interviewData.jobDescription.trim().length > 0;
   const hasResumeText = interviewData.resumeText && interviewData.resumeText.trim().length >= 50;
@@ -869,7 +888,6 @@ Status: Ready for submission`;
   }
 }, [user, interviewData, cvMode, profileCV, addDebugLog, isSetupValid]);
 
-
   const moveToNextQuestion = async () => {
     addDebugLog(`Getting next question (${questionIndex + 2}/${questions.length})...`);
     
@@ -915,6 +933,7 @@ Status: Ready for submission`;
     setTranscription('');
     setTranscriptionError('');
     setError('');
+    setCodeInput(''); // Clear code input for next question
     
     const isNextCoding = nextQuestion.type === 'coding' || 
                         nextQuestion.type === 'technical_coding' ||
@@ -971,7 +990,6 @@ Status: Ready for submission`;
     }
   };
 
-  // FIXED: Updated skipQuestion function for coding questions
   const skipQuestion = async () => {
     setLoading(true);
     setError('');
@@ -991,7 +1009,6 @@ Status: Ready for submission`;
         skipped: true,
         questionType: currentQuestion.type,
         difficulty: currentQuestion.difficulty || 'intermediate',
-        // Include code fields for coding questions to match expected schema
         ...(isCodingQuestion && {
           code: null,
           language: language
@@ -1135,7 +1152,6 @@ Status: Ready for submission`;
         throw new Error(submitResult.error || 'Failed to submit answer');
       }
 
-      // FIXED: Process AI feedback with better JSON handling
       const aiFeedback = submitResult.feedback ? 
         processCodingFeedback(submitResult.feedback, isCodingQuestion) : 
         createFallbackFeedback(isCodingQuestion);
@@ -1180,18 +1196,14 @@ Status: Ready for submission`;
     }
   };
 
-    // FIXED: Enhanced processCodingFeedback function
     const processCodingFeedback = (rawFeedback, isCodingQuestion) => {
-    // Handle case where rawFeedback might be a string
     let feedback;
     if (typeof rawFeedback === 'string') {
       try {
-        // Try to extract JSON from string
         const jsonMatch = rawFeedback.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           feedback = JSON.parse(jsonMatch[0]);
         } else {
-          // If no JSON found, create structured feedback from string
           feedback = {
             score: 50,
             strengths: [],
@@ -1361,6 +1373,7 @@ Status: Ready for submission`;
     setInterviewData(prev => ({ ...prev, jobDescription: '' }));
     setCode('');
     setCodeOutput('');
+    setCodeInput('');
     setShowCodeEditor(false);
     setAudioBlob(null);
     setRecordingTime(0);
@@ -1379,20 +1392,18 @@ Status: Ready for submission`;
     }
   }, [profileCV]);
 
-  // FIXED: Simplified question change effect
   useEffect(() => {
     if (currentQuestion) {
       const isCoding = currentQuestion.type === 'coding' || currentQuestion.type === 'technical_coding';
       setShowCodeEditor(isCoding);
       
-      // Only set initial code if it's a coding question and we don't have meaningful code
       if (isCoding && (!code || code.trim().length < 20)) {
         const template = currentQuestion.starterCode?.[language] || 
                         supportedLanguages.find(l => l.value === language)?.template || '';
         setCode(template);
       }
     }
-  }, [currentQuestion?.questionId, language]); // Only depend on question ID and language
+  }, [currentQuestion?.questionId, language]);
 
   useEffect(() => {
     return () => {
@@ -1413,12 +1424,10 @@ Status: Ready for submission`;
   const text = e.target.value;
   setInterviewData(prev => ({ ...prev, resumeText: text }));
   
-  // Clear uploaded file if user starts typing manually
   if (uploadedFile && text !== '') {
     setUploadedFile(null);
   }
   
-  // Validate minimum content
   if (text.length > 0 && text.length < 50) {
     setCvError('Please provide more detailed CV information (at least 50 characters)');
   } else if (text.length > 0 && text.split(/\s+/).filter(w => w.length > 0).length < 10) {
@@ -1433,7 +1442,6 @@ const CVSection = useMemo(() => (
   <div className="mb-4">
     <label className="block text-sm font-medium text-gray-700 mb-2">Resume/CV *</label>
     
-    {/* CV Mode Selection */}
     <div className="flex gap-2 mb-3 flex-wrap">
       <button
         onClick={() => handleCvModeChange('profile')}
@@ -1487,7 +1495,6 @@ const CVSection = useMemo(() => (
       )}
     </div>
 
-    {/* Profile CV Display */}
     {cvMode === 'profile' && profileCV && (
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
         <div className="flex items-start justify-between mb-2">
@@ -1524,7 +1531,6 @@ const CVSection = useMemo(() => (
       </div>
     )}
 
-    {/* File Upload Mode */}
     {cvMode === 'upload' && (
       <div className="space-y-3">
         <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-gray-400 transition-colors">
@@ -1585,7 +1591,6 @@ const CVSection = useMemo(() => (
       </div>
     )}
 
-    {/* Manual CV Entry */}
     {cvMode === 'manual' && (
       <div className="mt-3">
         <label className="block text-xs font-medium text-gray-700 mb-2">
@@ -1604,7 +1609,6 @@ const CVSection = useMemo(() => (
       </div>
     )}
 
-    {/* CV Text Display for Upload Mode */}
     {cvMode === 'upload' && interviewData.resumeText && uploadedFile && !cvLoading && (
       <div className="mt-3">
         <label className="block text-xs font-medium text-gray-700 mb-2">
@@ -2050,12 +2054,16 @@ const CVSection = useMemo(() => (
               )}
             </div>
 
+            {/* UPDATED: Enhanced Code Editor with JDoodle Integration */}
             {showCodeEditor && isCodingQuestion && (
               <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                     <Code className="w-5 h-5 text-purple-600" />
                     Code Editor
+                    <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-normal">
+                      JDoodle Powered
+                    </span>
                   </h3>
                   <div className="flex items-center gap-3">
                     <select
@@ -2070,11 +2078,21 @@ const CVSection = useMemo(() => (
                       ))}
                     </select>
                     <button
-                      onClick={executeCode}
-                      disabled={isRunningCode}
-                      className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+                      onClick={executeCodeWithJDoodle}
+                      disabled={isRunningCode || !code.trim()}
+                      className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg text-sm transition-colors flex items-center gap-2"
                     >
-                      {isRunningCode ? 'Running...' : 'Run Code'}
+                      {isRunningCode ? (
+                        <>
+                          <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></div>
+                          Executing...
+                        </>
+                      ) : (
+                        <>
+                          <Terminal className="w-4 h-4" />
+                          Run Code
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -2087,7 +2105,7 @@ const CVSection = useMemo(() => (
                       value={code}
                       onChange={handleCodeChange}
                       className="w-full h-64 px-4 py-3 border-2 border-gray-300 rounded-lg text-sm bg-white focus:border-purple-500 focus:outline-none resize-none"
-                      placeholder={`Write your ${language} code here...`}
+                      placeholder={`Write your ${supportedLanguages.find(l => l.value === language)?.label || language} code here...`}
                       style={{ fontFamily: 'monospace' }}
                       autoComplete="off"
                       autoCorrect="off"
@@ -2096,12 +2114,55 @@ const CVSection = useMemo(() => (
                     />
                   </div>
 
+                  {/* NEW: Input section for programs that need user input */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Program Input (if needed):
+                      <span className="text-xs text-gray-500 ml-2">Leave empty if your program doesn't require input</span>
+                    </label>
+                    <textarea
+                      value={codeInput}
+                      onChange={handleCodeInputChange}
+                      className="w-full h-16 px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50 focus:border-purple-500 focus:outline-none resize-none"
+                      placeholder="Enter input values (one per line) if your program reads from stdin..."
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                  </div>
+
+                  {/* UPDATED: Enhanced output section with execution details */}
                   {codeOutput && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Output:</label>
-                      <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm whitespace-pre-wrap max-h-32 overflow-y-auto">
+                      <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                        <Terminal className="w-4 h-4" />
+                        Execution Results:
+                      </label>
+                      <div className="bg-gray-900 text-green-400 p-4 rounded-lg font-mono text-sm whitespace-pre-wrap max-h-64 overflow-y-auto border-2 border-gray-700">
                         {codeOutput}
                       </div>
+                      <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                          Executed on JDoodle servers
+                        </span>
+                        <span>Language: {supportedLanguages.find(l => l.value === language)?.label}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* NEW: Code execution tips */}
+                  {isCodingQuestion && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <h4 className="text-sm font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                        <Code className="w-4 h-4" />
+                        Code Execution Tips:
+                      </h4>
+                      <ul className="text-xs text-blue-700 space-y-1">
+                        <li>• Your code runs on real {supportedLanguages.find(l => l.value === language)?.label} servers</li>
+                        <li>• Use console.log(), print(), or cout to see output</li>
+                        <li>• Add input in the "Program Input" field if needed</li>
+                        <li>• Execution timeout is 10 seconds</li>
+                        <li>• Memory limit is 128MB</li>
+                      </ul>
                     </div>
                   )}
                 </div>
@@ -2138,9 +2199,9 @@ const CVSection = useMemo(() => (
         <audio ref={audioPlaybackRef} className="hidden" />
       </div>
     );
-  }, [questionIndex, questions.length, timer, currentQuestion, answerMode, isRecording, loading, audioBlob, isPlaying, recordingTime, audioError, isTranscribing, transcriptionError, transcription, textAnswer, error, debugMode, debugLogs, showCodeEditor, language, code, codeOutput, isRunningCode, supportedLanguages, responses, handleLanguageChange, handleCodeChange, executeCode]);
+  }, [questionIndex, questions.length, timer, currentQuestion, answerMode, isRecording, loading, audioBlob, isPlaying, recordingTime, audioError, isTranscribing, transcriptionError, transcription, textAnswer, error, debugMode, debugLogs, showCodeEditor, language, code, codeOutput, codeInput, isRunningCode, supportedLanguages, responses, handleLanguageChange, handleCodeChange, handleCodeInputChange, executeCodeWithJDoodle]);
 
-// FIXED: Simplified FeedbackPhase without awards component for coding questions
+// UPDATED: FeedbackPhase component (same as before, no changes needed)
 const FeedbackPhase = useMemo(() => (
   <div className="min-h-screen bg-gradient-to-br from-green-50 via-blue-50 to-indigo-50">
     <div className="container mx-auto px-6 py-8">
@@ -2155,7 +2216,6 @@ const FeedbackPhase = useMemo(() => (
           </p>
         </div>
 
-        {/* Overall Score Display */}
         {feedback && (
           <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
             <div className="text-center mb-6">
@@ -2174,7 +2234,6 @@ const FeedbackPhase = useMemo(() => (
               </p>
             </div>
 
-            {/* Skill Breakdown */}
             {feedback.feedback && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 {feedback.feedback.technicalSkills && (
@@ -2201,7 +2260,6 @@ const FeedbackPhase = useMemo(() => (
               </div>
             )}
 
-            {/* Recommendations */}
             {feedback.feedback?.recommendations && feedback.feedback.recommendations.length > 0 && (
               <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
                 <h4 className="font-semibold text-indigo-900 mb-3 flex items-center gap-2">
@@ -2223,7 +2281,6 @@ const FeedbackPhase = useMemo(() => (
           </div>
         )}
 
-        {/* Question Analysis - SIMPLIFIED without awards for coding questions */}
         {Object.keys(questionFeedbacks).length > 0 && (
           <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
             <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
@@ -2276,7 +2333,6 @@ const FeedbackPhase = useMemo(() => (
                     
                     <p className="text-gray-600 text-xs mb-3 leading-relaxed">{questions[index]?.question}</p>
                     
-                    {/* AI Feedback Only - No Awards Component */}
                     <div className="space-y-2">
                       {feedback.strengths && feedback.strengths.length > 0 && (
                         <div>
@@ -2313,7 +2369,6 @@ const FeedbackPhase = useMemo(() => (
                       )}
                     </div>
 
-                    {/* Enhanced Code Display */}
                     {response.code && (
                       <div className="mt-3 p-2 bg-gray-50 rounded-lg border">
                         <div className="flex justify-between items-center mb-1">
@@ -2326,7 +2381,6 @@ const FeedbackPhase = useMemo(() => (
                       </div>
                     )}
 
-                    {/* Audio/Text Response Display */}
                     {(response.transcription || response.textResponse) && !response.skipped && (
                       <div className="mt-2 p-2 bg-blue-50 rounded-lg border border-blue-100">
                         <h5 className="text-xs font-semibold text-blue-700 mb-1">
@@ -2344,7 +2398,6 @@ const FeedbackPhase = useMemo(() => (
           </div>
         )}
 
-        {/* Interview Summary */}
         {responses && responses.length > 0 && (
           <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-100">
             <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
@@ -2378,7 +2431,6 @@ const FeedbackPhase = useMemo(() => (
           </div>
         )}
 
-        {/* Action Buttons */}
         <div className="flex justify-center gap-4">
           <button
             onClick={resetInterview}

@@ -3,8 +3,93 @@ import userModel from '../models/userModel.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import multer from 'multer';
 import pdfParse from 'pdf-parse';
+import axios from 'axios';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// JDoodle Code Execution Function
+export const executeCodeWithJDoodle = async (req, res) => {
+  try {
+    const { script, language, versionIndex, stdin } = req.body;
+
+    if (!script || !language || !versionIndex) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: script, language, versionIndex'
+      });
+    }
+
+    const JDOODLE_CLIENT_ID = process.env.JDOODLE_CLIENT_ID;
+    const JDOODLE_CLIENT_SECRET = process.env.JDOODLE_CLIENT_SECRET;
+
+    if (!JDOODLE_CLIENT_ID || !JDOODLE_CLIENT_SECRET) {
+      return res.status(500).json({
+        success: false,
+        error: 'JDoodle API credentials not configured'
+      });
+    }
+
+    const jdoodleData = {
+      script: script,
+      language: language,
+      versionIndex: versionIndex,
+      clientId: JDOODLE_CLIENT_ID,
+      clientSecret: JDOODLE_CLIENT_SECRET,
+      stdin: stdin || ''
+    };
+
+    const jdoodleResponse = await axios.post(
+      'https://api.jdoodle.com/v1/execute',
+      jdoodleData,
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 15000
+      }
+    );
+
+    const result = jdoodleResponse.data;
+
+    // Log execution
+    console.log('Code execution:', {
+      userId: req.user.id || req.user.userId || req.user._id,
+      language: language,
+      success: !result.error,
+      executionTime: result.cpuTime,
+      memory: result.memory
+    });
+
+    res.json({
+      success: true,
+      output: result.output || '',
+      error: result.error || '',
+      executionTime: result.cpuTime || null,
+      memory: result.memory || null,
+      statusCode: result.statusCode || null
+    });
+
+  } catch (error) {
+    console.error('Code execution error:', error.message);
+    
+    if (error.code === 'ECONNABORTED') {
+      return res.status(408).json({
+        success: false,
+        error: 'Code execution timeout. Please optimize your code and try again.'
+      });
+    }
+
+    if (error.response) {
+      return res.status(500).json({
+        success: false,
+        error: `JDoodle API error: ${error.response.data.error || 'Unknown error'}`
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to execute code. Please try again.'
+    });
+  }
+};
 
 export const getUserCV = async (req, res) => {
   try {
@@ -39,6 +124,7 @@ export const getUserCV = async (req, res) => {
     });
   }
 };
+
 const cvStorage = multer.memoryStorage();
 const cvUpload = multer({
   storage: cvStorage,
@@ -54,7 +140,6 @@ const cvUpload = multer({
   }
 });
 
-// NEW FUNCTION: Add this function to your controller
 export const processCV = async (req, res) => {
   try {
     const uploadSingle = cvUpload.single('cv');
@@ -89,7 +174,6 @@ export const processCV = async (req, res) => {
           size: req.file.size
         });
 
-        // Extract text from PDF buffer
         const pdfData = await pdfParse(req.file.buffer);
         const extractedText = pdfData.text;
         
@@ -107,7 +191,6 @@ export const processCV = async (req, res) => {
           });
         }
 
-        // Clean the text
         const cleanedText = extractedText
           .replace(/\r\n/g, '\n')
           .replace(/\r/g, '\n')
@@ -148,6 +231,7 @@ export const processCV = async (req, res) => {
     });
   }
 };
+
 export const createInterview = async (req, res) => {
   try {
     const { jobDescription, resumeText } = req.body;
@@ -174,13 +258,11 @@ export const createInterview = async (req, res) => {
 
     console.log('Generating questions...');
 
-    // Generate questions with error handling
     let questions;
     try {
       questions = await generateInterviewQuestions(resumeText, jobDescription);
     } catch (questionError) {
       console.error('Question generation failed:', questionError);
-      // Use fallback questions
       const cvKeywords = extractCVKeywords(resumeText);
       const jobKeywords = extractJobKeywords(jobDescription);
       questions = getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywords, jobKeywords);
@@ -267,7 +349,6 @@ export const createInterviewWithProfileCV = async (req, res) => {
       });
     }
 
-    // Find user and check CV
     const user = await userModel.findById(userId);
     if (!user) {
       console.error('User not found:', userId);
@@ -285,7 +366,6 @@ export const createInterviewWithProfileCV = async (req, res) => {
       });
     }
 
-    // Get CV text safely
     let actualCVText;
     try {
       actualCVText = user.getCVText();
@@ -304,13 +384,11 @@ export const createInterviewWithProfileCV = async (req, res) => {
     console.log('CV Text length:', actualCVText.length);
     console.log('Generating questions...');
 
-    // Generate questions with error handling
     let questions;
     try {
       questions = await generateInterviewQuestions(actualCVText, jobDescription);
     } catch (questionError) {
       console.error('Question generation failed:', questionError);
-      // Use fallback questions
       const cvKeywords = extractCVKeywords(actualCVText);
       const jobKeywords = extractJobKeywords(jobDescription);
       questions = getInternSpecificFallbackQuestions(actualCVText, jobDescription, cvKeywords, jobKeywords);
@@ -484,45 +562,67 @@ export const getNextQuestion = async (req, res) => {
   }
 };
 
-// Validation helper functions
 function validateAndSanitizeInput(input) {
   if (typeof input !== 'string') {
     return '';
   }
   
-  // Remove potentially harmful characters and limit length
   return input
     .trim()
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '') // Remove control characters
-    .substring(0, 10000); // Limit length to prevent overflow
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .substring(0, 10000);
 }
 
 function validateCodingSubmission(questionType, responseText, code, language, expectedLanguage, isSkipped = false) {
   const errors = [];
 
   if (isSkipped) {
-    return errors; // No validation errors for skipped questions
+    return errors;
   }
 
   if (questionType === 'coding') {
-    // Code presence
     if (!code || code.trim().length === 0) {
       errors.push('Code is required for coding questions');
     }
 
-    // Language presence
     if (!language) {
       errors.push('Programming language must be specified for coding questions');
     }
 
-    // Language match
-    if (expectedLanguage && language && language.toLowerCase() !== expectedLanguage.toLowerCase()) {
-      errors.push(`Submitted code language (${language}) does not match expected (${expectedLanguage})`);
+    // FIXED: More flexible language matching
+    if (expectedLanguage && language) {
+      const normalizedExpected = normalizeLanguage(expectedLanguage);
+      const normalizedSubmitted = normalizeLanguage(language);
+      
+      // Allow common language aliases and variations
+      const languageAliases = {
+        'javascript': ['js', 'nodejs', 'node'],
+        'python': ['python3', 'py'],
+        'csharp': ['c#', 'cs'],
+        'cpp': ['c++'],
+        'typescript': ['ts']
+      };
+      
+      let isValidLanguage = normalizedExpected === normalizedSubmitted;
+      
+      // Check if submitted language is an alias of expected language
+      if (!isValidLanguage) {
+        for (const [canonical, aliases] of Object.entries(languageAliases)) {
+          if ((canonical === normalizedExpected || aliases.includes(normalizedExpected)) &&
+              (canonical === normalizedSubmitted || aliases.includes(normalizedSubmitted))) {
+            isValidLanguage = true;
+            break;
+          }
+        }
+      }
+      
+      if (!isValidLanguage) {
+        errors.push(`Submitted code language (${language}) does not match expected (${expectedLanguage})`);
+      }
     }
 
-    // Check if code contains basic programming elements
     const codeToCheck = code || responseText || '';
-    const hasBasicElements = /\b(function|def|class|int|string|return|if|for|while|const|let|var)\b/i.test(codeToCheck);
+    const hasBasicElements = /\b(function|def|class|int|string|return|if|for|while|const|let|var|public|static|void|using|namespace)\b/i.test(codeToCheck);
 
     if (!hasBasicElements && codeToCheck.length > 0) {
       console.warn('Code submission may not contain valid programming syntax');
@@ -532,7 +632,12 @@ function validateCodingSubmission(questionType, responseText, code, language, ex
   return errors;
 }
 
-// Helper function to validate the submitted language
+// Helper function to normalize language names
+function normalizeLanguage(language) {
+  if (!language) return '';
+  return language.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
 function validateLanguage(language) {
   return language ? language.trim() : null;
 }
@@ -540,10 +645,9 @@ function validateLanguage(language) {
 export const submitAnswer = async (req, res) => {
   try {
     const { interviewId } = req.params;
-    const { questionId, responseTime, answerMode, responseText, code, language, skipped } = req.body;
+    const { questionId, responseTime, answerMode, responseText, code, language, skipped, executionResults } = req.body;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    // Input validation and sanitization
     const sanitizedResponseText = validateAndSanitizeInput(responseText);
     const sanitizedCode = validateAndSanitizeInput(code);
     const validatedLanguage = validateLanguage(language);
@@ -571,15 +675,15 @@ export const submitAnswer = async (req, res) => {
       });
     }
 
-    // ✅ Skip handling: bypass coding validation entirely
     if (skipped) {
+      // Handle skipped questions as before...
       const analysis = await generateStrictAIFeedback(
         question.question,
         question.type,
         sanitizedResponseText,
         sanitizedCode,
         validatedLanguage,
-        true // <- tell AI feedback this was skipped
+        true
       );
 
       const response = {
@@ -619,22 +723,28 @@ export const submitAnswer = async (req, res) => {
       });
     }
 
-    // ✅ Normal submission path (non-skipped)
-    const validationErrors = validateCodingSubmission(
-      question.type,
-      sanitizedResponseText,
-      sanitizedCode,
-      validatedLanguage,
-      question.language, // expected language
-      false // <- not skipped
-    );
+    // FIXED: More lenient validation - only check if both code and language are provided
+    if (question.type === 'coding' && code && code.trim().length > 0) {
+      const validationErrors = validateCodingSubmission(
+        question.type,
+        sanitizedResponseText,
+        sanitizedCode,
+        validatedLanguage,
+        question.language,
+        false
+      );
 
-    if (validationErrors.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid submission',
-        details: validationErrors
-      });
+      // FIXED: Only fail if there are critical errors, not language mismatches
+      const criticalErrors = validationErrors.filter(error => 
+        !error.includes('does not match expected') || 
+        (question.language && validatedLanguage && 
+         normalizeLanguage(question.language) !== normalizeLanguage(validatedLanguage))
+      );
+
+      if (criticalErrors.length > 0) {
+        console.warn('Validation warnings (not blocking):', validationErrors);
+        // Still proceed with submission but log warnings
+      }
     }
 
     console.log('=== ANALYZING RESPONSE ===');
@@ -643,8 +753,9 @@ export const submitAnswer = async (req, res) => {
     console.log('Response:', sanitizedResponseText);
     console.log('Code:', sanitizedCode || 'None');
     console.log('Language:', validatedLanguage);
+    console.log('Expected Language:', question.language);
+    console.log('Execution Results:', executionResults || 'None');
 
-    // Use improved AI feedback
     let analysis;
     try {
       analysis = await generateStrictAIFeedback(
@@ -653,7 +764,8 @@ export const submitAnswer = async (req, res) => {
         sanitizedResponseText,
         sanitizedCode,
         validatedLanguage,
-        false // <- not skipped
+        false,
+        executionResults
       );
       console.log('✅ AI Analysis Result:', {
         score: analysis.score,
@@ -677,7 +789,8 @@ export const submitAnswer = async (req, res) => {
       recordingDuration: answerMode === 'audio' ? parseInt(responseTime) : null,
       submittedAt: new Date(),
       feedback: analysis,
-      skipped: false
+      skipped: false,
+      executionResults: executionResults || null
     };
 
     interview.responses.push(response);
@@ -716,10 +829,13 @@ export const submitAnswer = async (req, res) => {
   }
 };
 
-async function generateStrictAIFeedback(question, questionType, responseText, code, language, isSkipped = false) {
+async function generateStrictAIFeedback(question, questionType, responseText, code, language, isSkipped = false, executionResults = null) {
   const model = genAI.getGenerativeModel({ 
     model: "gemini-2.5-flash",
-    generationConfig: { temperature: 0.1, maxOutputTokens: 2048 }
+    generationConfig: { 
+      temperature: 0.3, // Increased for better JSON generation
+      maxOutputTokens: 1500 // Reduced to prevent truncation
+    }
   });
 
   if (isSkipped) {
@@ -733,143 +849,156 @@ async function generateStrictAIFeedback(question, questionType, responseText, co
       efficiency: 0,
       structureAndReadability: 0,
       edgeCaseHandling: 0,
-      strengths: [],
-      improvements: [],
-      detailedAnalysis: "This question was skipped by the candidate.",
-      overallAssessment: "No assessment since the question was skipped."
+      strengths: ["None - question was skipped"],
+      improvements: ["Always attempt to answer interview questions", "Prepare thoroughly for behavioral questions", "Practice coding problems regularly"],
+      detailedAnalysis: "This question was skipped by the candidate, which is a critical failure in interview settings.",
+      overallAssessment: "Skipping questions demonstrates lack of preparation and engagement."
     };
   }
 
-  const codeSection = code ? `
-CODE PROVIDED (${language}): 
-\`\`\`${language}
-${code}
-\`\`\`` : 'NO CODE PROVIDED';
-
-  const prompt = `You are a senior software engineering interviewer and code reviewer. 
-Analyze this response thoroughly and give strict, constructive feedback. For coding questions, evaluate correctness, syntax, language best practices, efficiency, code structure/readability, and edge case handling.
-
-CRITICAL: Your response MUST be valid JSON only. Do not include any explanatory text, markdown formatting, or wrapper tags. Start directly with { and end with }.
-
-{
-  "score": [number 0-100],
-  "questionRelevance": [number 1-10],
-  "responseType": "[perfectly-relevant|mostly-relevant|partially-relevant|mostly-irrelevant|completely-off-topic]",
-  "correctness": [number 1-10],
-  "syntax": [number 1-10],
-  "languageBestPractices": [number 1-10],
-  "efficiency": [number 1-10],
-  "structureAndReadability": [number 1-10],
-  "edgeCaseHandling": [number 1-10],
-  "strengths": ["strength1","strength2","strength3"],
-  "improvements": ["improvement1","improvement2","improvement3","improvement4"],
-  "detailedAnalysis": "Honest analysis of response quality",
-  "overallAssessment": "Final verdict on quality"
-}
+  // Simplified prompt with fewer fields to reduce JSON parsing errors
+  const prompt = `Analyze this interview response for a SOFTWARE ENGINEERING INTERN position.
 
 QUESTION: "${question}"
-QUESTION TYPE: ${questionType}
+TYPE: ${questionType}
 RESPONSE: "${responseText}"
-${codeSection}`;
+${code ? `CODE:\n\`\`\`${language}\n${code}\n\`\`\`` : ''}
+${executionResults ? `EXECUTION: Output="${executionResults.output}" Error="${executionResults.error}"` : ''}
+
+You MUST respond with ONLY valid JSON (no markdown, no explanations):
+
+{
+  "score": 75,
+  "responseType": "mostly-relevant",
+  "correctness": 8,
+  "syntax": 7,
+  "efficiency": 6,
+  "strengths": ["Good attempt", "Clear thinking"],
+  "improvements": ["More detail needed", "Check syntax"],
+  "analysis": "Brief analysis of the response quality and accuracy",
+  "assessment": "Overall verdict on intern-level competency shown"
+}
+
+Score 0-100. Rate correctness/syntax/efficiency 1-10. Keep strengths/improvements to 2-3 items each.`;
 
   try {
+    console.log('🤖 Sending AI feedback request...');
+    
     const result = await model.generateContent(prompt);
     const response = await result.response;
-    let analysisText = response.text().trim();
+    let rawText = response.text().trim();
+    
+    console.log('📥 Raw AI Response:', rawText.substring(0, 200) + '...');
 
-    // Multiple JSON extraction strategies
-    let jsonText = analysisText;
+    // More aggressive JSON extraction
+    let jsonText = rawText;
     
-    // Strategy 1: Remove common markdown wrappers
-    jsonText = jsonText.replace(/```json\s*/gi, '').replace(/```javascript\s*/gi, '').replace(/```\s*/g, '');
-    
-    // Strategy 2: Extract content between first { and last }
+    // Remove all markdown formatting
+    jsonText = jsonText
+      .replace(/```json\s*/gi, '')
+      .replace(/```javascript\s*/gi, '')
+      .replace(/```\s*/gi, '')
+      .replace(/^```/gm, '')
+      .replace(/```$/gm, '')
+      .trim();
+
+    // Find JSON boundaries more reliably
     const firstBrace = jsonText.indexOf('{');
     const lastBrace = jsonText.lastIndexOf('}');
     
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      jsonText = jsonText.substring(firstBrace, lastBrace + 1);
+    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+      console.error('❌ No valid JSON structure found in response');
+      throw new Error('No JSON structure found');
     }
     
-    // Strategy 3: Remove any remaining non-JSON text before/after
-    jsonText = jsonText.replace(/^[^{]*/, '').replace(/[^}]*$/, '');
+    jsonText = jsonText.substring(firstBrace, lastBrace + 1);
+    
+    console.log('🧹 Cleaned JSON:', jsonText.substring(0, 150) + '...');
 
     let aiAnalysis;
     try {
       aiAnalysis = JSON.parse(jsonText);
+      console.log('✅ Successfully parsed AI response');
     } catch (parseError) {
-      console.error('JSON Parse Error:', parseError.message);
-      console.error('Cleaned JSON attempt:', jsonText.substring(0, 200) + '...');
-      
-      // Try one more extraction method - look for JSON-like structure
-      const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          aiAnalysis = JSON.parse(jsonMatch[0]);
-        } catch (secondParseError) {
-          throw new Error('Failed to parse AI feedback JSON after multiple attempts');
-        }
-      } else {
-        throw new Error('No JSON structure found in AI response');
-      }
+      console.error('❌ JSON Parse Error:', parseError.message);
+      console.error('🔍 Attempted to parse:', jsonText.substring(0, 300));
+      throw new Error(`JSON parsing failed: ${parseError.message}`);
     }
 
-    return validateAndSanitizeAIResponse(aiAnalysis, questionType);
+    // Validate and sanitize the response
+    const validatedResponse = validateAndSanitizeAIResponse(aiAnalysis, questionType);
+    console.log('✅ AI Analysis completed successfully:', {
+      score: validatedResponse.score,
+      responseType: validatedResponse.responseType
+    });
+
+    return validatedResponse;
+
   } catch (error) {
-    console.error('AI Feedback Generation Error:', error.message);
-    throw error;
+    console.error('❌ AI Feedback Generation Failed:', error.message);
+    console.error('🔄 Falling back to system-generated feedback');
+    throw error; // Re-throw to trigger fallback
   }
 }
 
-// Enhanced response validation with better defaults
+// Enhanced validation function
 function validateAndSanitizeAIResponse(aiAnalysis, questionType) {
-  const clamp = (value, min, max) => Math.max(min, Math.min(max, value || min));
-  
-  // Ensure all required fields exist with proper defaults
-  const validatedResponse = {
-    score: Math.round(clamp(aiAnalysis.score || 40, 0, 100)),
-    questionRelevance: clamp(aiAnalysis.questionRelevance || 5, 1, 10),
-    responseType: aiAnalysis.responseType || 'partially-relevant',
-    correctness: clamp(aiAnalysis.correctness || 5, 1, 10),
-    syntax: clamp(aiAnalysis.syntax || 5, 1, 10),
-    languageBestPractices: clamp(aiAnalysis.languageBestPractices || 5, 1, 10),
-    efficiency: clamp(aiAnalysis.efficiency || 5, 1, 10),
-    structureAndReadability: clamp(aiAnalysis.structureAndReadability || 5, 1, 10),
-    edgeCaseHandling: clamp(aiAnalysis.edgeCaseHandling || 5, 1, 10),
-    strengths: Array.isArray(aiAnalysis.strengths) && aiAnalysis.strengths.length > 0 
-      ? aiAnalysis.strengths.slice(0, 3) 
-      : ['Attempted to provide a response'],
-    improvements: Array.isArray(aiAnalysis.improvements) && aiAnalysis.improvements.length > 0 
-      ? aiAnalysis.improvements.slice(0, 4) 
-      : [
-          'Focus on correct problem-solving approach',
-          'Use best practices for the selected language',
-          'Improve readability and structure',
-          'Handle edge cases and optimize logic'
-        ],
-    detailedAnalysis: aiAnalysis.detailedAnalysis || 'Response analyzed for correctness, efficiency, and best practices.',
-    overallAssessment: aiAnalysis.overallAssessment || 'Response shows effort but needs improvement in technical accuracy and approach'
+  const clamp = (value, min, max) => {
+    const num = typeof value === 'number' ? value : parseInt(value) || min;
+    return Math.max(min, Math.min(max, num));
   };
-
-  // Validate responseType is one of expected values
-  const validResponseTypes = ['perfectly-relevant', 'mostly-relevant', 'partially-relevant', 'mostly-irrelevant', 'completely-off-topic'];
-  if (!validResponseTypes.includes(validatedResponse.responseType)) {
-    validatedResponse.responseType = 'partially-relevant';
-  }
+  
+  const validatedResponse = {
+    score: clamp(aiAnalysis.score, 0, 100),
+    questionRelevance: clamp(aiAnalysis.questionRelevance || Math.floor(aiAnalysis.score / 10), 1, 10),
+    responseType: validateResponseType(aiAnalysis.responseType),
+    correctness: clamp(aiAnalysis.correctness, 1, 10),
+    syntax: clamp(aiAnalysis.syntax, 1, 10),
+    languageBestPractices: clamp(aiAnalysis.languageBestPractices || aiAnalysis.syntax, 1, 10),
+    efficiency: clamp(aiAnalysis.efficiency, 1, 10),
+    structureAndReadability: clamp(aiAnalysis.structureAndReadability || aiAnalysis.syntax, 1, 10),
+    edgeCaseHandling: clamp(aiAnalysis.edgeCaseHandling || aiAnalysis.correctness, 1, 10),
+    
+    strengths: validateStringArray(aiAnalysis.strengths, [
+      aiAnalysis.score >= 70 ? 'Demonstrated good understanding' : 'Attempted to solve the problem'
+    ]),
+    
+    improvements: validateStringArray(aiAnalysis.improvements, [
+      'Focus on accuracy and detail',
+      'Practice similar problems',
+      'Improve explanation clarity'
+    ]),
+    
+    detailedAnalysis: aiAnalysis.analysis || aiAnalysis.detailedAnalysis || 
+      `Response scored ${aiAnalysis.score || 'unknown'}/100. ${questionType === 'coding' ? 'Code review needed.' : 'Answer needs improvement.'}`,
+    
+    overallAssessment: aiAnalysis.assessment || aiAnalysis.overallAssessment || 
+      `${aiAnalysis.score >= 70 ? 'Satisfactory' : 'Needs improvement'} for intern level`
+  };
 
   return validatedResponse;
 }
 
-// Fallback feedback for when AI fails
+function validateResponseType(type) {
+  const validTypes = ['perfectly-relevant', 'mostly-relevant', 'partially-relevant', 'mostly-irrelevant', 'completely-off-topic'];
+  return validTypes.includes(type) ? type : 'partially-relevant';
+}
+
+function validateStringArray(arr, fallback) {
+  if (Array.isArray(arr) && arr.length > 0) {
+    return arr.slice(0, 3).filter(item => typeof item === 'string' && item.length > 0);
+  }
+  return fallback;
+}
+
 function generateFallbackFeedback(questionType, responseText, code) {
   const hasCode = code && code.trim().length > 0;
   const responseLength = responseText.length;
   
-  let score = 40; // Default middle-low score
+  let score = 40;
   let strengths = ['Provided a response to the question'];
   let improvements = ['Provide more detailed and specific information'];
   
-  // Adjust based on question type
   if (questionType === 'coding') {
     if (hasCode) {
       score = 45;
@@ -1013,7 +1142,6 @@ export const analyzeResponse = async (req, res) => {
       });
     }
 
-    // Validate and sanitize inputs
     const sanitizedResponseText = validateAndSanitizeInput(responseText);
     const sanitizedCode = validateAndSanitizeInput(code);
     const validatedLanguage = validateLanguage(language);
@@ -1362,7 +1490,8 @@ RETURN ONLY VALID JSON:
     "difficulty": "easy" or "medium",
     "expectedDuration": 180,
     "followUpQuestions": [],
-    "starterCode": null
+    "starterCode": null,
+    "language": null
   }
 ]`;
 
@@ -1400,7 +1529,8 @@ RETURN ONLY VALID JSON:
         difficulty: q.difficulty === 'hard' ? 'medium' : q.difficulty || 'easy',
         expectedDuration: normalizedType === 'coding' ? 300 : 180,
         followUpQuestions: q.followUpQuestions || [],
-        starterCode: starterCode
+        starterCode: starterCode,
+        language: normalizedType === 'coding' ? (cvKeywords.languages[0] || 'javascript') : null
       };
     });
 
@@ -1434,7 +1564,8 @@ function getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywor
         "What would you do differently if you started this project again?",
         "What did you learn from this experience that you'll apply to future projects?"
       ],
-      starterCode: null
+      starterCode: null,
+      language: null
     },
     {
       questionId: "q2",
@@ -1449,7 +1580,8 @@ function getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywor
         "How do you stay motivated when learning difficult concepts?",
         "What's the most challenging technical concept you've learned so far?"
       ],
-      starterCode: null
+      starterCode: null,
+      language: null
     },
     {
       questionId: "q3",
@@ -1464,7 +1596,8 @@ function getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywor
         "How comfortable are you with asking questions when you're stuck?",
         "What would you do if you disagreed with a senior developer's approach?"
       ],
-      starterCode: null
+      starterCode: null,
+      language: null
     },
     {
       questionId: "q4",
@@ -1478,7 +1611,8 @@ function getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywor
       difficulty: "easy",
       expectedDuration: 150,
       followUpQuestions: [],
-      starterCode: null
+      starterCode: null,
+      language: null
     },
     {
       questionId: "q5",
@@ -1490,7 +1624,8 @@ function getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywor
       difficulty: "easy",
       expectedDuration: 150,
       followUpQuestions: [],
-      starterCode: null
+      starterCode: null,
+      language: null
     },
     {
       questionId: "q6",
@@ -1504,7 +1639,8 @@ function getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywor
       difficulty: "easy",
       expectedDuration: 150,
       followUpQuestions: [],
-      starterCode: null
+      starterCode: null,
+      language: null
     },
     {
       questionId: "q7",
@@ -1516,7 +1652,8 @@ function getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywor
       difficulty: "easy",
       expectedDuration: 150,
       followUpQuestions: [],
-      starterCode: null
+      starterCode: null,
+      language: null
     },
     {
       questionId: "q8",
@@ -1526,7 +1663,8 @@ function getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywor
       difficulty: "easy",
       expectedDuration: 300,
       followUpQuestions: [],
-      starterCode: generateInternLevelStarterCode("find max in array", [primaryLang])
+      starterCode: generateInternLevelStarterCode("find max in array", [primaryLang]),
+      language: primaryLang
     },
     {
       questionId: "q9",
@@ -1538,7 +1676,8 @@ function getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywor
       difficulty: "easy",
       expectedDuration: 300,
       followUpQuestions: [],
-      starterCode: generateInternLevelStarterCode("palindrome check", [primaryLang])
+      starterCode: generateInternLevelStarterCode("palindrome check", [primaryLang]),
+      language: primaryLang
     },
     {
       questionId: "q10",
@@ -1548,7 +1687,8 @@ function getInternSpecificFallbackQuestions(resumeText, jobDescription, cvKeywor
       difficulty: "medium",
       expectedDuration: 300,
       followUpQuestions: [],
-      starterCode: generateInternLevelStarterCode("character count", [primaryLang])
+      starterCode: generateInternLevelStarterCode("character count", [primaryLang]),
+      language: primaryLang
     }
   ];
 

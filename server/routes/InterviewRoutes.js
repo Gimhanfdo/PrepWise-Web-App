@@ -5,6 +5,7 @@ import path from 'path';
 import axios from 'axios';
 import { spawn } from 'child_process';
 import userAuth from '../middleware/userAuth.js';
+import expressRateLimit from 'express-rate-limit';
 import { 
   startInterview, 
   getNextQuestion, 
@@ -18,10 +19,23 @@ import {
   createInterviewWithProfileCV,
   createInterview,
   skipQuestion,
-  processCV
+  processCV,
+  executeCodeWithJDoodle
 } from '../controllers/interviewController.js';
 
 const interviewRouter = express.Router();
+
+// Rate limiting for code execution
+const codeExecutionLimiter = expressRateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // Limit each user to 50 executions per 15 minutes
+  message: {
+    success: false,
+    error: 'Too many code execution requests. Please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // AssemblyAI configuration
 const assemblyAIConfig = {
@@ -29,6 +43,27 @@ const assemblyAIConfig = {
   headers: {
     authorization: process.env.ASSEMBLYAI_API_KEY || "09e162bb0a7a4478bfb5092b53b53b58",
   }
+};
+
+// JDoodle configuration
+const jdoodleConfig = {
+  baseUrl: "https://api.jdoodle.com/v1/execute",
+  clientId: process.env.JDOODLE_CLIENT_ID || "your_jdoodle_client_id",
+  clientSecret: process.env.JDOODLE_CLIENT_SECRET || "your_jdoodle_client_secret"
+};
+
+// Language mapping for JDoodle
+const jdoodleLanguageMap = {
+  'nodejs': { language: 'nodejs', version: '4' },
+  'python3': { language: 'python3', version: '4' },
+  'java': { language: 'java', version: '4' },
+  'c': { language: 'c', version: '5' },
+  'cpp': { language: 'cpp', version: '5' },
+  'csharp': { language: 'csharp', version: '4' },
+  'php': { language: 'php', version: '4' },
+  'go': { language: 'go', version: '4' },
+  'javascript': { language: 'nodejs', version: '4' }, // Alias
+  'python': { language: 'python3', version: '4' }     // Alias
 };
 
 // Disk storage for audio files
@@ -135,6 +170,63 @@ const transcribeWithAssemblyAI = async (audioPath) => {
   } catch (error) {
     console.error('AssemblyAI transcription error:', error);
     throw error;
+  }
+};
+
+// NEW: JDoodle code execution function
+const executeCodeWithJDoodleAPI = async (script, language, stdin = '') => {
+  try {
+    console.log(`Executing code with JDoodle: ${language}`);
+    
+    // Map language to JDoodle format
+    const langConfig = jdoodleLanguageMap[language.toLowerCase()];
+    if (!langConfig) {
+      throw new Error(`Unsupported language: ${language}`);
+    }
+
+    const requestBody = {
+      script: script,
+      language: langConfig.language,
+      versionIndex: langConfig.version,
+      stdin: stdin || '',
+      clientId: jdoodleConfig.clientId,
+      clientSecret: jdoodleConfig.clientSecret
+    };
+
+    console.log('JDoodle request:', {
+      language: requestBody.language,
+      versionIndex: requestBody.versionIndex,
+      hasStdin: !!requestBody.stdin,
+      scriptLength: requestBody.script.length
+    });
+
+    const response = await axios.post(jdoodleConfig.baseUrl, requestBody, {
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      timeout: 30000 // 30 second timeout
+    });
+
+    const result = response.data;
+    console.log('JDoodle response:', {
+      output: result.output ? result.output.substring(0, 100) + '...' : 'No output',
+      error: result.error || 'No error',
+      executionTime: result.cpuTime,
+      memory: result.memory
+    });
+
+    // Handle JDoodle response format
+    return {
+      success: !result.error || result.error.trim() === '',
+      output: result.output || '',
+      error: result.error || '',
+      executionTime: result.cpuTime ? `${result.cpuTime}s` : null,
+      memory: result.memory ? `${result.memory}KB` : null
+    };
+
+  } catch (error) {
+    console.error('JDoodle execution error:', error);
+    throw new Error(`Code execution failed: ${error.message}`);
   }
 };
 
@@ -251,6 +343,110 @@ const mockTranscribeAudio = async (req, res) => {
   }
 };
 
+// FIXED: JDoodle code execution endpoint that matches frontend expectations
+const handleCodeExecution = async (req, res) => {
+  try {
+    const { script, language, versionIndex, stdin } = req.body;
+
+    if (!script || !language) {
+      return res.status(400).json({
+        success: false,
+        error: 'Script and language are required'
+      });
+    }
+
+    console.log('Code execution request:', {
+      language,
+      versionIndex,
+      hasStdin: !!stdin,
+      scriptLength: script.length,
+      user: req.user?.name || 'Unknown'
+    });
+
+    const result = await executeCodeWithJDoodleAPI(script, language, stdin);
+
+    res.json({
+      success: true,
+      output: result.output,
+      error: result.error,
+      executionTime: result.executionTime,
+      memory: result.memory
+    });
+
+  } catch (error) {
+    console.error('Code execution error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Code execution failed',
+      details: error.message
+    });
+  }
+};
+
+// Enhanced submit answer function to handle flexible language matching
+const handleSubmitAnswer = async (req, res) => {
+  try {
+    const { interviewId } = req.params;
+    const { 
+      questionId, 
+      responseTime, 
+      answerMode, 
+      responseText, 
+      code, 
+      language, 
+      questionType, 
+      difficulty,
+      expectedComplexity 
+    } = req.body;
+
+    console.log('Submit answer request:', {
+      interviewId,
+      questionId,
+      answerMode,
+      language,
+      questionType,
+      hasCode: !!code,
+      responseTextLength: responseText?.length || 0
+    });
+
+    // FIXED: Remove strict language validation for coding questions
+    // Allow any supported language for coding questions
+    if (answerMode === 'code' && (!code || code.trim().length === 0)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Code is required for coding questions'
+      });
+    }
+
+    // Forward to existing controller with enhanced data
+    const submitData = {
+      questionId,
+      responseTime: responseTime || 60,
+      answerMode,
+      responseText,
+      code,
+      language,
+      questionType,
+      difficulty: difficulty || 'medium',
+      expectedComplexity: expectedComplexity || 'medium',
+      // Add audio file if present
+      audioFile: req.file
+    };
+
+    // Call existing controller function
+    req.body = submitData;
+    await submitAnswer(req, res);
+
+  } catch (error) {
+    console.error('Submit answer error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to submit answer',
+      details: error.message
+    });
+  }
+};
+
 // Code execution storage
 const codeExecutionStorage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -283,7 +479,7 @@ const codeUpload = multer({
   }
 });
 
-// Code execution function
+// Local code execution function (kept as fallback)
 const executeCode = async (code, language) => {
   return new Promise((resolve, reject) => {
     let command, args, fileExtension;
@@ -292,11 +488,13 @@ const executeCode = async (code, language) => {
     switch (language.toLowerCase()) {
       case 'javascript':
       case 'js':
+      case 'nodejs':
         command = 'node';
         args = ['-e', code];
         break;
       case 'python':
       case 'py':
+      case 'python3':
         command = 'python3';
         args = ['-c', code];
         break;
@@ -568,8 +766,45 @@ const executeCode = async (code, language) => {
   });
 };
 
-// Code execution endpoint (moved before userAuth middleware)
-interviewRouter.post('/execute-code', userAuth, async (req, res) => {
+// Public routes (before userAuth middleware)
+interviewRouter.post('/transcribe', uploadToDisk.single('audio'), transcribeAudio);
+interviewRouter.post('/transcribe-mock', uploadToMemory.single('audio'), mockTranscribeAudio);
+
+// Apply authentication middleware to all routes below this point
+interviewRouter.use(userAuth);
+
+// FIXED: Add the missing code execution endpoint that frontend expects
+interviewRouter.post('/execute', codeExecutionLimiter, handleCodeExecution);
+
+// CV management routes
+interviewRouter.get('/cv', getUserCV);
+interviewRouter.post('/process-cv', processCV);
+
+// Interview creation routes
+interviewRouter.post('/create', createInterview);
+interviewRouter.post('/create-with-profile-cv', createInterviewWithProfileCV);
+
+// Interview management routes
+interviewRouter.get('/:interviewId', getInterview);
+interviewRouter.put('/:interviewId/start', startInterview);
+// FIXED: Use enhanced submit answer handler
+interviewRouter.post('/:interviewId/answer', uploadToDisk.single('audio'), handleSubmitAnswer);
+interviewRouter.post('/:interviewId/submit-answer', uploadToMemory.single('audio'), handleSubmitAnswer);
+interviewRouter.post('/:interviewId/skip', skipQuestion);
+interviewRouter.get('/:interviewId/next-question', getNextQuestion);
+interviewRouter.put('/:interviewId/complete', completeInterview);
+
+// Feedback and analysis routes
+interviewRouter.get('/:interviewId/feedback', getInterviewFeedback);
+interviewRouter.post('/analyze-response', analyzeResponse);
+
+// User history routes
+interviewRouter.get('/user/history', getUserInterviews);
+interviewRouter.get('/history', getUserInterviews);
+
+// Legacy endpoints (kept for backward compatibility)
+interviewRouter.post('/execute-code', codeExecutionLimiter, executeCodeWithJDoodle);
+interviewRouter.post('/execute-code-local', userAuth, async (req, res) => {
   try {
     const { code, language } = req.body;
 
@@ -601,33 +836,6 @@ interviewRouter.post('/execute-code', userAuth, async (req, res) => {
     });
   }
 });
-
-interviewRouter.post('/transcribe', uploadToDisk.single('audio'), transcribeAudio);
-interviewRouter.post('/transcribe-mock', uploadToMemory.single('audio'), mockTranscribeAudio);
-
-interviewRouter.use(userAuth);
-
-interviewRouter.get('/cv', getUserCV);
-interviewRouter.post('/process-cv', processCV);
-interviewRouter.post('/create', createInterview);
-interviewRouter.post('/create-with-profile-cv', createInterviewWithProfileCV);
-
-// Interview management routes
-interviewRouter.get('/:interviewId', getInterview);
-interviewRouter.put('/:interviewId/start', startInterview);
-interviewRouter.post('/:interviewId/answer', uploadToDisk.single('audio'), submitAnswer);
-interviewRouter.post('/:interviewId/submit-answer', uploadToMemory.single('audio'), submitAnswer);
-interviewRouter.post('/:interviewId/skip', skipQuestion);
-interviewRouter.get('/:interviewId/next-question', getNextQuestion);
-interviewRouter.put('/:interviewId/complete', completeInterview);
-
-// Feedback and analysis routes
-interviewRouter.get('/:interviewId/feedback', getInterviewFeedback);
-interviewRouter.post('/analyze-response', analyzeResponse);
-
-// User history routes
-interviewRouter.get('/user/history', getUserInterviews);
-interviewRouter.get('/history', getUserInterviews);
 
 // Error handling middleware
 interviewRouter.use((error, req, res, next) => {
