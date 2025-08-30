@@ -1,3 +1,5 @@
+//server.js
+
 import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
@@ -10,6 +12,12 @@ import analysisRouter from './routes/CVanalysisRoutes.js';
 import interviewRouter from './routes/InterviewRoutes.js'; 
 import path from 'path';
 import { fileURLToPath } from 'url';
+import trainerRoutes from "./routes/trainerRoutes.js";
+import trainingRouter from './routes/trainingRoute.js';
+import adminRoutes from './routes/adminRoutes.js';
+import { register } from 'module';
+import adminRouter from './routes/adminRoutes.js';
+import noticesRouter from './routes/noticesRoute.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,11 +31,15 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(cors({origin: allowedOrigins, credentials: true}));
 
-app.use('/api/auth', authRouter)
+app.use('/api/auth', authRouter) //for user
 app.use('/api/user', userRouter)
 app.use('/api/analyze', analysisRouter);
 app.use('/api/swot', skillAssessor); 
 app.use('/api/interviews', interviewRouter); 
+app.use('/api/trainer',trainerRoutes);
+app.use('/api/trainings',trainingRouter);
+app.use('/api/admin',adminRouter);
+app.use('/api/notice',noticesRouter);
 
 app.use(express.static(path.join(__dirname, '../client/dist')));
 

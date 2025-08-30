@@ -1,4 +1,5 @@
-import React, { useState, useContext, useEffect } from 'react'
+//SignUp.jsx
+import React, { useState, useContext } from 'react'
 import { assets } from '../assets/assets'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios';
@@ -18,45 +19,38 @@ const SignUp = () => {
   const [password, setPassword] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
 
-  // Sends verification OTP 
-  const sendVerificationOtp = async()=>{
-    try {
-      // Send cookies with request
-      axios.defaults.withCredentials = true;
-
-      const {data} = await axios.post(backendUrl + '/api/auth/send-verify-otp')
-
-      if(data.success){
-        // Navigate to verification page
-        navigate('/email-verify')
-        toast.success(data.message)
-      }else{
-        toast.error(data.message)
-      }
-    } catch (error) {
-      toast.error(error.message)
-    }
-  }
-
-  // Handles form submission
+  // Handles form submission - SIMPLIFIED TO JUST REGISTER AND AUTO-NAVIGATE
   const onSubmitHandler = async (e)=>{
     try {
         e.preventDefault();
         axios.defaults.withCredentials = true
 
-        // Send registration request
-        const {data} = await axios.post(backendUrl + '/api/auth/register', {name, email, password, phoneNumber, accountType})
-
-        if(data.success){
-            // Send OTP
-            await sendVerificationOtp();
+        if (!accountType) {
+          toast.error("Please select an account type")
+          return;
         }
 
-        else{
-            toast.error(data.message)
+        // For both Fresher and Trainer, use the same registration endpoint
+        // The backend will handle OTP generation automatically
+        const {data} = await axios.post(backendUrl + '/api/auth/register', {
+          name, 
+          email, 
+          password, 
+          phoneNumber,
+          accountType,
+        })
+
+        if(data.success){
+          toast.success(data.message || "Registration successful! Check your email for verification OTP.");
+          
+          // Navigate directly to email verification page
+          navigate('/email-verify');
+        } else {
+          toast.error(data.message)
         }
 
     } catch (error) {
+        console.error("Registration error:", error);
         toast.error(error.response?.data?.message || error.message || "Registration failed");
     }
   }
@@ -118,12 +112,19 @@ const SignUp = () => {
             </div>
           </div>
 
-          {/* Phone Number */}
+          {/* Contact Number */}
           <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Contact Number</label>
             <div className="flex items-center gap-2 bg-gray-100 rounded-md px-3 py-2">
               <img src={assets.phone_icon || ""} alt="Phone" className="w-5" />
-              <input onChange={e =>setPhoneNumber(e.target.value)} value={phoneNumber} type="text" placeholder="Enter your 10 digit phone number" required className="bg-transparent w-full outline-none text-sm" />
+              <input 
+                onChange={e =>setPhoneNumber(e.target.value)} 
+                value={phoneNumber} 
+                type="text" 
+                placeholder="Enter your 10 digit contact number" 
+                required 
+                className="bg-transparent w-full outline-none text-sm" 
+              />
             </div>
           </div>
 
@@ -132,6 +133,18 @@ const SignUp = () => {
             {state}
           </button>
         </form>
+
+        {/* Additional Info */}
+        <div className="mt-4 text-center">
+          <p className="text-xs text-gray-500">
+            {accountType === 'Fresher' ? 
+              'Complete your profile later with CV and additional details.' :
+              accountType === 'Trainer' ?
+              'Complete your profile later with skills and experience.' :
+              'Please select your account type to continue.'
+            }
+          </p>
+        </div>
       </div>
     </div>
   )

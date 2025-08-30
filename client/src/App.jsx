@@ -12,6 +12,9 @@ import CVAnalyzer from './pages/CVAnalyzer'
 import SignUp from './pages/SignUp'
 import SkillAssessor from './pages/SkillAssessor'
 import Interview from './pages/Interview'
+import Notices from './pages/Notices'
+import Trainings from './pages/Trainings'
+import AdminDashboard from './pages/adminDashboard'
 
 const App = () => {
   return (
@@ -29,12 +32,17 @@ const App = () => {
         <Route path='/trainer-dashboard' element={<TrainerDashboard/>}/>
         <Route path='/fresher-dashboard' element={<FresherDashboard/>}/>
         <Route path='/profile-settings' element={<ProfileSettings/>}/>
+        <Route path='/admin-dashboard' element={<AdminDashboard/>}/>
+
         
         {/* Feature Routes */}
         <Route path='/cv-analyzer' element={<CVAnalyzer/>}/>
         <Route path='/swot' element={<SkillAssessor/>}/>
         <Route path='/interview' element={<Interview/>}/>
-        
+        <Route path='/notices' element={<Notices/>}/>
+        <Route path='/trainings' element={<Trainings/>}/>
+
+
         {/* Catch all route - redirect to login */}
         <Route path='*' element={<Login/>}/>
       </Routes>

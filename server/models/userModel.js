@@ -25,10 +25,10 @@ const userSchema = new mongoose.Schema({
     trim: true,
     match: [/^\d{10,15}$/, 'Please enter a valid phone number']
   },
-  accountType: {
+  accountType: {  // ← ADD THIS FIELD
     type: String,
-    enum: ['Fresher', 'Trainer'],
-    default: 'Fresher'
+    enum: ['Trainer', 'Fresher'],
+    required: [true, 'Account type is required']
   },
   accountPlan: {
     type: String,
@@ -39,7 +39,7 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  // NEW: CV Storage fields
+  // CV Storage fields - only for fresher accounts
   currentCV: {
     text: {
       type: String,
@@ -95,6 +95,7 @@ const userSchema = new mongoose.Schema({
 userSchema.index({ email: 1 }, { unique: true, name: 'email_unique' });
 userSchema.index({ isAccountVerified: 1 }, { name: 'account_verified' });
 userSchema.index({ accountPlan: 1 }, { name: 'account_plan' });
+userSchema.index({ accountType: 1 }, { name: 'account_type' }); // ← ADD INDEX FOR accountType
 userSchema.index({ lastActive: -1 }, { name: 'last_active' });
 userSchema.index({ 'currentCV.hash': 1 }, { name: 'cv_hash_lookup', sparse: true }); // Sparse index for CV hash
 
@@ -138,7 +139,7 @@ userSchema.methods.toJSON = function() {
   return userObject;
 };
 
-// NEW: CV-related methods
+// CV-related methods (now available to all users since they're all freshers)
 userSchema.methods.updateCV = function(cvText, fileName, hash) {
   this.currentCV = {
     text: cvText.trim(),
@@ -183,3 +184,6 @@ userSchema.statics.getUsersWithCV = function() {
 const userModel = mongoose.model('User', userSchema);
 
 export default userModel;
+
+
+

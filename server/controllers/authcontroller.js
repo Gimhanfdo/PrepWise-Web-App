@@ -4,8 +4,8 @@ import userModel from "../models/userModel.js";
 import transporter from "../config/nodemailer.js";
 import { EMAIL_VERIFY_TEMPLATE, PASSWORD_RESET_TEMPLATE } from "../config/emailTemplates.js";
 
-//Register functionality
-export const register = async (req, res) => {
+//Register functionality - MODIFIED TO AUTO-SEND OTP
+export const registerUser = async (req, res) => {
   const { name, email, password, phoneNumber, accountType } = req.body;
 
   if (!name || !email || !password || !phoneNumber || !accountType) {
@@ -40,17 +40,22 @@ export const register = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create and save new user
+    // Generate verification OTP
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+
+    // Create and save new user with OTP
     const user = new userModel({
       name,
       email,
       password: hashedPassword,
       phoneNumber,
       accountType,
+      verifyOtp: otp,
+      verifyOtpExpireAt: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
     });
     await user.save();
 
-    // Generate JWT token
+    // Generate JWT token for the new user
     const token = jwt.sign(
       { id: user._id, accountType: user.accountType },
       process.env.JWT_SECRET,
@@ -67,32 +72,27 @@ export const register = async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    //Send a welcome email
+    // Send verification OTP email
     const mailOptions = {
       from: process.env.SENDER_EMAIL,
       to: email,
-      subject: "Welcome to PrepWise",
-      text: `Hi ${name},
-        
-Welcome to PrepWise – we're excited to have you on board!
-
-You're now part of a growing community dedicated to helping undergraduates like you prepare smarter and achieve more. Start exploring mock interviews, CV improvement tips, and curated resources designed to give you the edge in the job market.
-
-If you have any questions, feel free to reach out – we're always here to help.
-
-Here's to building a strong future!
-Team Prepwise`,
+      subject: "Welcome to PrepWise - Verify Your Email",
+      html: EMAIL_VERIFY_TEMPLATE.replace("{{otp}}", otp).replace("{{email}}", email)
     };
 
     await transporter.sendMail(mailOptions);
 
-    return res.json({ success: true });
+    return res.json({ 
+      success: true, 
+      message: "Registration successful! Please check your email for verification OTP.",
+      needsVerification: true 
+    });
   } catch (error) {
     res.json({ success: false, message: error.message });
   }
 };
 
-//Login functionality
+//Login functionality - MODIFIED TO CHECK VERIFICATION STATUS
 export const login = async (req, res) => {
   const { email, password } = req.body;
 
@@ -140,7 +140,13 @@ export const login = async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    return res.json({ success: true, accountType: user.accountType });
+    // Include verification status in response
+    return res.json({ 
+      success: true, 
+      accountType: user.accountType,
+      isAccountVerified: user.isAccountVerified,
+      needsVerification: !user.isAccountVerified
+    });
   } catch (error) {
     res.json({ success: false, message: error.message });
   }
@@ -339,3 +345,6 @@ export const resetPassword = async (req, res) => {
     return res.json({ success: false, message: error.message });
   }
 };
+
+
+

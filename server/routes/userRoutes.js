@@ -71,4 +71,6 @@ userRouter.get('/skills-stats', getRatingsStats);
 userRouter.get('/skills-assessment/:id', getRatingDetails);
 userRouter.delete('/assessment/:id', deleteRatings);
 
+
+
 export default userRouter;
