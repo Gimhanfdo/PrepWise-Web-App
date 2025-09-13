@@ -1,75 +1,43 @@
-// routes/trainingRoute.js
-import express from "express";
 
-const trainingRouter = express.Router();
+// routes/trainingRoutes.js - Updated with Registration & Payment
+import express from 'express';
+import userAuth from "../middleware/userAuth.js";
+import {
+  createTraining,
+  updateTraining,
+  deleteTraining,
+  getTrainerTrainings,
+  getTraining,
+  getAllTrainings,
+  registerForTraining,
+  sendPaymentOTP,
+  verifyPaymentOTP,
+} from '../controllers/trainingController.js';
 
-// Mock database (replace with MongoDB / MySQL later)
-let trainingPrograms = [
-  {
-    id: 1,
-    title: "JavaScript Fundamentals Bootcamp",
-    category: "technical",
-    skillType: "programming",
-    targetSkill: "JavaScript",
-    type: "group",
-    duration: "5 sessions × 2 hours",
-    groupSize: "5 participants",
-    level: "Beginner to Intermediate",
-    price: "LKR 25,000",
-    instructor: "Kasun Silva",
-    rating: 4.8,
-    description: "Comprehensive JavaScript training covering ES6+, DOM manipulation, and modern practices.",
-    features: ["Live coding", "Projects", "Code reviews"],
-    schedule: [
-      { date: "2024-09-01", time: "10:00 AM - 12:00 PM", available: true },
-      { date: "2024-09-03", time: "10:00 AM - 12:00 PM", available: true },
-      { date: "2024-09-05", time: "10:00 AM - 12:00 PM", available: false }
-    ]
-  },
-  // Add more trainings like in your frontend mock data
-];
+const router = express.Router();
 
-// ✅ GET all training programs
-trainingRouter.get("/", (req, res) => {
-  res.json({
-    success: true,
-    data: trainingPrograms,
-  });
-});
+// Public routes (no authentication required)
+router.get('/all', getAllTrainings); // Get all trainings with filters
 
-// ✅ GET single training program by ID
-trainingRouter.get("/:id", (req, res) => {
-  const training = trainingPrograms.find(t => t.id === parseInt(req.params.id));
-  if (!training) {
-    return res.status(404).json({ success: false, message: "Training not found" });
-  }
-  res.json({ success: true, data: training });
-});
+// Payment OTP routes (no auth required for sending, auth required for verification)
+router.post('/send-payment-otp', sendPaymentOTP); // Send OTP for payment verification
 
-// ✅ POST booking request
-trainingRouter.post("/:id/book", (req, res) => {
-  const { date, time, userId } = req.body;
-  const training = trainingPrograms.find(t => t.id === parseInt(req.params.id));
+router.get('/:id', getTraining); // Get specific training by ID
 
-  if (!training) {
-    return res.status(404).json({ success: false, message: "Training not found" });
-  }
+// Protected routes (authentication required)
+router.use(userAuth); // Apply auth middleware to all routes below
 
-  // find slot
-  const slot = training.schedule.find(s => s.date === date && s.time === time);
+// Training CRUD operations (for trainers)
+router.post('/', createTraining); // Create new training
+router.get('/trainer/my-trainings', getTrainerTrainings); // Get trainings for logged-in trainer
+router.put('/:id', updateTraining); // Update training
+router.delete('/:id', deleteTraining); // Delete training
 
-  if (!slot || !slot.available) {
-    return res.status(400).json({ success: false, message: "Slot not available" });
-  }
+// Training registration & payment (for users)
+router.post('/:id/register', registerForTraining); // Register for training
+router.post('/verify-payment-otp', verifyPaymentOTP); // New: Verify payment OTP and complete registration
 
-  // Mark slot as booked
-  slot.available = false;
+// User registration management
+// router.get('/user/my-registrations', getUserRegistrations); // Get user's registrations
 
-  res.json({
-    success: true,
-    message: `Booking confirmed for ${training.title} on ${date} at ${time}`,
-    booking: { trainingId: training.id, date, time, userId }
-  });
-});
-
-export default trainingRouter;
+export default router;

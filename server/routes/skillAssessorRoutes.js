@@ -2,6 +2,7 @@
 import express from 'express';
 import { saveRatings, getRatings, deleteRatings, getRatingsStats } from '../controllers/skillAssessorController.js';
 import userAuth from '../middleware/userAuth.js';
+import SkillsAssessment from '../models/SkillAssessorModel.js';
 
 const skillAssessor = express.Router();
 
@@ -28,6 +29,7 @@ skillAssessor.get('/test-auth', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
 
 // POST /api/swot/save-ratings - Save technology confidence ratings
 skillAssessor.post('/save-ratings', saveRatings);

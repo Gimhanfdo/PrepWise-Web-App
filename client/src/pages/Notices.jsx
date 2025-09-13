@@ -11,10 +11,10 @@ const NoticesPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // NewsAPI configuration - Temporary hardcoded for testing
-  // Replace 'your_api_key_here' with your actual NewsAPI key for testing
-const NEWS_API_KEY = import.meta.env.VITE_NEWS_API_KEY;
-const NEWS_API_BASE_URL = 'https://newsapi.org/v2';
+  // NewsAPI configuration
+  const NEWS_API_KEY = import.meta.env.VITE_NEWS_API_KEY;
+  const API_BASE_URL = import.meta.env.VITE_BACKEND_URL;
+  const NEWS_API_BASE_URL = 'https://newsapi.org/v2';
 
   // Fallback sample notices data for when NewsAPI is not available
   const fallbackNotices = [
@@ -68,104 +68,86 @@ const NEWS_API_BASE_URL = 'https://newsapi.org/v2';
     }
   ];
 
-  // Keep some sample events data since NewsAPI doesn't provide event data
-  const sampleEvents = [
-    {
-      id: 1,
-      title: "Sri Lanka Tech Summit 2024",
-      organizer: "SLASSCOM",
-      type: "conference",
-      mode: "hybrid",
-      date: "2024-09-15",
-      endDate: "2024-09-17",
-      time: "9:00 AM - 6:00 PM",
-      location: "Shangri-La Hotel, Colombo",
-      participants: "500+",
-      fee: "LKR 15,000",
-      description: "Annual technology summit featuring AI, blockchain, and startup ecosystem.",
-      tags: ["AI", "Blockchain", "Startups"],
-      registrationUrl: "#",
-      featured: true
-    },
-    {
-      id: 2,
-      title: "Hackathon Sri Lanka 2024",
-      organizer: "University of Moratuwa",
-      type: "hackathon",
-      mode: "in-person",
-      date: "2024-09-01",
-      endDate: "2024-09-02",
-      time: "48 hours",
-      location: "University of Moratuwa",
-      participants: "200+",
-      fee: "Free",
-      description: "48-hour coding competition focusing on solutions for smart cities.",
-      tags: ["Coding", "Smart Cities", "Competition"],
-      registrationUrl: "#",
-      featured: false
-    },
-    {
-      id: 3,
-      title: "AI/ML Workshop Series",
-      organizer: "APIIT Sri Lanka",
-      type: "workshop",
-      mode: "virtual",
-      date: "2024-08-30",
-      time: "2:00 PM - 5:00 PM",
-      location: "Online",
-      participants: "100",
-      fee: "Free",
-      description: "Hands-on workshop covering machine learning fundamentals and practical applications.",
-      tags: ["Machine Learning", "AI", "Workshop"],
-      registrationUrl: "#",
-      featured: false
+  // Function to fetch events from database
+  const fetchEventsFromDB = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/notices/events`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch events: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      console.log('Raw data from DB:', data);
+      
+      // Transform the data to match the expected format
+      const transformedEvents = data.map((event) => ({
+        id: event._id || event.id,
+        title: event.eventName || 'Untitled Event',
+        organizer: event.otherInfo || "Event Organizer",
+        type: "conference", // Default type, you can modify this based on your needs
+        mode: "in-person", // Default mode
+        date: event.date ? new Date(event.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        endDate: null, // Add if you have end dates in your schema
+        time: event.time || "TBD",
+        location: event.venue || "Venue TBD",
+        participants: "TBD",
+        fee: "Free", // Default fee
+        description: event.eventDescription || "No description available",
+        tags: ["Event", "Tech"], // Default tags, you can enhance this
+        registrationUrl: event.registrationLink || "#",
+        featured: false // You can add a featured field to your schema if needed
+      }));
+
+      console.log('Transformed events:', transformedEvents);
+      setEvents(transformedEvents);
+      
+    } catch (err) {
+      console.error("Error fetching events from DB:", err);
+      setError(`Failed to load events: ${err.message}`);
+      // Set empty array instead of leaving it undefined
+      setEvents([]);
     }
-  ];
+  };
 
   // Function to fetch news from NewsAPI
-  // Simple and effective method - Replace your current fetchTechNews function with this
-const fetchTechNews = async () => {
-  // Check if NewsAPI key is available
-  if (!NEWS_API_KEY) {
-    console.warn('NewsAPI key not found. Using fallback data. Add VITE_NEWS_API_KEY to your .env file for live data.');
-    return fallbackNotices;
-  }
-
-  try {
-    // Use the technology category endpoint - this is the most reliable method
-    const response = await fetch(
-      `${NEWS_API_BASE_URL}/top-headlines?category=technology&language=en&pageSize=20&apiKey=${NEWS_API_KEY}`
-    );
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+  const fetchTechNews = async () => {
+    if (!NEWS_API_KEY) {
+      console.warn('NewsAPI key not found. Using fallback data.');
+      return fallbackNotices;
     }
-    
-    const data = await response.json();
-    const articles = data.articles || [];
 
-    // Transform NewsAPI data to match your component's structure
-    const transformedNotices = articles.map((article, index) => ({
-      id: index + 1,
-      title: article.title,
-      summary: article.description || 'No description available',
-      source: article.source.name,
-      type: getNoticeType(article.source.name),
-      priority: getPriority(article.title, article.description),
-      time: getTimeAgo(article.publishedAt),
-      tags: extractTags(article.title, article.description),
-      url: article.url,
-      imageUrl: article.urlToImage
-    }));
+    try {
+      const response = await fetch(
+        `${NEWS_API_BASE_URL}/top-headlines?category=technology&language=en&pageSize=20&apiKey=${NEWS_API_KEY}`
+      );
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      const articles = data.articles || [];
 
-    return transformedNotices.length > 0 ? transformedNotices : fallbackNotices;
+      const transformedNotices = articles.map((article, index) => ({
+        id: index + 1,
+        title: article.title,
+        summary: article.description || 'No description available',
+        source: article.source.name,
+        type: getNoticeType(article.source.name),
+        priority: getPriority(article.title, article.description),
+        time: getTimeAgo(article.publishedAt),
+        tags: extractTags(article.title, article.description),
+        url: article.url,
+        imageUrl: article.urlToImage
+      }));
 
-  } catch (error) {
-    console.error('Error fetching tech news:', error);
-    console.warn('Falling back to sample data');
-    return fallbackNotices;
-  }
-};
+      return transformedNotices.length > 0 ? transformedNotices : fallbackNotices;
+
+    } catch (error) {
+      console.error('Error fetching tech news:', error);
+      return fallbackNotices;
+    }
+  };
 
   // Helper function to determine notice type based on source
   const getNoticeType = (sourceName) => {
@@ -243,23 +225,19 @@ const fetchTechNews = async () => {
         console.log('News data loaded:', newsData.length, 'items');
         setNotices(newsData);
         
-        // Set events data (keeping sample data for now)
-        setEvents(sampleEvents);
-        console.log('Events data loaded:', sampleEvents.length, 'items');
+        // Fetch events from DB
+        await fetchEventsFromDB();
         
-      } catch (error) {
-        console.error('Error loading data:', error);
-        // Even if there's an error, use fallback data
-        setNotices(fallbackNotices);
-        setEvents(sampleEvents);
+      } catch (err) {
+        console.error('Error in loadData:', err);
+        setError(`Failed to load data: ${err.message}`);
       } finally {
         setLoading(false);
-        console.log('Data loading complete');
       }
     };
 
     loadData();
-  }, []);
+  }, [API_BASE_URL]);
 
   const tabs = [
     { id: 'all', name: 'All Updates', icon: Globe, count: notices.length + events.length },
@@ -381,13 +359,13 @@ const fetchTechNews = async () => {
       <div className={`rounded-2xl p-6 text-white relative overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl ${
         event.featured ? 'bg-gradient-to-br from-purple-600 to-indigo-700' : `bg-gradient-to-br ${typeGradients[event.type]}`
       }`}>
-        {event.featured && (
+        {/* {event.featured && (
           <div className="absolute top-4 right-4">
             <div className="bg-yellow-400 text-yellow-900 px-2 py-1 rounded-full text-xs font-bold">
               FEATURED
             </div>
           </div>
-        )}
+        )} */}
 
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center space-x-3">
@@ -416,7 +394,7 @@ const fetchTechNews = async () => {
             <MapPin className="w-4 h-4 mr-2" />
             {event.location} • {event.mode}
           </div>
-          <div className="flex items-center justify-between text-white/80 text-sm">
+          {/* <div className="flex items-center justify-between text-white/80 text-sm">
             <div className="flex items-center">
               <Users className="w-4 h-4 mr-2" />
               {event.participants} participants
@@ -424,20 +402,25 @@ const fetchTechNews = async () => {
             <div className="font-semibold">
               {event.fee}
             </div>
-          </div>
+          </div> */}
         </div>
 
-        <div className="flex flex-wrap gap-2 mb-4">
+        {/* <div className="flex flex-wrap gap-2 mb-4">
           {event.tags.map((tag, index) => (
             <span key={index} className="px-2 py-1 bg-white/20 backdrop-blur-sm text-white rounded-lg text-xs font-medium">
               {tag}
             </span>
           ))}
-        </div>
+        </div> */}
 
-        <button className="w-full bg-white text-gray-900 font-semibold py-3 rounded-xl hover:bg-gray-100 transition-colors flex items-center justify-center">
+        <a 
+          href={event.registrationUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className=" w-full bg-white text-gray-900 font-semibold py-3 rounded-xl hover:bg-gray-100 transition-colors flex items-center justify-center text-center"
+        >
           Register Now <ExternalLink className="w-4 h-4 ml-2" />
-        </button>
+        </a>
       </div>
     );
   };
@@ -453,14 +436,14 @@ const fetchTechNews = async () => {
     );
   }
 
-  if (error && notices.length === 0) {
+  if (error && notices.length === 0 && events.length === 0) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white flex items-center justify-center">
         <div className="text-center max-w-md mx-auto p-6">
           <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <Bell className="w-8 h-8 text-red-600" />
           </div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Unable to Load News</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Unable to Load Data</h2>
           <p className="text-gray-600 mb-4">{error}</p>
           <button 
             onClick={() => window.location.reload()}
@@ -528,6 +511,17 @@ const fetchTechNews = async () => {
           </div>
         </div>
 
+        {/* Debug Information */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+            {/* <h4 className="font-medium text-yellow-800 mb-2">Debug Info:</h4> */}
+            <p className="text-sm text-yellow-700">
+              Notices: {notices.length} | Events: {events.length} | Filtered: {filterData().length}
+            </p>
+            {error && <p className="text-sm text-red-600 mt-1">Error: {error}</p>}
+          </div>
+        )}
+
         {/* Results */}
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
           {filterData().map((item) => (
@@ -540,7 +534,7 @@ const fetchTechNews = async () => {
         </div>
 
         {/* Empty State */}
-        {filterData().length === 0 && (
+        {filterData().length === 0 && !loading && (
           <div className="text-center py-16">
             <div className="w-24 h-24 mx-auto mb-6 bg-gradient-to-r from-purple-100 to-indigo-100 rounded-full flex items-center justify-center">
               <Search className="w-10 h-10 text-purple-600" />
@@ -560,8 +554,8 @@ const fetchTechNews = async () => {
         )}
 
         {/* Quick Stats */}
-        <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-gradient-to-r from-purple-500 to-indigo-600 rounded-2xl p-6 text-white">
+        <div className="mt-16 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-gradient-to-r from-orange-500 to-red-600 rounded-2xl p-6 text-white">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-purple-100">Total Notices</p>
@@ -581,7 +575,7 @@ const fetchTechNews = async () => {
             </div>
           </div>
           
-          <div className="bg-gradient-to-r from-orange-500 to-red-600 rounded-2xl p-6 text-white">
+          {/* <div className="bg-gradient-to-r from-orange-500 to-red-600 rounded-2xl p-6 text-white">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-orange-100">Featured Events</p>
@@ -589,7 +583,7 @@ const fetchTechNews = async () => {
               </div>
               <Award className="w-8 h-8 text-orange-200" />
             </div>
-          </div>
+          </div> */}
         </div>
       </div>
     </div>

@@ -1,10 +1,12 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import userModel from "../models/userModel.js";
+import trainerModel from "../models/trainerModel.js";
 import transporter from "../config/nodemailer.js";
 import { EMAIL_VERIFY_TEMPLATE, PASSWORD_RESET_TEMPLATE } from "../config/emailTemplates.js";
+import { v4 as uuidv4 } from "uuid";
 
-//Register functionality - MODIFIED TO AUTO-SEND OTP
+//Register functionality - MODIFIED TO HANDLE BOTH USER TYPES
 export const registerUser = async (req, res) => {
   const { name, email, password, phoneNumber, accountType } = req.body;
 
@@ -31,38 +33,65 @@ export const registerUser = async (req, res) => {
   }
 
   try {
-    // Check if user already exists
+    // Check if user already exists in both models
     const existingUser = await userModel.findOne({ email });
+    const existingTrainer = await trainerModel.findOne({ email });
 
-    if (existingUser) {
-      return res.json({ success: false, message: "User already exists" });
+    if (existingUser || existingTrainer) {
+      return res.json({ success: false, message: "User already exists with this email" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Generate verification OTP
     const otp = String(Math.floor(100000 + Math.random() * 900000));
 
-    // Create and save new user with OTP
-    const user = new userModel({
-      name,
-      email,
-      password: hashedPassword,
-      phoneNumber,
-      accountType,
-      verifyOtp: otp,
-      verifyOtpExpireAt: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
-    });
-    await user.save();
+    let newAccount;
+    let token;
 
-    // Generate JWT token for the new user
-    const token = jwt.sign(
-      { id: user._id, accountType: user.accountType },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: "7d",
-      }
-    );
+    if (accountType === "Fresher") {
+      // Create Fresher in userModel
+      newAccount = new userModel({
+        name,
+        email,
+        password: hashedPassword,
+        phoneNumber,
+        accountType,
+        verifyOtp: otp,
+        verifyOtpExpireAt: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
+      });
+      await newAccount.save();
+
+      // Generate JWT token for fresher
+      token = jwt.sign(
+        { id: newAccount._id, accountType: newAccount.accountType, userType: 'fresher' },
+        process.env.JWT_SECRET,
+        { expiresIn: "7d" }
+      );
+
+    } else if (accountType === "Trainer") {
+      // Create Trainer in trainerModel
+      newAccount = new trainerModel({
+        trainerId: uuidv4(),
+        name,
+        email,
+        password: hashedPassword,
+        contact: phoneNumber,
+        specializationSkills: [],
+        experiences: [],
+        education: [],
+        // Add OTP fields for trainers (you'll need to add these to trainerModel)
+        verifyOtp: otp,
+        verifyOtpExpireAt: Date.now() + 24 * 60 * 60 * 1000,
+        isAccountVerified: false
+      });
+      await newAccount.save();
+
+      // Generate JWT token for trainer
+      token = jwt.sign(
+        { id: newAccount._id, accountType: accountType, userType: 'trainer' },
+        process.env.JWT_SECRET,
+        { expiresIn: "7d" }
+      );
+    }
 
     // Set token as cookie
     res.cookie("token", token, {
@@ -84,15 +113,17 @@ export const registerUser = async (req, res) => {
 
     return res.json({ 
       success: true, 
-      message: "Registration successful! Please check your email for verification OTP.",
-      needsVerification: true 
+      message: `${accountType} registration successful! Please check your email for verification OTP.`,
+      needsVerification: true,
+      accountType: accountType
     });
   } catch (error) {
+    console.error("Registration error:", error);
     res.json({ success: false, message: error.message });
   }
 };
 
-//Login functionality - MODIFIED TO CHECK VERIFICATION STATUS
+//Login functionality - MODIFIED TO CHECK BOTH MODELS
 export const login = async (req, res) => {
   const { email, password } = req.body;
 
@@ -104,8 +135,14 @@ export const login = async (req, res) => {
   }
 
   try {
-    // Find user by email
-    const user = await userModel.findOne({ email });
+    // Check both models for the user
+    let user = await userModel.findOne({ email });
+    let userType = 'fresher';
+    
+    if (!user) {
+      user = await trainerModel.findOne({ email }).select('+password');
+      userType = 'trainer';
+    }
 
     if (!user) {
       return res.status(401).json({
@@ -115,7 +152,14 @@ export const login = async (req, res) => {
     }
 
     // Compare password
-    const isMatch = await bcrypt.compare(password, user.password);
+    let isMatch;
+    if (userType === 'trainer' && user.comparePassword) {
+      // Use trainer's comparePassword method
+      isMatch = await user.comparePassword(password);
+    } else {
+      // Use bcrypt for fresher accounts
+      isMatch = await bcrypt.compare(password, user.password);
+    }
 
     if (!isMatch) {
       return res.status(401).json({
@@ -126,11 +170,9 @@ export const login = async (req, res) => {
 
     // Generate JWT and set cookie
     const token = jwt.sign(
-      { id: user._id, accountType: user.accountType },
+      { id: user._id, accountType: user.accountType || 'Trainer', userType },
       process.env.JWT_SECRET,
-      {
-        expiresIn: "7d",
-      }
+      { expiresIn: "7d" }
     );
 
     res.cookie("token", token, {
@@ -140,19 +182,21 @@ export const login = async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    // Include verification status in response
+    // Return appropriate response based on user type
     return res.json({ 
       success: true, 
-      accountType: user.accountType,
-      isAccountVerified: user.isAccountVerified,
-      needsVerification: !user.isAccountVerified
+      accountType: user.accountType || 'Trainer',
+      isAccountVerified: user.isAccountVerified || false,
+      needsVerification: !(user.isAccountVerified || false),
+      userType: userType
     });
   } catch (error) {
+    console.error("Login error:", error);
     res.json({ success: false, message: error.message });
   }
 };
 
-//Logout functionality
+//Logout functionality (unchanged)
 export const logout = async (req, res) => {
   try {
     res.clearCookie("token", {
@@ -167,10 +211,21 @@ export const logout = async (req, res) => {
   }
 };
 
-//Send verification OTP
+//Send verification OTP - MODIFIED TO HANDLE BOTH USER TYPES
 export const sendVerifyOtp = async (req, res) => {
   try {
-    const user = await userModel.findById(req.user.id);
+    const { userType } = req.user; // This should be set by middleware
+    let user;
+
+    if (userType === 'fresher') {
+      user = await userModel.findById(req.user.id);
+    } else {
+      user = await trainerModel.findById(req.user.id);
+    }
+
+    if (!user) {
+      return res.json({ success: false, message: "User not found" });
+    }
 
     // If already verified, do not send OTP
     if (user.isAccountVerified) {
@@ -196,27 +251,33 @@ export const sendVerifyOtp = async (req, res) => {
       subject: "OTP to Verify Account",
       html: EMAIL_VERIFY_TEMPLATE.replace("{{otp}}", otp).replace("{{email}}", user.email)
     };
-    
 
     await transporter.sendMail(mailOptions);
 
     res.json({ success: true, message: "Verification OTP sent" });
   } catch (error) {
+    console.error("Send OTP error:", error);
     res.json({ success: false, message: error.message });
   }
 };
 
-//Email verification using OTP
+//Email verification using OTP - MODIFIED TO HANDLE BOTH USER TYPES
 export const verifyEmail = async (req, res) => {
   const { otp } = req.body;
-  const userId = req.user.id;
+  const { userType } = req.user;
 
-  if (!userId || !otp) {
+  if (!req.user.id || !otp) {
     return res.json({ success: false, message: "Missing details" });
   }
 
   try {
-    const user = await userModel.findById(userId);
+    let user;
+    
+    if (userType === 'fresher') {
+      user = await userModel.findById(req.user.id);
+    } else {
+      user = await trainerModel.findById(req.user.id);
+    }
 
     if (!user) {
       return res.json({ success: false, message: "User not found" });
@@ -241,34 +302,59 @@ export const verifyEmail = async (req, res) => {
   }
 };
 
-//Check if user is authenticated - FIXED TO RETURN USER DATA
+//Check if user is authenticated - MODIFIED TO HANDLE BOTH USER TYPES
 export const isAuthenticated = async (req, res) => {
   try {
-    // req.user is already populated by the userAuth middleware with complete user data
-    // Just need to return it in the expected format
+    const { userType } = req.user;
+    let user;
+    
+    if (userType === 'fresher') {
+      user = await userModel.findById(req.user.id);
+    } else {
+      user = await trainerModel.findById(req.user.id);
+    }
+
+    if (!user) {
+      return res.json({ success: false, message: "User not found" });
+    }
+
+    // Format user data based on type
     const userData = {
-      id: req.user._id,
-      name: req.user.name,
-      email: req.user.email,
-      accountPlan: req.user.accountPlan,
-      accountType: req.user.accountType,
-      isAccountVerified: req.user.isAccountVerified,
-      phoneNumber: req.user.phoneNumber,
-      lastActive: req.user.lastActive,
-      createdAt: req.user.createdAt,
-      updatedAt: req.user.updatedAt
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      accountType: user.accountType || 'Trainer',
+      isAccountVerified: user.isAccountVerified || false,
+      phoneNumber: user.phoneNumber || user.contact,
+      lastActive: user.lastActive || user.updatedAt,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      userType: userType
     };
+
+    // Add fresher-specific fields
+    if (userType === 'fresher') {
+      userData.accountPlan = user.accountPlan;
+    }
+    
+    // Add trainer-specific fields
+    if (userType === 'trainer') {
+      userData.trainerId = user.trainerId;
+      userData.specializationSkills = user.specializationSkills;
+      userData.experienceYears = user.experienceYears;
+    }
 
     return res.json({ 
       success: true, 
       user: userData 
     });
   } catch (error) {
+    console.error("Auth check error:", error);
     return res.json({ success: false, message: error.message });
   }
 };
 
-//Send password reset OTP
+//Send password reset OTP - MODIFIED TO HANDLE BOTH USER TYPES
 export const sendResetOtp = async (req, res) => {
   const { email } = req.body;
 
@@ -277,7 +363,15 @@ export const sendResetOtp = async (req, res) => {
   }
 
   try {
-    const user = await userModel.findOne({ email });
+    // Check both models
+    let user = await userModel.findOne({ email });
+    let userType = 'fresher';
+    
+    if (!user) {
+      user = await trainerModel.findOne({ email });
+      userType = 'trainer';
+    }
+    
     if (!user) {
       return res.json({ success: false, message: "User not found" });
     }
@@ -304,7 +398,7 @@ export const sendResetOtp = async (req, res) => {
   }
 };
 
-//Reset user password
+//Reset user password - MODIFIED TO HANDLE BOTH USER TYPES
 export const resetPassword = async (req, res) => {
   const { email, otp, newPassword } = req.body;
 
@@ -316,7 +410,15 @@ export const resetPassword = async (req, res) => {
   }
 
   try {
-    const user = await userModel.findOne({ email });
+    // Check both models
+    let user = await userModel.findOne({ email });
+    let userType = 'fresher';
+    
+    if (!user) {
+      user = await trainerModel.findOne({ email });
+      userType = 'trainer';
+    }
+    
     if (!user) {
       return res.json({ success: false, message: "User not found" });
     }
@@ -329,9 +431,16 @@ export const resetPassword = async (req, res) => {
       return res.json({ success: false, message: "OTP expired" });
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    // Hash new password
+    if (userType === 'trainer') {
+      // For trainers, set password directly (pre-save hook will hash it)
+      user.password = newPassword;
+    } else {
+      // For freshers, hash manually
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      user.password = hashedPassword;
+    }
 
-    user.password = hashedPassword;
     user.resetOtp = "";
     user.resetOtpExpireAt = 0;
 
@@ -345,6 +454,3 @@ export const resetPassword = async (req, res) => {
     return res.json({ success: false, message: error.message });
   }
 };
-
-
-

@@ -1,576 +1,486 @@
+
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom'; // Add this import
 import { 
   BookOpen, Users, User, Clock, Calendar, CheckCircle, AlertCircle,
-  TrendingUp, Award, Star, ArrowRight, Filter, Search, MapPin,
-  Play, Download, Globe, MessageCircle, Video, Target
+  TrendingUp, Award, Star, ArrowRight, Search, Target, MapPin, DollarSign,
+  Filter, ChevronDown, ExternalLink
 } from 'lucide-react';
 import NavBar from "../components/NavBar";
-import { useNavigate } from "react-router-dom";
-
 
 const TrainingPage = () => {
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const navigate = useNavigate(); // Add this line
+  
+  // States
+  const [interviewResults, setInterviewResults] = useState(null);
+  const [allTrainings, setAllTrainings] = useState([]);
+  const [recommendedTrainings, setRecommendedTrainings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedTraining, setSelectedTraining] = useState(null);
-  const [bookingStep, setBookingStep] = useState(0);
-  const [selectedSlot, setSelectedSlot] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedType, setSelectedType] = useState('all');
+  const [priceFilter, setPriceFilter] = useState('all');
+  const [showFilters, setShowFilters] = useState(false);
 
-  // Mock interview results data
-  const interviewResults = {
-    overallScore: 45,
-    skills: [
-      { name: 'JavaScript', category: 'technical', score: 35, type: 'programming' },
-      { name: 'React', category: 'technical', score: 40, type: 'frontend' },
-      { name: 'Communication', category: 'soft', score: 55, type: 'interpersonal' },
-      { name: 'Problem Solving', category: 'technical', score: 50, type: 'analytical' },
-      { name: 'Leadership', category: 'soft', score: 30, type: 'management' },
-      { name: 'Node.js', category: 'technical', score: 25, type: 'backend' },
-    ]
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [trainingsPerPage] = useState(6);
+
+  // Fetch data on component mount
+  useEffect(() => {
+    fetchSkillsAssessment();
+    fetchAllTrainings();
+  }, []);
+
+  // Update recommendations when data changes
+  useEffect(() => {
+    if (interviewResults && allTrainings.length > 0) {
+      generateRecommendations();
+    }
+  }, [interviewResults, allTrainings]);
+
+  const fetchSkillsAssessment = async () => {
+    try {
+      const response = await fetch('/api/swot/ratings', {
+        credentials: 'include'
+      });
+      const data = await response.json();
+
+      if (data.success && data.data.length > 0) {
+        const latestAssessment = data.data[0];
+        const transformedData = {
+          overallScore: latestAssessment.overallScore || 0,
+          skills: latestAssessment.skills.map(skill => ({
+            name: skill.name,
+            category: mapCategoryForInterview(skill.category),
+            score: skill.proficiencyLevel * 10,
+            type: determineSkillType(skill.name, skill.category)
+          }))
+        };
+        setInterviewResults(transformedData);
+      } else {
+        setInterviewResults({ overallScore: 0, skills: [] });
+      }
+    } catch (err) {
+      console.error('Error fetching skills:', err);
+      setError('Failed to load skills assessment data');
+      setInterviewResults({ overallScore: 0, skills: [] });
+    }
   };
 
-  // Get skills that need improvement (< 60%)
-  const skillsNeedingImprovement = interviewResults.skills.filter(skill => skill.score < 60);
+  const fetchAllTrainings = async () => {
+    try {
+      const response = await fetch('/api/trainings/all', {
+        credentials: 'include'
+      });
+      const data = await response.json();
 
-  // Training programs data
-  const trainingPrograms = [
-    // Technical Skills
-    {
-      id: 1,
-      title: 'JavaScript Fundamentals Bootcamp',
-      category: 'technical',
-      skillType: 'programming',
-      targetSkill: 'JavaScript',
-      type: 'group',
-      duration: '5 sessions × 2 hours',
-      groupSize: '5 participants',
-      level: 'Beginner to Intermediate',
-      price: 'LKR 25,000',
-      instructor: 'Kasun Silva',
-      rating: 4.8,
-      description: 'Comprehensive JavaScript training covering ES6+, DOM manipulation, and modern development practices.',
-      features: ['Live coding sessions', 'Project-based learning', 'Code reviews', 'Career guidance'],
-      schedule: [
-        { date: '2024-09-01', time: '10:00 AM - 12:00 PM', available: true },
-        { date: '2024-09-03', time: '10:00 AM - 12:00 PM', available: true },
-        { date: '2024-09-05', time: '10:00 AM - 12:00 PM', available: false },
-        { date: '2024-09-08', time: '2:00 PM - 4:00 PM', available: true },
-      ]
-    },
-    {
-      id: 2,
-      title: 'React Development Mastery',
-      category: 'technical',
-      skillType: 'frontend',
-      targetSkill: 'React',
-      type: 'group',
-      duration: '5 sessions × 2.5 hours',
-      groupSize: '5 participants',
-      level: 'Intermediate',
-      price: 'LKR 30,000',
-      instructor: 'Priya Jayawardena',
-      rating: 4.9,
-      description: 'Master React development with hooks, context, and modern patterns for building scalable applications.',
-      features: ['Hands-on projects', 'Best practices', 'Performance optimization', 'Industry insights'],
-      schedule: [
-        { date: '2024-09-10', time: '9:00 AM - 11:30 AM', available: true },
-        { date: '2024-09-12', time: '9:00 AM - 11:30 AM', available: true },
-        { date: '2024-09-15', time: '2:00 PM - 4:30 PM', available: true },
-        { date: '2024-09-17', time: '2:00 PM - 4:30 PM', available: false },
-      ]
-    },
-    {
-      id: 3,
-      title: 'Node.js Backend Development',
-      category: 'technical',
-      skillType: 'backend',
-      targetSkill: 'Node.js',
-      type: 'group',
-      duration: '5 sessions × 2 hours',
-      groupSize: '5 participants',
-      level: 'Beginner to Advanced',
-      price: 'LKR 35,000',
-      instructor: 'Ravi Perera',
-      rating: 4.7,
-      description: 'Complete Node.js backend development including APIs, databases, and deployment strategies.',
-      features: ['REST API development', 'Database integration', 'Authentication', 'Deployment'],
-      schedule: [
-        { date: '2024-09-20', time: '6:00 PM - 8:00 PM', available: true },
-        { date: '2024-09-22', time: '6:00 PM - 8:00 PM', available: true },
-        { date: '2024-09-25', time: '6:00 PM - 8:00 PM', available: true },
-        { date: '2024-09-27', time: '6:00 PM - 8:00 PM', available: true },
-      ]
-    },
-    
-    // Soft Skills
-    {
-      id: 4,
-      title: 'Effective Communication Skills',
-      category: 'soft',
-      skillType: 'interpersonal',
-      targetSkill: 'Communication',
-      type: 'one-on-one',
-      duration: '4 sessions × 1 hour',
-      groupSize: '1-on-1 mentoring',
-      level: 'All levels',
-      price: 'LKR 20,000',
-      instructor: 'Dr. Sanduni Fernando',
-      rating: 4.9,
-      description: 'Personalized communication coaching to improve verbal, non-verbal, and written communication skills.',
-      features: ['Personalized feedback', 'Public speaking practice', 'Body language training', 'Interview preparation'],
-      schedule: [
-        { date: '2024-09-05', time: '3:00 PM - 4:00 PM', available: true },
-        { date: '2024-09-06', time: '10:00 AM - 11:00 AM', available: true },
-        { date: '2024-09-07', time: '2:00 PM - 3:00 PM', available: false },
-        { date: '2024-09-08', time: '4:00 PM - 5:00 PM', available: true },
-      ]
-    },
-    {
-      id: 5,
-      title: 'Problem-Solving & Analytical Thinking',
-      category: 'soft',
-      skillType: 'analytical',
-      targetSkill: 'Problem Solving',
-      type: 'one-on-one',
-      duration: '3 sessions × 1.5 hours',
-      groupSize: '1-on-1 coaching',
-      level: 'Intermediate to Advanced',
-      price: 'LKR 18,000',
-      instructor: 'Prof. Chamara Wijesinghe',
-      rating: 4.8,
-      description: 'Develop critical thinking and problem-solving methodologies for technical and business challenges.',
-      features: ['Case study analysis', 'Logical reasoning', 'Decision-making frameworks', 'Creative thinking'],
-      schedule: [
-        { date: '2024-09-10', time: '11:00 AM - 12:30 PM', available: true },
-        { date: '2024-09-12', time: '3:00 PM - 4:30 PM', available: true },
-        { date: '2024-09-15', time: '10:00 AM - 11:30 AM', available: true },
-        { date: '2024-09-17', time: '2:00 PM - 3:30 PM', available: false },
-      ]
-    },
-    {
-      id: 6,
-      title: 'Leadership & Team Management',
-      category: 'soft',
-      skillType: 'management',
-      targetSkill: 'Leadership',
-      type: 'one-on-one',
-      duration: '6 sessions × 1 hour',
-      groupSize: '1-on-1 executive coaching',
-      level: 'Advanced',
-      price: 'LKR 45,000',
-      instructor: 'Dilhan Rodrigo',
-      rating: 5.0,
-      description: 'Executive leadership coaching focusing on team management, strategic thinking, and organizational skills.',
-      features: ['Leadership assessment', 'Team dynamics', 'Conflict resolution', 'Strategic planning'],
-      schedule: [
-        { date: '2024-09-20', time: '9:00 AM - 10:00 AM', available: true },
-        { date: '2024-09-21', time: '4:00 PM - 5:00 PM', available: true },
-        { date: '2024-09-23', time: '11:00 AM - 12:00 PM', available: true },
-        { date: '2024-09-25', time: '3:00 PM - 4:00 PM', available: true },
-      ]
+      if (data.success) {
+        setAllTrainings(data.data || []);
+      } else {
+        setError('Failed to fetch trainings');
+      }
+    } catch (err) {
+      console.error('Error fetching trainings:', err);
+      setError('Failed to load trainings');
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
 
-  // Filter training programs based on skills needing improvement
-  const recommendedPrograms = trainingPrograms.filter(program =>
-    skillsNeedingImprovement.some(skill => 
-      skill.name === program.targetSkill || skill.type === program.skillType
-    )
-  );
+  const generateRecommendations = () => {
+    const skillsNeedingImprovement = interviewResults.skills.filter(skill => skill.score < 60);
+    
+    const recommended = allTrainings.filter(training => {
+      // Check if training title or category matches skills needing improvement
+      return skillsNeedingImprovement.some(skill => {
+        const skillNameLower = skill.name.toLowerCase();
+        const trainingTitleLower = training.title.toLowerCase();
+        const trainingCategoryLower = training.trainingCategory?.toLowerCase() || '';
+        
+        return trainingTitleLower.includes(skillNameLower) || 
+               trainingCategoryLower.includes(skillNameLower) ||
+               skillNameLower.includes(trainingTitleLower.split(' ')[0]);
+      });
+    });
 
-  // Filter programs based on search and category
-  const filteredPrograms = recommendedPrograms.filter(program => {
-    const matchesCategory = selectedCategory === 'all' || program.category === selectedCategory;
-    const matchesSearch = program.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         program.targetSkill.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+    setRecommendedTrainings(recommended);
+  };
 
+  // Helper functions
+  const mapCategoryForInterview = (mongoCategory) => {
+    const categoryMap = {
+      'Programming Languages': 'technical',
+      'Frameworks': 'technical', 
+      'Databases': 'technical',
+      'Tools': 'technical',
+      'General': 'technical',
+      'Soft Skills': 'soft',
+      'Communication': 'soft',
+      'Leadership': 'soft'
+    };
+    return categoryMap[mongoCategory] || 'technical';
+  };
+
+  const determineSkillType = (skillName, category) => {
+    const name = skillName.toLowerCase();
+    if (name.includes('javascript') || name.includes('python') || name.includes('java')) return 'programming';
+    if (name.includes('react') || name.includes('vue') || name.includes('angular')) return 'frontend';
+    if (name.includes('node') || name.includes('express') || name.includes('api')) return 'backend';
+    if (name.includes('communication') || name.includes('presentation')) return 'interpersonal';
+    if (name.includes('leadership') || name.includes('management')) return 'management';
+    return 'analytical';
+  };
+
+  // Filter trainings based on search and filters
+  const getFilteredTrainings = (trainings) => {
+    return trainings.filter(training => {
+      const matchesSearch = training.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          training.description.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesCategory = selectedCategory === 'all' || 
+                            training.trainingCategory?.toLowerCase() === selectedCategory.toLowerCase();
+      
+      const matchesType = selectedType === 'all' || training.trainingType === selectedType;
+      
+      const matchesPrice = priceFilter === 'all' || 
+                         (priceFilter === 'free' && (!training.price || training.price === '0' || training.price.toLowerCase().includes('free'))) ||
+                         (priceFilter === 'paid' && training.price && !training.price.toLowerCase().includes('free'));
+      
+      return matchesSearch && matchesCategory && matchesType && matchesPrice;
+    });
+  };
+
+  // Pagination logic
+  const getPaginatedTrainings = (trainings) => {
+    const indexOfLastTraining = currentPage * trainingsPerPage;
+    const indexOfFirstTraining = indexOfLastTraining - trainingsPerPage;
+    return trainings.slice(indexOfFirstTraining, indexOfLastTraining);
+  };
+
+  const paginate = (pageNumber) => setCurrentPage(pageNumber);
+
+  // Component: Score Card
   const ScoreCard = ({ skill }) => {
-    const getScoreColor = (score) => {
-      if (score >= 80) return 'from-green-500 to-emerald-600';
-      if (score >= 60) return 'from-yellow-500 to-orange-600';
-      return 'from-red-500 to-pink-600';
-    };
-
-    const getScoreTextColor = (score) => {
-      if (score >= 80) return 'text-green-800 bg-green-100';
-      if (score >= 60) return 'text-yellow-800 bg-yellow-100';
-      return 'text-red-800 bg-red-100';
-    };
-
+    const getScoreColor = (score) => score >= 80 ? 'from-green-500 to-emerald-600' : score >= 60 ? 'from-yellow-500 to-orange-600' : 'from-red-500 to-pink-600';
+    const getScoreTextColor = (score) => score >= 80 ? 'text-green-800 bg-green-100' : score >= 60 ? 'text-yellow-800 bg-yellow-100' : 'text-red-800 bg-red-100';
+    
     return (
-      <div className="bg-white rounded-xl border border-gray-200 p-4">
+      <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold text-gray-900">{skill.name}</h3>
+          <h3 className="font-semibold text-gray-900 truncate">{skill.name}</h3>
           <span className={`px-2 py-1 rounded-full text-xs font-bold ${getScoreTextColor(skill.score)}`}>
             {skill.score}%
           </span>
         </div>
         <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-          <div
-            className={`h-2 rounded-full bg-gradient-to-r ${getScoreColor(skill.score)} transition-all duration-500`}
+          <div 
+            className={`h-2 rounded-full bg-gradient-to-r ${getScoreColor(skill.score)} transition-all duration-500`} 
             style={{ width: `${skill.score}%` }}
           ></div>
         </div>
-        {skill.score < 60 && (
-          <div className="flex items-center text-red-600 text-sm mt-2">
-            <AlertCircle className="w-4 h-4 mr-1" />
-            Needs Improvement
-          </div>
-        )}
       </div>
     );
   };
 
-  const TrainingCard = ({ program }) => {
-    const isRecommended = skillsNeedingImprovement.some(skill => 
-      skill.name === program.targetSkill
-    );
+  // Component: Training Card - FIXED NAVIGATION HANDLERS
+  const TrainingCard = ({ training, isRecommended = false }) => {
+    const handleViewDetails = () => {
+      navigate(`/training-details/${training._id}`);
+    };
+
+    const handleRegister = () => {
+      navigate(`/training-booking/${training._id}`);
+    };
 
     return (
-      <div className={`bg-white rounded-2xl border-2 p-6 hover:shadow-xl transition-all duration-300 ${
-        isRecommended ? 'border-purple-300 ring-2 ring-purple-100' : 'border-gray-200'
-      }`}>
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-lg transition-all duration-300 overflow-hidden">
         {isRecommended && (
-          <div className="flex items-center justify-center w-full mb-4">
-            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center">
-              <Target className="w-3 h-3 mr-1" />
-              RECOMMENDED FOR YOU
-            </div>
+          <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white text-xs font-semibold py-2 px-4">
+            <Star className="inline-block w-3 h-3 mr-1" />
+            Recommended for you
           </div>
         )}
+        
+        <div className="p-6">
+          <div className="flex items-start justify-between mb-3">
+            <h3 className="text-lg font-bold text-gray-900 line-clamp-2">{training.title}</h3>
+            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+              training.trainingType === 'technical' 
+                ? 'bg-blue-100 text-blue-800' 
+                : 'bg-green-100 text-green-800'
+            }`}>
+              {training.trainingType}
+            </span>
+          </div>
 
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex-1">
-            <h3 className="text-xl font-bold text-gray-900 mb-2">{program.title}</h3>
-            <div className="flex items-center space-x-4 text-sm text-gray-600 mb-2">
-              <div className="flex items-center">
-                {program.type === 'group' ? (
-                  <Users className="w-4 h-4 mr-1 text-blue-500" />
-                ) : (
-                  <User className="w-4 h-4 mr-1 text-green-500" />
-                )}
-                {program.groupSize}
+          <p className="text-gray-600 text-sm mb-4 line-clamp-3">
+            {training.description || 'No description available'}
+          </p>
+
+          <div className="space-y-2 mb-4">
+            {training.trainingCategory && (
+              <div className="flex items-center text-sm text-gray-500">
+                <Target className="w-4 h-4 mr-2" />
+                {training.trainingCategory}
               </div>
-              <div className="flex items-center">
-                <Clock className="w-4 h-4 mr-1 text-orange-500" />
-                {program.duration}
+            )}
+            
+            {training.duration && (
+              <div className="flex items-center text-sm text-gray-500">
+                <Clock className="w-4 h-4 mr-2" />
+                {training.duration}
               </div>
+            )}
+
+            {training.startDate && (
+              <div className="flex items-center text-sm text-gray-500">
+                <Calendar className="w-4 h-4 mr-2" />
+                {new Date(training.startDate).toLocaleDateString()}
+              </div>
+            )}
+
+            {training.availableSlots !== undefined && (
+              <div className="flex items-center text-sm text-gray-500">
+                <Users className="w-4 h-4 mr-2" />
+                {training.availableSpots || training.availableSlots} slots available
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              {/* <DollarSign className="w-4 h-4 mr-1 text-green-600" /> */}
+              <span className="text-lg font-bold text-green-600">
+                    {training.price?`LKR ${training.price}` : 'Free'}
+              </span>
             </div>
-            <div className="flex items-center space-x-2 mb-3">
-              <div className="flex items-center">
-                <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                <span className="text-sm font-medium text-gray-700 ml-1">{program.rating}</span>
-              </div>
-              <span className="text-gray-300">•</span>
-              <span className="text-sm text-gray-600">by {program.instructor}</span>
+            
+            <div className="flex space-x-2">
+              <button 
+                onClick={handleViewDetails}
+                className="px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors flex items-center"
+              >
+                <ExternalLink className="w-3 h-3 mr-1" />
+                Details
+              </button>
+              <button 
+                onClick={handleRegister}
+                className="px-4 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+              >
+                Register
+                <ArrowRight className="w-3 h-3 ml-1" />
+              </button>
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-2xl font-bold text-purple-600">{program.price}</div>
-            <div className="text-sm text-gray-500">{program.level}</div>
-          </div>
         </div>
+      </div>
+    );
+  };
 
-        <p className="text-gray-600 mb-4 text-sm">{program.description}</p>
+  // Component: Pagination
+  const Pagination = ({ trainingsPerPage, totalTrainings, paginate, currentPage }) => {
+    const pageNumbers = [];
+    const totalPages = Math.ceil(totalTrainings / trainingsPerPage);
 
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          {program.features.slice(0, 4).map((feature, index) => (
-            <div key={index} className="flex items-center text-xs text-gray-600">
-              <CheckCircle className="w-3 h-3 mr-1 text-green-500" />
-              {feature}
-            </div>
-          ))}
-        </div>
+    for (let i = 1; i <= totalPages; i++) {
+      pageNumbers.push(i);
+    }
 
+    if (totalPages <= 1) return null;
+
+    return (
+      <div className="flex justify-center items-center space-x-2 mt-8">
         <button
-          onClick={() => setSelectedTraining(program)}
-          className={`w-full font-semibold py-3 rounded-xl transition-all flex items-center justify-center ${
-            program.type === 'group'
-              ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white'
-              : 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white'
-          }`}
+          onClick={() => paginate(currentPage - 1)}
+          disabled={currentPage === 1}
+          className="px-3 py-2 text-sm border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
         >
-          {program.type === 'group' ? 'Join Group Session' : 'Book 1-on-1 Session'}
-          <ArrowRight className="w-4 h-4 ml-2" />
+          Previous
+        </button>
+        
+        {pageNumbers.map(number => (
+          <button
+            key={number}
+            onClick={() => paginate(number)}
+            className={`px-3 py-2 text-sm rounded-lg ${
+              currentPage === number
+                ? 'bg-blue-600 text-white'
+                : 'border border-gray-300 text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            {number}
+          </button>
+        ))}
+        
+        <button
+          onClick={() => paginate(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          className="px-3 py-2 text-sm border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+        >
+          Next
         </button>
       </div>
     );
   };
 
-  const BookingModal = () => {
-    if (!selectedTraining) return null;
-
-    const availableSlots = selectedTraining.schedule.filter(slot => slot.available);
-
-    const handleBooking = () => {
-      if (selectedSlot) {
-        // Handle booking logic here
-        alert(`Booking confirmed for ${selectedTraining.title} on ${selectedSlot.date} at ${selectedSlot.time}`);
-        setSelectedTraining(null);
-        setBookingStep(0);
-        setSelectedSlot(null);
-      }
-    };
-
+  if (loading) {
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-          <div className="p-6 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-gray-900">{selectedTraining.title}</h2>
-              <button
-                onClick={() => {
-                  setSelectedTraining(null);
-                  setBookingStep(0);
-                  setSelectedSlot(null);
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                ×
-              </button>
-            </div>
-            <div className="flex items-center mt-2 space-x-4">
-              {selectedTraining.type === 'group' ? (
-                <div className="flex items-center text-blue-600">
-                  <Users className="w-5 h-5 mr-2" />
-                  Group Training (5 participants)
-                </div>
-              ) : (
-                <div className="flex items-center text-green-600">
-                  <User className="w-5 h-5 mr-2" />
-                  One-on-One Training
-                </div>
-              )}
-              <div className="text-2xl font-bold text-purple-600">{selectedTraining.price}</div>
-            </div>
-          </div>
-
-          <div className="p-6">
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">Program Details</h3>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="font-medium text-gray-700">Duration:</span>
-                  <p className="text-gray-600">{selectedTraining.duration}</p>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-700">Instructor:</span>
-                  <p className="text-gray-600">{selectedTraining.instructor}</p>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-700">Level:</span>
-                  <p className="text-gray-600">{selectedTraining.level}</p>
-                </div>
-                <div>
-                  <span className="font-medium text-gray-700">Rating:</span>
-                  <p className="text-gray-600 flex items-center">
-                    <Star className="w-4 h-4 text-yellow-400 fill-current mr-1" />
-                    {selectedTraining.rating}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">Select Your Preferred Time Slot</h3>
-              <div className="grid grid-cols-1 gap-3">
-                {availableSlots.map((slot, index) => (
-                  <button
-                    key={index}
-                    onClick={() => setSelectedSlot(slot)}
-                    className={`p-4 rounded-xl border-2 text-left transition-all ${
-                      selectedSlot?.date === slot.date && selectedSlot?.time === slot.time
-                        ? 'border-purple-500 bg-purple-50'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-medium text-gray-900">{slot.date}</div>
-                        <div className="text-sm text-gray-600">{slot.time}</div>
-                      </div>
-                      <div className="flex items-center text-green-600">
-                        <CheckCircle className="w-5 h-5" />
-                        <span className="ml-1 text-sm">Available</span>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex space-x-3">
-              <button
-                onClick={() => {
-                  setSelectedTraining(null);
-                  setSelectedSlot(null);
-                }}
-                className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleBooking}
-                disabled={!selectedSlot}
-                className={`flex-1 px-6 py-3 rounded-xl font-semibold transition-all ${
-                  selectedSlot
-                    ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:shadow-lg'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
-              >
-                Confirm Booking
-              </button>
-            </div>
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white p-6">
+        <NavBar />
+        <div className="flex items-center justify-center h-96">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Loading trainings...</p>
           </div>
         </div>
       </div>
     );
-  };
+  }
+
+  const skillsNeedingImprovement = interviewResults?.skills.filter(skill => skill.score < 60) || [];
+  const filteredAllTrainings = getFilteredTrainings(allTrainings.filter(training => 
+    !recommendedTrainings.some(rec => rec._id === training._id)
+  ));
+  const paginatedTrainings = getPaginatedTrainings(filteredAllTrainings);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-purple-600 to-indigo-600 rounded-full mb-6">
-            <TrendingUp className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Skill Enhancement Training</h1>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Based on your interview performance, we've identified areas for improvement and curated personalized training programs
+      <NavBar />
+      
+      <div className="max-w-7xl mx-auto p-6 pt-24">
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-gray-900 mb-4">
+            Skill Enhancement Training
+          </h1>
+          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+            Discover personalized training programs to boost your skills and accelerate your career growth
           </p>
         </div>
 
-        {/* Overall Score */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 mb-8">
-          <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-r from-red-500 to-pink-600 text-white mb-4">
-              <span className="text-2xl font-bold">{interviewResults.overallScore}%</span>
-            </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Overall Interview Score</h2>
-            <p className="text-gray-600">Your performance indicates significant room for improvement in key areas</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {interviewResults.skills.map((skill, index) => (
-              <ScoreCard key={index} skill={skill} />
-            ))}
-          </div>
-        </div>
-
-        {/* Filters */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-8">
-          <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Search training programs..."
-                className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-
-            <div className="flex bg-gray-100 rounded-xl p-1">
-              {[
-                { id: 'all', name: 'All Programs', count: recommendedPrograms.length },
-                { id: 'technical', name: 'Technical Skills', count: recommendedPrograms.filter(p => p.category === 'technical').length },
-                { id: 'soft', name: 'Soft Skills', count: recommendedPrograms.filter(p => p.category === 'soft').length }
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setSelectedCategory(tab.id)}
-                  className={`flex items-center px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                    selectedCategory === tab.id
-                      ? 'bg-white text-purple-600 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  {tab.name}
-                  <span className="ml-2 px-2 py-0.5 bg-gray-200 text-gray-700 rounded-full text-xs">
-                    {tab.count}
-                  </span>
-                </button>
+        {/* Skills Needing Improvement */}
+        {skillsNeedingImprovement.length > 0 && (
+          <div className="mb-12">
+            <h2 className="text-2xl font-semibold text-gray-900 mb-6 flex items-center">
+              <AlertCircle className="w-6 h-6 mr-2 text-orange-500" />
+              Skills Needing Improvement
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {skillsNeedingImprovement.map((skill, idx) => (
+                <ScoreCard key={idx} skill={skill} />
               ))}
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Training Programs */}
-        {skillsNeedingImprovement.length > 0 ? (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {filteredPrograms.map((program) => (
-              <TrainingCard key={program.id} program={program} />
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-16">
-            <div className="w-24 h-24 mx-auto mb-6 bg-gradient-to-r from-green-100 to-emerald-100 rounded-full flex items-center justify-center">
-              <Award className="w-10 h-10 text-green-600" />
+        {/* Recommended Trainings */}
+        {recommendedTrainings.length > 0 && (
+          <div className="mb-12">
+            <h2 className="text-2xl font-semibold text-gray-900 mb-6 flex items-center">
+              <Star className="w-6 h-6 mr-2 text-yellow-500" />
+              Recommended Training Programs
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {recommendedTrainings.map(training => (
+                <TrainingCard key={training._id} training={training} isRecommended={true} />
+              ))}
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">Excellent Performance!</h3>
-            <p className="text-gray-600 mb-6">All your skills scored above 60%. No additional training required at this time.</p>
           </div>
         )}
 
-        {filteredPrograms.length === 0 && skillsNeedingImprovement.length > 0 && (
-          <div className="text-center py-16">
-            <div className="w-24 h-24 mx-auto mb-6 bg-gradient-to-r from-gray-100 to-gray-200 rounded-full flex items-center justify-center">
-              <Search className="w-10 h-10 text-gray-400" />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">No matching programs found</h3>
-            <p className="text-gray-600 mb-6">Try adjusting your search terms or browse all categories</p>
-            <button 
-              onClick={() => {
-                setSearchTerm('');
-                setSelectedCategory('all');
-              }}
-              className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all"
+        {/* All Trainings Section */}
+        <div>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-semibold text-gray-900 flex items-center">
+              <BookOpen className="w-6 h-6 mr-2 text-blue-500" />
+              All Training Programs
+            </h2>
+            
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
             >
-              Show All Programs
+              <Filter className="w-4 h-4 mr-2" />
+              Filters
+              <ChevronDown className={`w-4 h-4 ml-2 transform ${showFilters ? 'rotate-180' : ''}`} />
             </button>
           </div>
-        )}
 
-        {/* Quick Stats */}
-        <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-blue-100">Skills Needing Improvement</p>
-                <p className="text-3xl font-bold">{skillsNeedingImprovement.length}</p>
+          {/* Search and Filters */}
+          <div className={`transition-all duration-300 ${showFilters ? 'mb-6' : 'mb-6'}`}>
+            <div className="flex flex-col md:flex-row gap-4">
+              {/* Search */}
+              <div className="flex-1">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <input
+                    type="text"
+                    placeholder="Search trainings..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
               </div>
-              <AlertCircle className="w-8 h-8 text-blue-200" />
+
+              {/* Filters - Show/Hide based on showFilters state */}
+              {showFilters && (
+                <div className="flex flex-wrap gap-4">
+                  <select
+                    value={selectedType}
+                    onChange={(e) => setSelectedType(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="all">All Types</option>
+                    <option value="technical">Technical</option>
+                    <option value="soft skills">Soft Skills</option>
+                  </select>
+
+                  <select
+                    value={priceFilter}
+                    onChange={(e) => setPriceFilter(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="all">All Prices</option>
+                    <option value="free">Free</option>
+                    <option value="paid">Paid</option>
+                  </select>
+                </div>
+              )}
             </div>
           </div>
-          
-          <div className="bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-green-100">Available Programs</p>
-                <p className="text-3xl font-bold">{recommendedPrograms.length}</p>
+
+          {/* Training Grid */}
+          {paginatedTrainings.length > 0 ? (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {paginatedTrainings.map(training => (
+                  <TrainingCard key={training._id} training={training} />
+                ))}
               </div>
-              <BookOpen className="w-8 h-8 text-green-200" />
+
+              <Pagination
+                trainingsPerPage={trainingsPerPage}
+                totalTrainings={filteredAllTrainings.length}
+                paginate={paginate}
+                currentPage={currentPage}
+              />
+            </>
+          ) : (
+            <div className="text-center py-12">
+              <BookOpen className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-xl font-medium text-gray-900 mb-2">No trainings found</h3>
+              <p className="text-gray-500">
+                {searchTerm || selectedType !== 'all' || priceFilter !== 'all'
+                  ? 'Try adjusting your search or filters'
+                  : 'No training programs are currently available'
+                }
+              </p>
             </div>
-          </div>
-          
-          <div className="bg-gradient-to-r from-purple-500 to-pink-600 rounded-2xl p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-purple-100">Training Formats</p>
-                <p className="text-3xl font-bold">2</p>
-                <p className="text-xs text-purple-100">Group & 1-on-1</p>
-              </div>
-              <Users className="w-8 h-8 text-purple-200" />
-            </div>
-          </div>
+          )}
         </div>
       </div>
-
-      {/* Booking Modal */}
-      <BookingModal />
     </div>
   );
 };
