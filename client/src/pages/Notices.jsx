@@ -85,7 +85,6 @@ const NoticesPage = () => {
         title: event.eventName || 'Untitled Event',
         organizer: event.otherInfo || "Event Organizer",
         type: "conference", // Default type, you can modify this based on your needs
-        mode: "in-person", // Default mode
         date: event.date ? new Date(event.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         endDate: null, // Add if you have end dates in your schema
         time: event.time || "TBD",
@@ -412,15 +411,6 @@ const NoticesPage = () => {
             </span>
           ))}
         </div> */}
-
-        <a 
-          href={event.registrationUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className=" w-full bg-white text-gray-900 font-semibold py-3 rounded-xl hover:bg-gray-100 transition-colors flex items-center justify-center text-center"
-        >
-          Register Now <ExternalLink className="w-4 h-4 ml-2" />
-        </a>
       </div>
     );
   };
@@ -552,39 +542,6 @@ const NoticesPage = () => {
             </button>
           </div>
         )}
-
-        {/* Quick Stats */}
-        <div className="mt-16 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-gradient-to-r from-orange-500 to-red-600 rounded-2xl p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-purple-100">Total Notices</p>
-                <p className="text-2xl font-bold">{notices.length}</p>
-              </div>
-              <Bell className="w-8 h-8 text-purple-200" />
-            </div>
-          </div>
-          
-          <div className="bg-gradient-to-r from-green-500 to-teal-600 rounded-2xl p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-green-100">Upcoming Events</p>
-                <p className="text-2xl font-bold">{events.filter(e => new Date(e.date) > new Date()).length}</p>
-              </div>
-              <Calendar className="w-8 h-8 text-green-200" />
-            </div>
-          </div>
-          
-          {/* <div className="bg-gradient-to-r from-orange-500 to-red-600 rounded-2xl p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-orange-100">Featured Events</p>
-                <p className="text-2xl font-bold">{events.filter(e => e.featured).length}</p>
-              </div>
-              <Award className="w-8 h-8 text-orange-200" />
-            </div>
-          </div> */}
-        </div>
       </div>
     </div>
   );
