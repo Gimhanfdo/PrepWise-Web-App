@@ -71,7 +71,7 @@ const NoticesPage = () => {
   // Function to fetch events from database
   const fetchEventsFromDB = async () => {
     try {
-      const response = await fetch(`$/api/notices/events`);
+      const response = await fetch(`/api/notices/events`);
       if (!response.ok) {
         throw new Error(`Failed to fetch events: ${response.status} ${response.statusText}`);
       }
