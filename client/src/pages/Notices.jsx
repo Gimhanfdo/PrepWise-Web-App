@@ -14,7 +14,6 @@ const NoticesPage = () => {
   // NewsAPI configuration
   const NEWS_API_KEY = import.meta.env.VITE_NEWS_API_KEY;
   const API_BASE_URL = import.meta.env.VITE_BACKEND_URL;
-  const NEWS_API_BASE_URL = 'https://newsapi.org/v2';
 
   // Fallback sample notices data for when NewsAPI is not available
   const fallbackNotices = [
@@ -109,44 +108,36 @@ const NoticesPage = () => {
   };
 
   // Function to fetch news from NewsAPI
-  const fetchTechNews = async () => {
-    if (!NEWS_API_KEY) {
-      console.warn('NewsAPI key not found. Using fallback data.');
-      return fallbackNotices;
+  // Function to fetch news from your backend (proxying NewsAPI)
+const fetchTechNews = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/notices/news`); // 👈 Updated
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    try {
-      const response = await fetch(
-        `${NEWS_API_BASE_URL}/top-headlines?category=technology&language=en&pageSize=20&apiKey=${NEWS_API_KEY}`
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      const articles = data.articles || [];
+    const data = await response.json();
+    const articles = data.articles || [];
 
-      const transformedNotices = articles.map((article, index) => ({
-        id: index + 1,
-        title: article.title,
-        summary: article.description || 'No description available',
-        source: article.source.name,
-        type: getNoticeType(article.source.name),
-        priority: getPriority(article.title, article.description),
-        time: getTimeAgo(article.publishedAt),
-        tags: extractTags(article.title, article.description),
-        url: article.url,
-        imageUrl: article.urlToImage
-      }));
+    const transformedNotices = articles.map((article, index) => ({
+      id: index + 1,
+      title: article.title,
+      summary: article.description || "No description available",
+      source: article.source.name,
+      type: getNoticeType(article.source.name),
+      priority: getPriority(article.title, article.description),
+      time: getTimeAgo(article.publishedAt),
+      tags: extractTags(article.title, article.description),
+      url: article.url,
+      imageUrl: article.urlToImage,
+    }));
 
-      return transformedNotices.length > 0 ? transformedNotices : fallbackNotices;
-
-    } catch (error) {
-      console.error('Error fetching tech news:', error);
-      return fallbackNotices;
-    }
-  };
+    return transformedNotices.length > 0 ? transformedNotices : fallbackNotices;
+  } catch (error) {
+    console.error("Error fetching tech news:", error);
+    return fallbackNotices;
+  }
+};
 
   // Helper function to determine notice type based on source
   const getNoticeType = (sourceName) => {
