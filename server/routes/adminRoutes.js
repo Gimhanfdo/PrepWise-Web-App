@@ -1,8 +1,8 @@
 // routes/adminRoutes.js - Fixed Version
 import express from "express";
 import User from "../models/userModel.js";
-import Trainer from "../models/trainerModel.js";
-import Notice from "../models/noticesModel.js";
+import Trainer from "../models/TrainerModel.js";
+import Notice from "../models/NoticesModel.js";
 import SkillsAssessment from "../models/SkillAssessorModel.js";
 import InterviewModel from "../models/InterviewModel.js";
 import {getFresherById} from "../controllers/userController.js"; 

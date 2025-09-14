@@ -1,5 +1,5 @@
 // controllers/trainerController.js - Complete updated version allowing multiple reviews
-import Trainer from "../models/trainerModel.js";
+import Trainer from "../models/TrainerModel.js";
 import Training from "../models/TrainingModel.js";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";

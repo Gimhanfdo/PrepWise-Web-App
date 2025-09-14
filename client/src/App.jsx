@@ -15,13 +15,13 @@ import Interview from './pages/Interview'
 import Notices from './pages/Notices'
 import Trainings from './pages/Trainings'
 // import TrainerDashboard from './pages/TrainerDashboard'
-import AdminDashboard from './pages/adminDashboard'
-import TrainingDetailsPage from './pages/trainingDetails';
-import TrainingBookingPage from './pages/trainingBooking';
-import TrainingPaymentPage from './pages/trainingPayment';
-import TrainingSuccessPage from './pages/trainingRegSuccess';
+import AdminDashboard from './pages/AdminDashboard'
+import TrainingDetailsPage from './pages/TrainingDetails';
+import TrainingBookingPage from './pages/TrainingBooking';
+import TrainingPaymentPage from './pages/TrainingPayment';
+import TrainingSuccessPage from './pages/TrainingRegSuccess';
 import TrainingPaymentOTP from './components/TrainingPaymentOTP';
-import AdminLogin from './pages/adminLogin';
+import AdminLogin from './pages/AdminLogin';
 
 
 

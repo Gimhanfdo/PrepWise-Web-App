@@ -2,8 +2,8 @@
 
 // controllers/trainingController.js - Enhanced with Registration & Payment
 import Training from "../models/TrainingModel.js";
-import Trainer from "../models/trainerModel.js";
-import User from "../models/userModel.js";
+import Trainer from "../models/TrainerModel.js";
+import userModel from "../models/userModel.js";
 import TrainingRegistration from "../models/TrainingRegistrationModel.js";
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';

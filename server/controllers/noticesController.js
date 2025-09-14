@@ -1,6 +1,6 @@
 
 //controllers/noticesController.js
-import Notice from "../models/noticesModel.js";
+import Notice from "../models/NoticesModel.js";
 
 // Add a new notice
 export const addNotice = async (req, res) => {

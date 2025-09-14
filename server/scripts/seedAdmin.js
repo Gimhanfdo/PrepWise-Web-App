@@ -1,6 +1,6 @@
 // scripts/seedAdmin.js
 import mongoose from 'mongoose';
-import Admin from '../models/adminModel.js';
+import Admin from '../models/AdminModel.js';
 import 'dotenv/config';
 
 const seedAdmin = async () => {
