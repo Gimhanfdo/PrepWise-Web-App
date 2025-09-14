@@ -12,7 +12,7 @@ const NoticesPage = () => {
   const [error, setError] = useState(null);
 
   // NewsAPI configuration
-  const NEWS_API_KEY = import.meta.env.VITE_NEWS_API_KEY;
+  const NEWS_API_KEY = import.meta.env.NEWS_API_KEY;
   const API_BASE_URL = import.meta.env.VITE_BACKEND_URL;
 
   // Fallback sample notices data for when NewsAPI is not available
