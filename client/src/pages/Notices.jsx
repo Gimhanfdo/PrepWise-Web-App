@@ -139,6 +139,7 @@ const fetchTechNews = async () => {
   }
 };
 
+
   // Helper function to determine notice type based on source
   const getNoticeType = (sourceName) => {
     const governmentSources = ['BBC', 'Reuters', 'Associated Press'];
