@@ -16,10 +16,14 @@ console.log('🔑 Gemini API Key Status:', {
 
 // JDoodle Code Execution Function
 export const executeCodeWithJDoodle = async (req, res) => {
+  const startTime = Date.now();
+  console.log('⏱️ Code execution started');
+  
   try {
     const { script, language, versionIndex, stdin } = req.body;
 
     if (!script || !language || !versionIndex) {
+      console.log('❌ Missing required fields for code execution - Duration:', Date.now() - startTime, 'ms');
       return res.status(400).json({
         success: false,
         error: 'Missing required fields: script, language, versionIndex'
@@ -30,6 +34,7 @@ export const executeCodeWithJDoodle = async (req, res) => {
     const JDOODLE_CLIENT_SECRET = process.env.JDOODLE_CLIENT_SECRET;
 
     if (!JDOODLE_CLIENT_ID || !JDOODLE_CLIENT_SECRET) {
+      console.log('❌ JDoodle credentials missing - Duration:', Date.now() - startTime, 'ms');
       return res.status(500).json({
         success: false,
         error: 'JDoodle API credentials not configured'
@@ -45,6 +50,9 @@ export const executeCodeWithJDoodle = async (req, res) => {
       stdin: stdin || ''
     };
 
+    console.log('📤 Sending request to JDoodle API');
+    const apiStartTime = Date.now();
+    
     const jdoodleResponse = await axios.post(
       'https://api.jdoodle.com/v1/execute',
       jdoodleData,
@@ -54,6 +62,9 @@ export const executeCodeWithJDoodle = async (req, res) => {
       }
     );
 
+    const apiDuration = Date.now() - apiStartTime;
+    console.log('✅ JDoodle API response received - Duration:', apiDuration, 'ms');
+
     const result = jdoodleResponse.data;
 
     console.log('Code execution:', {
@@ -61,7 +72,8 @@ export const executeCodeWithJDoodle = async (req, res) => {
       language: language,
       success: !result.error,
       executionTime: result.cpuTime,
-      memory: result.memory
+      memory: result.memory,
+      totalDuration: Date.now() - startTime + 'ms'
     });
 
     res.json({
@@ -74,7 +86,7 @@ export const executeCodeWithJDoodle = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Code execution error:', error.message);
+    console.error('❌ Code execution error - Duration:', Date.now() - startTime, 'ms', error.message);
     
     if (error.code === 'ECONNABORTED') {
       return res.status(408).json({
@@ -98,11 +110,19 @@ export const executeCodeWithJDoodle = async (req, res) => {
 };
 
 export const getUserCV = async (req, res) => {
+  const startTime = Date.now();
+  console.log('⏱️ Get user CV started');
+  
   try {
     const userId = req.user.userId || req.user.id || req.user._id;
 
+    console.log('📋 Fetching user data from database');
+    const dbStartTime = Date.now();
     const user = await userModel.findById(userId);
+    console.log('✅ User data fetched - Duration:', Date.now() - dbStartTime, 'ms');
+
     if (!user) {
+      console.log('❌ User not found - Total Duration:', Date.now() - startTime, 'ms');
       return res.status(404).json({
         success: false,
         error: 'User not found'
@@ -117,13 +137,14 @@ export const getUserCV = async (req, res) => {
       uploadedAt: user.currentCV?.uploadedAt || null
     };
 
+    console.log('✅ Get user CV completed - Total Duration:', Date.now() - startTime, 'ms');
     res.json({
       success: true,
       data: cvData
     });
 
   } catch (error) {
-    console.error('Get user CV error:', error);
+    console.error('❌ Get user CV error - Duration:', Date.now() - startTime, 'ms', error);
     res.status(500).json({
       success: false,
       error: 'Failed to get user CV'
@@ -147,12 +168,15 @@ const cvUpload = multer({
 });
 
 export const processCV = async (req, res) => {
+  const startTime = Date.now();
+  console.log('⏱️ Process CV started');
+  
   try {
     const uploadSingle = cvUpload.single('cv');
     
     uploadSingle(req, res, async (uploadError) => {
       if (uploadError) {
-        console.error('File upload error:', uploadError);
+        console.error('❌ File upload error - Duration:', Date.now() - startTime, 'ms', uploadError);
         return res.status(400).json({
           success: false,
           error: uploadError.message || 'File upload failed'
@@ -160,6 +184,7 @@ export const processCV = async (req, res) => {
       }
 
       if (!req.file) {
+        console.log('❌ No file provided - Duration:', Date.now() - startTime, 'ms');
         return res.status(400).json({
           success: false,
           error: 'No PDF file provided'
@@ -168,6 +193,7 @@ export const processCV = async (req, res) => {
 
       const userId = req.user?.userId || req.user?.id || req.user?._id;
       if (!userId) {
+        console.log('❌ User not authenticated - Duration:', Date.now() - startTime, 'ms');
         return res.status(401).json({
           success: false,
           error: 'User not authenticated'
@@ -175,15 +201,21 @@ export const processCV = async (req, res) => {
       }
 
       try {
-        console.log('Processing PDF file:', {
+        console.log('📄 Processing PDF file:', {
           filename: req.file.originalname,
           size: req.file.size
         });
 
+        console.log('🔍 Starting PDF text extraction');
+        const extractStartTime = Date.now();
         const pdfData = await pdfParse(req.file.buffer);
+        const extractionDuration = Date.now() - extractStartTime;
+        console.log('✅ PDF text extracted - Duration:', extractionDuration, 'ms');
+
         const extractedText = pdfData.text;
         
         if (!extractedText || extractedText.trim().length === 0) {
+          console.log('❌ No text extracted from PDF - Total Duration:', Date.now() - startTime, 'ms');
           return res.status(400).json({
             success: false,
             error: 'Could not extract text from the PDF. Please ensure the PDF contains selectable text.'
@@ -191,20 +223,24 @@ export const processCV = async (req, res) => {
         }
 
         if (extractedText.length < 50) {
+          console.log('❌ CV text too short - Total Duration:', Date.now() - startTime, 'ms');
           return res.status(400).json({
             success: false,
             error: 'CV text appears to be too short. Please ensure your CV contains sufficient information.'
           });
         }
 
+        console.log('🧹 Cleaning extracted text');
+        const cleanStartTime = Date.now();
         const cleanedText = extractedText
           .replace(/\r\n/g, '\n')
           .replace(/\r/g, '\n')
           .replace(/\n{3,}/g, '\n\n')
           .replace(/[ \t]{2,}/g, ' ')
           .trim();
+        console.log('✅ Text cleaned - Duration:', Date.now() - cleanStartTime, 'ms');
 
-        console.log('PDF processed successfully. Length:', cleanedText.length);
+        console.log('✅ PDF processed successfully - Total Duration:', Date.now() - startTime, 'ms', 'Length:', cleanedText.length);
 
         res.json({
           success: true,
@@ -219,7 +255,7 @@ export const processCV = async (req, res) => {
         });
 
       } catch (extractionError) {
-        console.error('PDF extraction error:', extractionError);
+        console.error('❌ PDF extraction error - Duration:', Date.now() - startTime, 'ms', extractionError);
         res.status(500).json({
           success: false,
           error: 'Failed to extract text from PDF. Please ensure the file is not corrupted.',
@@ -229,7 +265,7 @@ export const processCV = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Process CV error:', error);
+    console.error('❌ Process CV error - Duration:', Date.now() - startTime, 'ms', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error while processing PDF',
@@ -239,6 +275,9 @@ export const processCV = async (req, res) => {
 };
 
 export const createInterview = async (req, res) => {
+  const startTime = Date.now();
+  console.log('⏱️ Create interview started');
+  
   try {
     const { jobDescription, resumeText } = req.body;
     const userId = req.user.userId || req.user.id || req.user._id;
@@ -250,6 +289,7 @@ export const createInterview = async (req, res) => {
     console.log('Gemini API Key exists:', !!process.env.GEMINI_API_KEY);
 
     if (!jobDescription || !resumeText) {
+      console.log('❌ Missing required fields - Duration:', Date.now() - startTime, 'ms');
       return res.status(400).json({
         success: false,
         error: 'Missing required fields: jobDescription and resumeText are required'
@@ -257,33 +297,38 @@ export const createInterview = async (req, res) => {
     }
 
     if (!userId) {
+      console.log('❌ User not authenticated - Duration:', Date.now() - startTime, 'ms');
       return res.status(401).json({
         success: false,
         error: 'User not authenticated properly. Please log in again.'
       });
     }
 
-    console.log('🤖 Starting question generation with full CV and JD content...');
+    console.log('🤖 Starting question generation');
+    const questionStartTime = Date.now();
     
     let questions;
     try {
       questions = await generatePersonalizedQuestionsWithFullContent(resumeText, jobDescription);
-      console.log('✅ Successfully generated questions:', questions.length);
+      const questionDuration = Date.now() - questionStartTime;
+      console.log('✅ Questions generated successfully - Duration:', questionDuration, 'ms', 'Count:', questions.length);
     } catch (questionError) {
-      console.error('❌ Question generation failed:', questionError);
-      console.log('🔄 Using fallback questions...');
+      const questionDuration = Date.now() - questionStartTime;
+      console.error('❌ Question generation failed - Duration:', questionDuration, 'ms', questionError);
+      console.log('🔄 Using fallback questions');
       questions = getFallbackQuestions();
     }
 
     if (!Array.isArray(questions) || questions.length === 0) {
-      console.error('No questions generated');
+      console.error('❌ No questions generated - Total Duration:', Date.now() - startTime, 'ms');
       return res.status(500).json({
         success: false,
         error: 'Failed to generate interview questions. Please try again.'
       });
     }
 
-    console.log('Generated questions count:', questions.length);
+    console.log('💾 Saving interview to database');
+    const saveStartTime = Date.now();
 
     const interviewData = {
       userId: userId,
@@ -302,8 +347,10 @@ export const createInterview = async (req, res) => {
 
     const interview = new InterviewModel(interviewData);
     const savedInterview = await interview.save();
+    const saveDuration = Date.now() - saveStartTime;
+    console.log('✅ Interview saved - Duration:', saveDuration, 'ms');
 
-    console.log('✅ Interview saved successfully:', savedInterview._id);
+    console.log('✅ Create interview completed - Total Duration:', Date.now() - startTime, 'ms', 'ID:', savedInterview._id);
 
     res.status(201).json({
       success: true,
@@ -324,7 +371,7 @@ export const createInterview = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Create interview error:', error);
+    console.error('❌ Create interview error - Duration:', Date.now() - startTime, 'ms', error);
     res.status(500).json({
       success: false,
       error: 'Failed to create interview',
@@ -334,6 +381,9 @@ export const createInterview = async (req, res) => {
 };
 
 export const createInterviewWithProfileCV = async (req, res) => {
+  const startTime = Date.now();
+  console.log('⏱️ Create interview with profile CV started');
+  
   try {
     const { jobDescription } = req.body;
     const userId = req.user.userId || req.user.id || req.user._id;
@@ -343,6 +393,7 @@ export const createInterviewWithProfileCV = async (req, res) => {
     console.log('Job Description length:', jobDescription?.length || 0);
 
     if (!jobDescription) {
+      console.log('❌ Missing job description - Duration:', Date.now() - startTime, 'ms');
       return res.status(400).json({
         success: false,
         error: 'Missing required field: jobDescription is required'
@@ -350,15 +401,21 @@ export const createInterviewWithProfileCV = async (req, res) => {
     }
 
     if (!userId) {
+      console.log('❌ User not authenticated - Duration:', Date.now() - startTime, 'ms');
       return res.status(401).json({
         success: false,
         error: 'User not authenticated properly. Please log in again.'
       });
     }
 
+    console.log('📋 Fetching user data');
+    const userFetchStartTime = Date.now();
     const user = await userModel.findById(userId);
+    const userFetchDuration = Date.now() - userFetchStartTime;
+    console.log('✅ User data fetched - Duration:', userFetchDuration, 'ms');
+
     if (!user) {
-      console.error('User not found:', userId);
+      console.error('❌ User not found - Total Duration:', Date.now() - startTime, 'ms', userId);
       return res.status(404).json({
         success: false,
         error: 'User not found'
@@ -366,13 +423,15 @@ export const createInterviewWithProfileCV = async (req, res) => {
     }
 
     if (!user.hasCV) {
-      console.error('User has no CV:', userId);
+      console.error('❌ User has no CV - Total Duration:', Date.now() - startTime, 'ms', userId);
       return res.status(400).json({
         success: false,
         error: 'No CV found in user profile. Please upload a CV first.'
       });
     }
 
+    console.log('📄 Extracting CV text');
+    const cvExtractStartTime = Date.now();
     let actualCVText;
     try {
       actualCVText = user.getCVText();
@@ -380,8 +439,11 @@ export const createInterviewWithProfileCV = async (req, res) => {
       console.error('Error getting CV text:', cvError);
       actualCVText = user.currentCV?.text || '';
     }
+    const cvExtractDuration = Date.now() - cvExtractStartTime;
+    console.log('✅ CV text extracted - Duration:', cvExtractDuration, 'ms');
 
     if (!actualCVText || actualCVText.trim().length === 0) {
+      console.log('❌ Empty CV text - Total Duration:', Date.now() - startTime, 'ms');
       return res.status(400).json({
         success: false,
         error: 'CV text is empty or corrupted. Please re-upload your CV.'
@@ -389,27 +451,31 @@ export const createInterviewWithProfileCV = async (req, res) => {
     }
 
     console.log('CV Text length:', actualCVText.length);
-    console.log('🤖 Starting question generation with full CV and JD content...');
+    console.log('🤖 Starting question generation');
+    const questionStartTime = Date.now();
 
     let questions;
     try {
       questions = await generatePersonalizedQuestionsWithFullContent(actualCVText, jobDescription);
-      console.log('✅ Successfully generated questions:', questions.length);
+      const questionDuration = Date.now() - questionStartTime;
+      console.log('✅ Questions generated successfully - Duration:', questionDuration, 'ms', 'Count:', questions.length);
     } catch (questionError) {
-      console.error('❌ Question generation failed:', questionError);
-      console.log('🔄 Using fallback questions...');
+      const questionDuration = Date.now() - questionStartTime;
+      console.error('❌ Question generation failed - Duration:', questionDuration, 'ms', questionError);
+      console.log('🔄 Using fallback questions');
       questions = getFallbackQuestions();
     }
 
     if (!Array.isArray(questions) || questions.length === 0) {
-      console.error('No questions generated');
+      console.error('❌ No questions generated - Total Duration:', Date.now() - startTime, 'ms');
       return res.status(500).json({
         success: false,
         error: 'Failed to generate interview questions. Please try again.'
       });
     }
 
-    console.log('Generated questions count:', questions.length);
+    console.log('💾 Saving interview to database');
+    const saveStartTime = Date.now();
 
     const interviewData = {
       userId: userId,
@@ -428,8 +494,10 @@ export const createInterviewWithProfileCV = async (req, res) => {
 
     const interview = new InterviewModel(interviewData);
     const savedInterview = await interview.save();
+    const saveDuration = Date.now() - saveStartTime;
+    console.log('✅ Interview saved - Duration:', saveDuration, 'ms');
 
-    console.log('✅ Interview saved successfully:', savedInterview._id);
+    console.log('✅ Create interview with profile CV completed - Total Duration:', Date.now() - startTime, 'ms', 'ID:', savedInterview._id);
 
     res.status(201).json({
       success: true,
@@ -450,7 +518,7 @@ export const createInterviewWithProfileCV = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Create interview with profile CV error:', error);
+    console.error('❌ Create interview with profile CV error - Duration:', Date.now() - startTime, 'ms', error);
     res.status(500).json({
       success: false,
       error: 'Failed to create interview with profile CV',
@@ -461,11 +529,14 @@ export const createInterviewWithProfileCV = async (req, res) => {
 
 // NEW: Generate personalized questions using full CV and JD content
 async function generatePersonalizedQuestionsWithFullContent(resumeText, jobDescription) {
+  const startTime = Date.now();
   console.log('🚀 ENHANCED DEBUG: Starting API call to Gemini');
   console.log('📝 Resume length:', resumeText.length);
   console.log('💼 Job description length:', jobDescription.length);
   
   try {
+    console.log('🔧 Configuring Gemini model');
+    const modelStartTime = Date.now();
     const model = genAI.getGenerativeModel({ 
       model: "gemini-1.5-flash",
       generationConfig: { 
@@ -476,22 +547,22 @@ async function generatePersonalizedQuestionsWithFullContent(resumeText, jobDescr
         candidateCount: 1,
       }
     });
-
-    console.log('🔧 Model configuration:', {
-      model: "gemini-1.5-flash",
-      temperature: 0.3,
-      maxOutputTokens: 2000
-    });
+    console.log('✅ Model configured - Duration:', Date.now() - modelStartTime, 'ms');
 
     // Truncate inputs if too long to avoid token limits
     const maxResumeLength = 3000;
     const maxJobLength = 2000;
+    
+    console.log('✂️ Truncating content if needed');
+    const truncateStartTime = Date.now();
     const truncatedResume = resumeText.length > maxResumeLength 
       ? resumeText.substring(0, maxResumeLength) + "..." 
       : resumeText;
     const truncatedJob = jobDescription.length > maxJobLength 
       ? jobDescription.substring(0, maxJobLength) + "..." 
       : jobDescription;
+    const truncateDuration = Date.now() - truncateStartTime;
+    console.log('✅ Content truncated - Duration:', truncateDuration, 'ms');
 
     console.log('✂️ Content truncated:', {
       resumeOriginal: resumeText.length,
@@ -562,23 +633,28 @@ Return ONLY valid JSON array:
 
 Make each question impossible to fake - they should reveal true understanding vs memorized responses.`;
 
-    console.log('📤 Sending prompt to Gemini API...');
+    console.log('📤 Sending prompt to Gemini API');
     console.log('📏 Prompt length:', prompt.length);
 
-    const startTime = Date.now();
+    const apiCallStartTime = Date.now();
     const result = await model.generateContent(prompt);
-    const responseTime = Date.now() - startTime;
+    const apiCallDuration = Date.now() - apiCallStartTime;
+    console.log('✅ API call completed - Duration:', apiCallDuration, 'ms');
 
-    console.log('⏱️ API Response time:', responseTime + 'ms');
-
+    console.log('📥 Processing API response');
+    const responseStartTime = Date.now();
     const response = await result.response;
     const rawText = response.text();
+    const responseDuration = Date.now() - responseStartTime;
+    console.log('✅ Response processed - Duration:', responseDuration, 'ms');
 
     console.log('📥 Raw API Response received:');
     console.log('📏 Response length:', rawText.length);
     console.log('🔍 Response preview (first 500 chars):', rawText.substring(0, 500));
 
     // Clean the response
+    console.log('🧹 Cleaning response text');
+    const cleanStartTime = Date.now();
     let cleanedText = rawText
       .trim()
       .replace(/```json\s*/gi, '')
@@ -586,10 +662,14 @@ Make each question impossible to fake - they should reveal true understanding vs
       .replace(/```\s*/g, '')
       .replace(/^```/gm, '')
       .replace(/```$/gm, '');
+    const cleanDuration = Date.now() - cleanStartTime;
+    console.log('✅ Text cleaned - Duration:', cleanDuration, 'ms');
 
     console.log('🧹 Cleaned response preview:', cleanedText.substring(0, 500));
 
     // Find JSON array bounds
+    console.log('🎯 Extracting JSON array');
+    const extractStartTime = Date.now();
     const arrayStart = cleanedText.indexOf('[');
     const arrayEnd = cleanedText.lastIndexOf(']');
     
@@ -598,17 +678,24 @@ Make each question impossible to fake - they should reveal true understanding vs
     }
 
     const jsonText = cleanedText.substring(arrayStart, arrayEnd + 1);
+    const extractDuration = Date.now() - extractStartTime;
+    console.log('✅ JSON extracted - Duration:', extractDuration, 'ms');
     console.log('🎯 Extracted JSON:', jsonText.substring(0, 300) + '...');
 
     let questions;
+    console.log('📊 Parsing JSON');
+    const parseStartTime = Date.now();
     try {
       questions = JSON.parse(jsonText);
-      console.log('✅ JSON parsed successfully');
+      const parseDuration = Date.now() - parseStartTime;
+      console.log('✅ JSON parsed successfully - Duration:', parseDuration, 'ms');
       console.log('📊 Generated questions:', questions.length);
     } catch (parseError) {
-      console.error('❌ JSON Parse Error:', parseError.message);
+      const parseDuration = Date.now() - parseStartTime;
+      console.error('❌ JSON Parse Error - Duration:', parseDuration, 'ms', parseError.message);
       console.log('🔧 Trying to fix malformed JSON...');
       
+      const fixStartTime = Date.now();
       // Try to fix common JSON issues
       let fixedJson = jsonText
         .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas
@@ -617,9 +704,11 @@ Make each question impossible to fake - they should reveal true understanding vs
       
       try {
         questions = JSON.parse(fixedJson);
-        console.log('✅ Fixed JSON parsed successfully');
+        const fixDuration = Date.now() - fixStartTime;
+        console.log('✅ Fixed JSON parsed successfully - Duration:', fixDuration, 'ms');
       } catch (fixError) {
-        console.error('❌ Failed to fix JSON:', fixError.message);
+        const fixDuration = Date.now() - fixStartTime;
+        console.error('❌ Failed to fix JSON - Duration:', fixDuration, 'ms', fixError.message);
         throw new Error('Could not parse AI response as JSON');
       }
     }
@@ -630,6 +719,8 @@ Make each question impossible to fake - they should reveal true understanding vs
     }
 
     // Process and validate each question
+    console.log('🔄 Processing questions');
+    const processStartTime = Date.now();
     const processedQuestions = questions.slice(0, 10).map((q, index) => {
       const questionId = q.questionId || `q${index + 1}`;
       const type = normalizeQuestionType(q.type || 'technical');
@@ -653,12 +744,14 @@ Make each question impossible to fake - they should reveal true understanding vs
         language: language
       };
     });
+    const processDuration = Date.now() - processStartTime;
+    console.log('✅ Questions processed - Duration:', processDuration, 'ms');
 
-    console.log('✅ SUCCESSFUL API GENERATION:', processedQuestions.length, 'questions');
+    console.log('✅ SUCCESSFUL API GENERATION - Total Duration:', Date.now() - startTime, 'ms', 'Questions:', processedQuestions.length);
     return processedQuestions;
 
   } catch (error) {
-    console.error('❌ GEMINI API ERROR:', {
+    console.error('❌ GEMINI API ERROR - Duration:', Date.now() - startTime, 'ms', {
       name: error.name,
       message: error.message,
       status: error.status,
@@ -854,30 +947,33 @@ function normalizeQuestionType(type) {
 
 // Add the test endpoint for debugging
 export const testGeminiConnection = async (req, res) => {
+  const startTime = Date.now();
+  console.log('🧪 Testing Gemini connection started');
+  
   try {
-    console.log('🧪 TESTING GEMINI CONNECTION...');
     console.log('🔑 API Key Status:', {
       exists: !!process.env.GEMINI_API_KEY,
       length: process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.length : 0
     });
 
+    console.log('🔧 Configuring model');
     const model = genAI.getGenerativeModel({ 
       model: "gemini-1.5-flash"
     });
 
     const testPrompt = `Test connection. Respond with exactly this JSON: {"status": "connected", "message": "Gemini API is working"}`;
     
-    console.log('📤 Sending test prompt...');
-    const startTime = Date.now();
+    console.log('📤 Sending test prompt');
+    const apiStartTime = Date.now();
     
     const result = await model.generateContent(testPrompt);
-    const responseTime = Date.now() - startTime;
+    const apiDuration = Date.now() - apiStartTime;
+    console.log('✅ API response received - Duration:', apiDuration, 'ms');
     
     const response = await result.response;
     const text = response.text();
     
-    console.log('✅ TEST RESPONSE:', {
-      responseTime: responseTime + 'ms',
+    console.log('✅ TEST RESPONSE - Total Duration:', Date.now() - startTime, 'ms', {
       textLength: text.length,
       text: text
     });
@@ -886,7 +982,8 @@ export const testGeminiConnection = async (req, res) => {
       success: true,
       message: 'Gemini API connection test successful',
       data: {
-        responseTime: responseTime + 'ms',
+        responseTime: apiDuration + 'ms',
+        totalTime: (Date.now() - startTime) + 'ms',
         apiKeyConfigured: true,
         modelUsed: 'gemini-1.5-flash',
         response: text
@@ -894,7 +991,7 @@ export const testGeminiConnection = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ GEMINI CONNECTION TEST FAILED:', {
+    console.error('❌ GEMINI CONNECTION TEST FAILED - Duration:', Date.now() - startTime, 'ms', {
       name: error.name,
       message: error.message,
       status: error.status
@@ -904,6 +1001,7 @@ export const testGeminiConnection = async (req, res) => {
       success: false,
       error: 'Gemini API connection failed',
       details: {
+        totalTime: (Date.now() - startTime) + 'ms',
         errorName: error.name,
         errorMessage: error.message,
         hasApiKey: !!process.env.GEMINI_API_KEY,
@@ -914,12 +1012,21 @@ export const testGeminiConnection = async (req, res) => {
 };
 
 export const startInterview = async (req, res) => {
+  const startTime = Date.now();
+  console.log('⏱️ Start interview initiated');
+  
   try {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
+    console.log('📋 Fetching interview from database');
+    const dbStartTime = Date.now();
     const interview = await InterviewModel.findOne({ _id: interviewId, userId });
+    const dbDuration = Date.now() - dbStartTime;
+    console.log('✅ Interview fetched - Duration:', dbDuration, 'ms');
+
     if (!interview) {
+      console.log('❌ Interview not found - Total Duration:', Date.now() - startTime, 'ms');
       return res.status(404).json({ 
         success: false,
         error: 'Interview not found' 
@@ -927,6 +1034,7 @@ export const startInterview = async (req, res) => {
     }
 
     if (interview.status !== 'created') {
+      console.log('❌ Interview already started - Total Duration:', Date.now() - startTime, 'ms');
       return res.status(400).json({ 
         success: false,
         error: 'Interview already started or completed' 
@@ -934,17 +1042,23 @@ export const startInterview = async (req, res) => {
     }
 
     if (!interview.questions || !Array.isArray(interview.questions) || interview.questions.length === 0) {
+      console.log('❌ No questions available - Total Duration:', Date.now() - startTime, 'ms');
       return res.status(500).json({
         success: false,
         error: 'Interview has no questions available. Please recreate the interview.'
       });
     }
 
+    console.log('💾 Updating interview status');
+    const updateStartTime = Date.now();
     interview.status = 'in_progress';
     interview.startedAt = new Date();
     interview.updatedAt = new Date();
     await interview.save();
+    const updateDuration = Date.now() - updateStartTime;
+    console.log('✅ Interview updated - Duration:', updateDuration, 'ms');
 
+    console.log('✅ Start interview completed - Total Duration:', Date.now() - startTime, 'ms');
     res.json({
       success: true,
       message: 'Interview started successfully',
@@ -958,7 +1072,7 @@ export const startInterview = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Start interview error:', error);
+    console.error('❌ Start interview error - Duration:', Date.now() - startTime, 'ms', error);
     res.status(500).json({ 
       success: false,
       error: 'Failed to start interview',
@@ -968,12 +1082,21 @@ export const startInterview = async (req, res) => {
 };
 
 export const getNextQuestion = async (req, res) => {
+  const startTime = Date.now();
+  console.log('⏱️ Get next question started');
+  
   try {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
+    console.log('📋 Fetching interview');
+    const dbStartTime = Date.now();
     const interview = await InterviewModel.findOne({ _id: interviewId, userId });
+    const dbDuration = Date.now() - dbStartTime;
+    console.log('✅ Interview fetched - Duration:', dbDuration, 'ms');
+
     if (!interview) {
+      console.log('❌ Interview not found - Total Duration:', Date.now() - startTime, 'ms');
       return res.status(404).json({ 
         success: false,
         error: 'Interview not found' 
@@ -983,6 +1106,7 @@ export const getNextQuestion = async (req, res) => {
     const answeredCount = interview.responses.length;
 
     if (answeredCount >= interview.questions.length) {
+      console.log('✅ All questions completed - Total Duration:', Date.now() - startTime, 'ms');
       return res.json({
         success: true,
         completed: true,
@@ -997,6 +1121,7 @@ export const getNextQuestion = async (req, res) => {
 
     const nextQuestion = interview.questions[answeredCount];
     if (!nextQuestion) {
+      console.log('✅ No more questions - Total Duration:', Date.now() - startTime, 'ms');
       return res.json({
         success: true,
         completed: true,
@@ -1004,6 +1129,7 @@ export const getNextQuestion = async (req, res) => {
       });
     }
 
+    console.log('✅ Get next question completed - Total Duration:', Date.now() - startTime, 'ms');
     res.json({
       success: true,
       question: nextQuestion,
@@ -1014,7 +1140,7 @@ export const getNextQuestion = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get next question error:', error);
+    console.error('❌ Get next question error - Duration:', Date.now() - startTime, 'ms', error);
     res.status(500).json({ 
       success: false,
       error: 'Failed to get next question',
@@ -1039,6 +1165,9 @@ function validateLanguage(language) {
 }
 
 export const submitAnswer = async (req, res) => {
+  const startTime = Date.now();
+  console.log('⏱️ Submit answer started');
+  
   try {
     const { interviewId } = req.params;
     const { questionId, responseTime, answerMode, responseText, code, language, skipped, executionResults } = req.body;
@@ -1051,19 +1180,30 @@ export const submitAnswer = async (req, res) => {
     console.log('Response Text Length:', responseText?.length || 0);
     console.log('Has Code:', !!code);
 
+    console.log('🧹 Sanitizing input');
+    const sanitizeStartTime = Date.now();
     const sanitizedResponseText = validateAndSanitizeInput(responseText);
     const sanitizedCode = validateAndSanitizeInput(code);
     const validatedLanguage = validateLanguage(language);
+    const sanitizeDuration = Date.now() - sanitizeStartTime;
+    console.log('✅ Input sanitized - Duration:', sanitizeDuration, 'ms');
 
     if (!sanitizedResponseText || sanitizedResponseText.length === 0) {
+      console.log('❌ No response text - Total Duration:', Date.now() - startTime, 'ms');
       return res.status(400).json({ 
         success: false,
         error: 'Response text is required' 
       });
     }
 
+    console.log('📋 Fetching interview');
+    const dbFetchStartTime = Date.now();
     const interview = await InterviewModel.findOne({ _id: interviewId, userId });
+    const dbFetchDuration = Date.now() - dbFetchStartTime;
+    console.log('✅ Interview fetched - Duration:', dbFetchDuration, 'ms');
+
     if (!interview) {
+      console.log('❌ Interview not found - Total Duration:', Date.now() - startTime, 'ms');
       return res.status(404).json({ 
         success: false,
         error: 'Interview not found' 
@@ -1072,6 +1212,7 @@ export const submitAnswer = async (req, res) => {
 
     const question = interview.questions.find(q => q.questionId === questionId);
     if (!question) {
+      console.log('❌ Question not found - Total Duration:', Date.now() - startTime, 'ms');
       return res.status(400).json({ 
         success: false,
         error: 'Question not found' 
@@ -1080,6 +1221,9 @@ export const submitAnswer = async (req, res) => {
 
     // Handle skipped questions quickly
     if (skipped) {
+      console.log('⏭️ Processing skipped question');
+      const skipStartTime = Date.now();
+      
       const response = {
         questionId,
         question: question.question,
@@ -1104,7 +1248,10 @@ export const submitAnswer = async (req, res) => {
       }
 
       await interview.save();
+      const skipDuration = Date.now() - skipStartTime;
+      console.log('✅ Skipped question processed - Duration:', skipDuration, 'ms');
 
+      console.log('✅ Submit answer completed (skipped) - Total Duration:', Date.now() - startTime, 'ms');
       return res.json({
         success: true,
         message: 'Question skipped successfully',
@@ -1117,11 +1264,8 @@ export const submitAnswer = async (req, res) => {
       });
     }
 
-    console.log('=== ANALYZING RESPONSE WITH AI ===');
-    console.log('Question Type:', question.type);
-    console.log('Response Length:', sanitizedResponseText.length);
-    console.log('Has Code:', !!sanitizedCode);
-
+    console.log('🤖 Analyzing response with AI');
+    const analysisStartTime = Date.now();
     let analysis;
     try {
       analysis = await generateEnhancedAIFeedback(
@@ -1132,13 +1276,17 @@ export const submitAnswer = async (req, res) => {
         validatedLanguage,
         executionResults
       );
-      console.log('✅ AI Analysis completed:', { score: analysis.score });
+      const analysisDuration = Date.now() - analysisStartTime;
+      console.log('✅ AI analysis completed - Duration:', analysisDuration, 'ms', 'Score:', analysis.score);
     } catch (error) {
-      console.error('❌ AI Feedback Failed:', error.message);
+      const analysisDuration = Date.now() - analysisStartTime;
+      console.error('❌ AI feedback failed - Duration:', analysisDuration, 'ms', error.message);
       analysis = generateFallbackFeedback(question.type, sanitizedResponseText, sanitizedCode);
       console.log('🔄 Using fallback feedback');
     }
 
+    console.log('💾 Saving response to database');
+    const saveStartTime = Date.now();
     const response = {
       questionId,
       question: question.question,
@@ -1165,7 +1313,10 @@ export const submitAnswer = async (req, res) => {
     }
 
     await interview.save();
+    const saveDuration = Date.now() - saveStartTime;
+    console.log('✅ Response saved - Duration:', saveDuration, 'ms');
 
+    console.log('✅ Submit answer completed - Total Duration:', Date.now() - startTime, 'ms');
     res.json({
       success: true,
       message: 'Answer submitted successfully',
@@ -1177,7 +1328,7 @@ export const submitAnswer = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Submit answer error:', error);
+    console.error('❌ Submit answer error - Duration:', Date.now() - startTime, 'ms', error);
     res.status(500).json({ 
       success: false,
       error: 'Failed to process answer',
@@ -1188,6 +1339,7 @@ export const submitAnswer = async (req, res) => {
 
 // Enhanced AI feedback with better debugging and strict validation
 async function generateEnhancedAIFeedback(question, questionType, responseText, code, language, executionResults = null) {
+  console.time('ai-feedback-generation');
   console.log('🤖 ENHANCED AI FEEDBACK DEBUG:');
   console.log('📝 Question length:', question.length);
   console.log('📋 Question type:', questionType);
@@ -1196,6 +1348,7 @@ async function generateEnhancedAIFeedback(question, questionType, responseText, 
   console.log('🔧 Language:', language);
 
   try {
+    console.time('ai-model-initialization');
     const model = genAI.getGenerativeModel({ 
       model: "gemini-1.5-flash",
       generationConfig: { 
@@ -1204,8 +1357,10 @@ async function generateEnhancedAIFeedback(question, questionType, responseText, 
         topP: 0.8,
       }
     });
+    console.timeEnd('ai-model-initialization');
 
     // Truncate inputs for better API performance
+    console.time('input-processing');
     const maxQuestionLength = 500;
     const maxResponseLength = 1000;
     const maxCodeLength = 1000;
@@ -1221,6 +1376,7 @@ async function generateEnhancedAIFeedback(question, questionType, responseText, 
     const truncatedCode = code && code.length > maxCodeLength 
       ? code.substring(0, maxCodeLength) + "..." 
       : code;
+    console.timeEnd('input-processing');
 
     console.log('✂️ Content truncated for API call');
 
@@ -1282,12 +1438,15 @@ BE STRICT: Don't inflate scores. Most intern responses should be 40-70 range unl
     console.log('📤 Sending enhanced feedback request...');
     console.log('📏 Prompt length:', prompt.length);
 
+    console.time('ai-api-call');
     const startTime = Date.now();
     const result = await model.generateContent(prompt);
     const responseTime = Date.now() - startTime;
+    console.timeEnd('ai-api-call');
 
     console.log('⏱️ AI Feedback Response time:', responseTime + 'ms');
 
+    console.time('ai-response-processing');
     const response = await result.response;
     const rawText = response.text();
 
@@ -1397,6 +1556,7 @@ BE STRICT: Don't inflate scores. Most intern responses should be 40-70 range unl
       communicationClarity: Math.max(0, Math.min(10, aiAnalysis.communicationClarity || Math.floor(score / 10))),
       technicalAccuracy: Math.max(0, Math.min(10, aiAnalysis.technicalAccuracy || Math.floor(score / 10)))
     };
+    console.timeEnd('ai-response-processing');
 
     console.log('✅ ENHANCED AI FEEDBACK SUCCESS:', {
       score: structuredFeedback.score,
@@ -1405,9 +1565,11 @@ BE STRICT: Don't inflate scores. Most intern responses should be 40-70 range unl
       improvementsCount: structuredFeedback.improvements.length
     });
 
+    console.timeEnd('ai-feedback-generation');
     return structuredFeedback;
 
   } catch (error) {
+    console.timeEnd('ai-feedback-generation');
     console.error('❌ ENHANCED AI FEEDBACK ERROR:', {
       name: error.name,
       message: error.message,
@@ -1419,6 +1581,7 @@ BE STRICT: Don't inflate scores. Most intern responses should be 40-70 range unl
 
 // Helper functions for better contextual feedback
 function generateContextualStrengths(questionType, score, responseText, code) {
+  console.time('contextual-strengths-generation');
   const strengths = [];
   
   if (score >= 70) {
@@ -1440,10 +1603,12 @@ function generateContextualStrengths(questionType, score, responseText, code) {
     strengths.push('Submitted a response');
   }
   
+  console.timeEnd('contextual-strengths-generation');
   return strengths.length > 0 ? strengths : ['Attempted to answer the question'];
 }
 
 function generateContextualImprovements(questionType, score, responseText, code) {
+  console.time('contextual-improvements-generation');
   const improvements = [];
   
   if (score < 30) {
@@ -1463,6 +1628,7 @@ function generateContextualImprovements(questionType, score, responseText, code)
     improvements.push('Explain reasoning and decision-making process');
   }
   
+  console.timeEnd('contextual-improvements-generation');
   return improvements;
 }
 
@@ -1522,6 +1688,7 @@ function generateSkippedQuestionFeedback() {
 
 // Enhanced fallback feedback with stricter scoring and better context awareness
 function generateFallbackFeedback(questionType, responseText, code) {
+  console.time('fallback-feedback-generation');
   const hasCode = code && code.trim().length > 0;
   const responseLength = responseText?.length || 0;
   
@@ -1627,6 +1794,7 @@ function generateFallbackFeedback(questionType, responseText, code) {
     }
   }
 
+  console.timeEnd('fallback-feedback-generation');
   return {
     score: score,
     questionRelevance: Math.max(1, Math.floor(score / 15)),
@@ -1670,12 +1838,17 @@ function generateStrictAssessment(score) {
 }
 
 export const skipQuestion = async (req, res) => {
+  console.time('skip-question-total');
   try {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
+    console.time('skip-question-db-query');
     const interview = await InterviewModel.findOne({ _id: interviewId, userId });
+    console.timeEnd('skip-question-db-query');
+
     if (!interview) {
+      console.timeEnd('skip-question-total');
       return res.status(404).json({ 
         success: false,
         error: 'Interview not found' 
@@ -1684,6 +1857,7 @@ export const skipQuestion = async (req, res) => {
 
     const currentQuestionIndex = interview.responses.length;
     if (currentQuestionIndex >= interview.questions.length) {
+      console.timeEnd('skip-question-total');
       return res.status(400).json({
         success: false,
         error: 'No more questions to skip'
@@ -1716,8 +1890,11 @@ export const skipQuestion = async (req, res) => {
       interview.startedAt = new Date();
     }
 
+    console.time('skip-question-db-save');
     await interview.save();
+    console.timeEnd('skip-question-db-save');
 
+    console.timeEnd('skip-question-total');
     res.json({
       success: true,
       message: 'Question skipped',
@@ -1728,6 +1905,7 @@ export const skipQuestion = async (req, res) => {
       }
     });
   } catch (error) {
+    console.timeEnd('skip-question-total');
     console.error('Skip question error:', error);
     res.status(500).json({ 
       success: false,
@@ -1738,22 +1916,27 @@ export const skipQuestion = async (req, res) => {
 };
 
 export const analyzeResponse = async (req, res) => {
+  console.time('analyze-response-total');
   try {
     const { question, questionType, responseText, code, language } = req.body;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
     if (!userId) {
+      console.timeEnd('analyze-response-total');
       return res.status(401).json({
         success: false,
         error: 'User not authenticated'
       });
     }
 
+    console.time('input-validation');
     const sanitizedResponseText = validateAndSanitizeInput(responseText);
     const sanitizedCode = validateAndSanitizeInput(code);
     const validatedLanguage = validateLanguage(language);
+    console.timeEnd('input-validation');
 
     if (!question || !sanitizedResponseText) {
+      console.timeEnd('analyze-response-total');
       return res.status(400).json({
         success: false,
         error: 'Question and response text are required'
@@ -1761,6 +1944,7 @@ export const analyzeResponse = async (req, res) => {
     }
 
     let feedback;
+    console.time('feedback-generation');
     try {
       feedback = await generateEnhancedAIFeedback(
         question, 
@@ -1771,15 +1955,20 @@ export const analyzeResponse = async (req, res) => {
       );
     } catch (error) {
       console.error('AI Analysis failed, using fallback:', error.message);
+      console.time('fallback-feedback');
       feedback = generateFallbackFeedback(questionType, sanitizedResponseText, sanitizedCode);
+      console.timeEnd('fallback-feedback');
     }
+    console.timeEnd('feedback-generation');
 
+    console.timeEnd('analyze-response-total');
     res.json({
       success: true,
       feedback
     });
 
   } catch (error) {
+    console.timeEnd('analyze-response-total');
     console.error('Analyze response error:', error);
     res.status(500).json({
       success: false,
@@ -1790,12 +1979,17 @@ export const analyzeResponse = async (req, res) => {
 };
 
 export const completeInterview = async (req, res) => {
+  console.time('complete-interview-total');
   try {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
+    console.time('complete-interview-db-query');
     const interview = await InterviewModel.findOne({ _id: interviewId, userId });
+    console.timeEnd('complete-interview-db-query');
+
     if (!interview) {
+      console.timeEnd('complete-interview-total');
       return res.status(404).json({ 
         success: false,
         error: 'Interview not found' 
@@ -1803,21 +1997,28 @@ export const completeInterview = async (req, res) => {
     }
 
     if (interview.status === 'completed') {
+      const results = calculateFinalResults(interview.responses, interview.totalDuration || 0);
+      console.timeEnd('complete-interview-total');
       return res.json({
         success: true,
         message: 'Interview already completed',
-        results: calculateFinalResults(interview.responses, interview.totalDuration || 0)
+        results
       });
     }
 
     let overallAnalysis;
+    console.time('overall-analysis');
     try {
       overallAnalysis = await generateOverallFeedback(interview.responses);
     } catch (feedbackError) {
       console.error('Overall feedback generation failed:', feedbackError.message);
+      console.time('fast-overall-feedback');
       overallAnalysis = generateFastOverallFeedback(interview.responses);
+      console.timeEnd('fast-overall-feedback');
     }
+    console.timeEnd('overall-analysis');
 
+    console.time('interview-completion-processing');
     interview.status = 'completed';
     interview.completedAt = new Date();
     
@@ -1835,8 +2036,13 @@ export const completeInterview = async (req, res) => {
     };
     
     interview.updatedAt = new Date();
-    await interview.save();
+    console.timeEnd('interview-completion-processing');
 
+    console.time('complete-interview-db-save');
+    await interview.save();
+    console.timeEnd('complete-interview-db-save');
+
+    console.timeEnd('complete-interview-total');
     res.json({
       success: true,
       message: 'Interview completed successfully',
@@ -1848,6 +2054,7 @@ export const completeInterview = async (req, res) => {
       }
     });
   } catch (error) {
+    console.timeEnd('complete-interview-total');
     console.error('Complete interview error:', error);
     res.status(500).json({ 
       success: false,
@@ -1859,7 +2066,9 @@ export const completeInterview = async (req, res) => {
 
 // Generate overall feedback for completed interview
 async function generateOverallFeedback(responses) {
+  console.time('generate-overall-feedback');
   try {
+    console.time('overall-feedback-model-init');
     const model = genAI.getGenerativeModel({ 
       model: "gemini-1.5-flash",
       generationConfig: { 
@@ -1867,13 +2076,16 @@ async function generateOverallFeedback(responses) {
         maxOutputTokens: 800,
       }
     });
+    console.timeEnd('overall-feedback-model-init');
 
+    console.time('overall-feedback-data-prep');
     const scores = responses.map(r => r.feedback?.score || 0);
     const averageScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
     
     const behavioralCount = responses.filter(r => r.questionType === 'behavioral').length;
     const technicalCount = responses.filter(r => r.questionType === 'technical').length;
     const codingCount = responses.filter(r => r.questionType === 'coding').length;
+    console.timeEnd('overall-feedback-data-prep');
 
     const prompt = `You are a senior hiring manager conducting final assessment of an intern interview. Provide honest, constructive evaluation.
 
@@ -1920,13 +2132,18 @@ hiringRecommendation options:
 Be honest about gaps while providing constructive guidance for improvement.`;
 
     console.log('Generating overall interview feedback...');
+    console.time('overall-feedback-api-call');
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const rawText = response.text();
+    console.timeEnd('overall-feedback-api-call');
 
+    console.time('overall-feedback-processing');
     let cleanText = rawText.trim().replace(/```json\s*|```\s*/g, '');
     let aiAnalysis = JSON.parse(cleanText);
+    console.timeEnd('overall-feedback-processing');
 
+    console.timeEnd('generate-overall-feedback');
     return {
       score: Math.round(aiAnalysis.overallScore || averageScore),
       feedback: {
@@ -1940,6 +2157,7 @@ Be honest about gaps while providing constructive guidance for improvement.`;
     };
 
   } catch (error) {
+    console.timeEnd('generate-overall-feedback');
     console.error('Overall feedback generation failed:', error.message);
     return generateFastOverallFeedback(responses);
   }
@@ -1947,6 +2165,7 @@ Be honest about gaps while providing constructive guidance for improvement.`;
 
 // Fast fallback for overall feedback
 function generateFastOverallFeedback(responses) {
+  console.time('fast-overall-feedback');
   const scores = responses.map(r => r.feedback?.score || 0);
   const averageScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
   
@@ -1954,7 +2173,7 @@ function generateFastOverallFeedback(responses) {
                         averageScore >= 60 ? 'Nearly Ready' : 
                         averageScore >= 45 ? 'Needs Development' : 'Not Ready Yet';
   
-  return {
+  const result = {
     score: Math.round(averageScore),
     feedback: {
       readinessLevel: readinessLevel,
@@ -1975,6 +2194,8 @@ function generateFastOverallFeedback(responses) {
       categoryScores: calculateCategoryScores(responses)
     }
   };
+  console.timeEnd('fast-overall-feedback');
+  return result;
 }
 
 function calculateCategoryScores(responses) {
@@ -1999,21 +2220,28 @@ function calculateCategoryScores(responses) {
 }
 
 export const getInterviewFeedback = async (req, res) => {
+  console.time('get-interview-feedback-total');
   try {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
+    console.time('get-feedback-db-query');
     const interview = await InterviewModel.findOne({ _id: interviewId, userId });
+    console.timeEnd('get-feedback-db-query');
 
     if (!interview) {
+      console.timeEnd('get-interview-feedback-total');
       return res.status(404).json({ 
         success: false,
         error: 'Interview not found' 
       });
     }
 
+    console.time('calculate-final-results');
     const finalResults = calculateFinalResults(interview.responses, interview.totalDuration || 0);
+    console.timeEnd('calculate-final-results');
 
+    console.timeEnd('get-interview-feedback-total');
     res.json({
       success: true,
       feedback: {
@@ -2024,6 +2252,7 @@ export const getInterviewFeedback = async (req, res) => {
       }
     });
   } catch (error) {
+    console.timeEnd('get-interview-feedback-total');
     console.error('Get feedback error:', error);
     res.status(500).json({ 
       success: false,
@@ -2033,10 +2262,12 @@ export const getInterviewFeedback = async (req, res) => {
 };
 
 export const getUserInterviews = async (req, res) => {
+  console.time('get-user-interviews-total');
   try {
     const userId = req.user?.userId || req.user?.id || req.user?._id;
     const { page = 1, limit = 10 } = req.query;
 
+    console.time('get-interviews-db-query');
     const interviews = await InterviewModel.find({ userId })
       .sort({ createdAt: -1 })
       .limit(limit * 1)
@@ -2044,7 +2275,9 @@ export const getUserInterviews = async (req, res) => {
       .select('status overallFeedback createdAt completedAt totalDuration');
 
     const total = await InterviewModel.countDocuments({ userId });
+    console.timeEnd('get-interviews-db-query');
 
+    console.timeEnd('get-user-interviews-total');
     res.json({
       success: true,
       interviews,
@@ -2056,6 +2289,7 @@ export const getUserInterviews = async (req, res) => {
       }
     });
   } catch (error) {
+    console.timeEnd('get-user-interviews-total');
     console.error('Get user interviews error:', error);
     res.status(500).json({ 
       success: false,
@@ -2065,24 +2299,30 @@ export const getUserInterviews = async (req, res) => {
 };
 
 export const getInterview = async (req, res) => {
+  console.time('get-interview-total');
   try {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
+    console.time('get-interview-db-query');
     const interview = await InterviewModel.findOne({ _id: interviewId, userId });
+    console.timeEnd('get-interview-db-query');
 
     if (!interview) {
+      console.timeEnd('get-interview-total');
       return res.status(404).json({ 
         success: false,
         error: 'Interview not found' 
       });
     }
 
+    console.timeEnd('get-interview-total');
     res.json({
       success: true,
       interview
     });
   } catch (error) {
+    console.timeEnd('get-interview-total');
     console.error('Get interview error:', error);
     res.status(500).json({ 
       success: false,
@@ -2092,6 +2332,7 @@ export const getInterview = async (req, res) => {
 };
 
 function calculateFinalResults(responses, totalDuration) {
+  console.time('calculate-final-results');
   const scores = responses.map(r => r.feedback?.score || 0);
   const overallScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
   
@@ -2125,7 +2366,7 @@ function calculateFinalResults(responses, totalDuration) {
     (categoryScores.coding + categoryScores.technical) / 2
   );
 
-  return {
+  const result = {
     score: Math.round(overallScore),
     duration: totalDuration,
     categoryPercentages: {
@@ -2146,10 +2387,13 @@ function calculateFinalResults(responses, totalDuration) {
         : 0
     }
   };
+  console.timeEnd('calculate-final-results');
+  return result;
 }
 
 // Additional debugging endpoint for testing the complete flow
 export const debugInterviewFlow = async (req, res) => {
+  console.time('debug-interview-flow-total');
   try {
     console.log('Debug interview flow test');
     
@@ -2207,10 +2451,13 @@ This is a great opportunity for students to gain real-world experience in backen
     console.log('Test inputs prepared');
     console.log('Testing question generation...');
     
+    console.time('question-generation');
     const questions = await generatePersonalizedQuestionsWithFullContent(testResumeText, testJobDescription);
+    console.timeEnd('question-generation');
     
     console.log('Questions generated successfully:', questions.length);
     
+    console.timeEnd('debug-interview-flow-total');
     res.json({
       success: true,
       message: 'Debug test completed successfully',
@@ -2230,6 +2477,7 @@ This is a great opportunity for students to gain real-world experience in backen
     });
     
   } catch (error) {
+    console.timeEnd('debug-interview-flow-total');
     console.error('Debug flow error:', error);
     res.status(500).json({
       success: false,
@@ -2244,9 +2492,11 @@ This is a great opportunity for students to gain real-world experience in backen
 
 // Test endpoint to verify Gemini API connectivity and environment setup
 export const testEnvironmentSetup = async (req, res) => {
+  console.time('test-environment-setup-total');
   try {
     console.log('Testing environment setup');
     
+    console.time('environment-check');
     const environmentCheck = {
       geminiApiKey: {
         exists: !!process.env.GEMINI_API_KEY,
@@ -2259,10 +2509,12 @@ export const testEnvironmentSetup = async (req, res) => {
       },
       nodeEnv: process.env.NODE_ENV || 'development'
     };
+    console.timeEnd('environment-check');
 
     console.log('Environment check results:', environmentCheck);
 
     if (!environmentCheck.geminiApiKey.exists) {
+      console.timeEnd('test-environment-setup-total');
       return res.status(500).json({
         success: false,
         error: 'Gemini API key not found in environment variables',
@@ -2271,6 +2523,7 @@ export const testEnvironmentSetup = async (req, res) => {
     }
 
     if (!environmentCheck.geminiApiKey.valid) {
+      console.timeEnd('test-environment-setup-total');
       return res.status(500).json({
         success: false,
         error: 'Gemini API key format appears invalid',
@@ -2279,13 +2532,16 @@ export const testEnvironmentSetup = async (req, res) => {
     }
 
     // Test actual API connection
+    console.time('api-connection-test');
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const testResult = await model.generateContent("Respond with: API_TEST_SUCCESS");
     const response = await testResult.response;
     const text = response.text();
+    console.timeEnd('api-connection-test');
 
     console.log('API test response:', text);
 
+    console.timeEnd('test-environment-setup-total');
     res.json({
       success: true,
       message: 'Environment setup verified successfully',
@@ -2297,6 +2553,7 @@ export const testEnvironmentSetup = async (req, res) => {
     });
 
   } catch (error) {
+    console.timeEnd('test-environment-setup-total');
     console.error('Environment test failed:', error);
     
     res.status(500).json({
