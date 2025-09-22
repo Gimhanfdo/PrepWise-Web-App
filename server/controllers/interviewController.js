@@ -1180,22 +1180,6 @@ export const submitAnswer = async (req, res) => {
     console.log('Response Text Length:', responseText?.length || 0);
     console.log('Has Code:', !!code);
 
-    console.log('🧹 Sanitizing input');
-    const sanitizeStartTime = Date.now();
-    const sanitizedResponseText = validateAndSanitizeInput(responseText);
-    const sanitizedCode = validateAndSanitizeInput(code);
-    const validatedLanguage = validateLanguage(language);
-    const sanitizeDuration = Date.now() - sanitizeStartTime;
-    console.log('✅ Input sanitized - Duration:', sanitizeDuration, 'ms');
-
-    if (!sanitizedResponseText || sanitizedResponseText.length === 0) {
-      console.log('❌ No response text - Total Duration:', Date.now() - startTime, 'ms');
-      return res.status(400).json({ 
-        success: false,
-        error: 'Response text is required' 
-      });
-    }
-
     console.log('📋 Fetching interview');
     const dbFetchStartTime = Date.now();
     const interview = await InterviewModel.findOne({ _id: interviewId, userId });
@@ -1219,9 +1203,9 @@ export const submitAnswer = async (req, res) => {
       });
     }
 
-    // Handle skipped questions quickly
+    // Handle skipped questions quickly - NO PROCESSING
     if (skipped) {
-      console.log('⏭️ Processing skipped question');
+      console.log('⏭️ Processing skipped question (fast path)');
       const skipStartTime = Date.now();
       
       const response = {
@@ -1229,12 +1213,12 @@ export const submitAnswer = async (req, res) => {
         question: question.question,
         questionType: question.type,
         transcription: null,
-        textResponse: sanitizedResponseText,
+        textResponse: 'Question skipped',
         code: null,
         language: null,
         responseTime: parseInt(responseTime) || 0,
         submittedAt: new Date(),
-        feedback: generateSkippedQuestionFeedback(),
+        feedback: null, // No feedback for skipped questions
         skipped: true
       };
 
@@ -1249,18 +1233,34 @@ export const submitAnswer = async (req, res) => {
 
       await interview.save();
       const skipDuration = Date.now() - skipStartTime;
-      console.log('✅ Skipped question processed - Duration:', skipDuration, 'ms');
+      console.log('✅ Skipped question processed (fast) - Duration:', skipDuration, 'ms');
 
       console.log('✅ Submit answer completed (skipped) - Total Duration:', Date.now() - startTime, 'ms');
       return res.json({
         success: true,
         message: 'Question skipped successfully',
-        feedback: response.feedback,
         progress: {
           current: interview.responses.length,
           total: interview.questions.length,
           completed: interview.responses.length >= interview.questions.length
         }
+      });
+    }
+
+    // Regular answer processing continues for non-skipped answers
+    console.log('🧹 Sanitizing input');
+    const sanitizeStartTime = Date.now();
+    const sanitizedResponseText = validateAndSanitizeInput(responseText);
+    const sanitizedCode = validateAndSanitizeInput(code);
+    const validatedLanguage = validateLanguage(language);
+    const sanitizeDuration = Date.now() - sanitizeStartTime;
+    console.log('✅ Input sanitized - Duration:', sanitizeDuration, 'ms');
+
+    if (!sanitizedResponseText || sanitizedResponseText.length === 0) {
+      console.log('❌ No response text - Total Duration:', Date.now() - startTime, 'ms');
+      return res.status(400).json({ 
+        success: false,
+        error: 'Response text is required' 
       });
     }
 
@@ -1838,17 +1838,21 @@ function generateStrictAssessment(score) {
 }
 
 export const skipQuestion = async (req, res) => {
-  console.time('skip-question-total');
+  const startTime = Date.now();
+  console.log('⏭️ Skip question started');
+  
   try {
     const { interviewId } = req.params;
     const userId = req.user?.userId || req.user?.id || req.user?._id;
 
-    console.time('skip-question-db-query');
+    console.log('📋 Fetching interview');
+    const dbStartTime = Date.now();
     const interview = await InterviewModel.findOne({ _id: interviewId, userId });
-    console.timeEnd('skip-question-db-query');
+    const dbDuration = Date.now() - dbStartTime;
+    console.log('✅ Interview fetched - Duration:', dbDuration, 'ms');
 
     if (!interview) {
-      console.timeEnd('skip-question-total');
+      console.log('❌ Interview not found - Total Duration:', Date.now() - startTime, 'ms');
       return res.status(404).json({ 
         success: false,
         error: 'Interview not found' 
@@ -1857,7 +1861,7 @@ export const skipQuestion = async (req, res) => {
 
     const currentQuestionIndex = interview.responses.length;
     if (currentQuestionIndex >= interview.questions.length) {
-      console.timeEnd('skip-question-total');
+      console.log('❌ No more questions to skip - Total Duration:', Date.now() - startTime, 'ms');
       return res.status(400).json({
         success: false,
         error: 'No more questions to skip'
@@ -1866,19 +1870,20 @@ export const skipQuestion = async (req, res) => {
 
     const question = interview.questions[currentQuestionIndex];
     
+    // Minimal skip response - no feedback generation
     const skipResponse = {
       questionId: question.questionId,
       question: question.question,
       questionType: question.type,
       transcription: null,
-      textResponse: 'Question skipped by candidate',
+      textResponse: 'Question skipped',
       code: null,
       language: null,
       responseTime: 0,
       recordingDuration: null,
       submittedAt: new Date(),
       skipped: true,
-      feedback: generateSkippedQuestionFeedback()
+      feedback: null // No feedback for skipped questions
     };
 
     interview.responses.push(skipResponse);
@@ -1890,11 +1895,13 @@ export const skipQuestion = async (req, res) => {
       interview.startedAt = new Date();
     }
 
-    console.time('skip-question-db-save');
+    console.log('💾 Saving skip to database');
+    const saveStartTime = Date.now();
     await interview.save();
-    console.timeEnd('skip-question-db-save');
+    const saveDuration = Date.now() - saveStartTime;
+    console.log('✅ Skip saved - Duration:', saveDuration, 'ms');
 
-    console.timeEnd('skip-question-total');
+    console.log('✅ Skip question completed - Total Duration:', Date.now() - startTime, 'ms');
     res.json({
       success: true,
       message: 'Question skipped',
@@ -1905,8 +1912,7 @@ export const skipQuestion = async (req, res) => {
       }
     });
   } catch (error) {
-    console.timeEnd('skip-question-total');
-    console.error('Skip question error:', error);
+    console.error('❌ Skip question error - Duration:', Date.now() - startTime, 'ms', error);
     res.status(500).json({ 
       success: false,
       error: 'Failed to skip question',
@@ -2064,10 +2070,34 @@ export const completeInterview = async (req, res) => {
   }
 };
 
-// Generate overall feedback for completed interview
 async function generateOverallFeedback(responses) {
   console.time('generate-overall-feedback');
   try {
+    // Filter out skipped questions for analysis
+    const answeredResponses = responses.filter(r => !r.skipped && r.feedback);
+    const skippedCount = responses.filter(r => r.skipped).length;
+    
+    if (answeredResponses.length === 0) {
+      // All questions were skipped - return immediate feedback
+      console.timeEnd('generate-overall-feedback');
+      return {
+        score: 0,
+        feedback: {
+          readinessLevel: 'Not Ready for Intern Role',
+          strengths: ['Completed interview session'],
+          improvements: ['Answer questions instead of skipping', 'Prepare thoroughly before interviews', 'Build confidence in technical skills'],
+          recommendations: ['Study fundamental concepts', 'Practice coding problems', 'Work on personal projects'],
+          generalFeedback: `All ${responses.length} questions were skipped, indicating lack of preparation or confidence. This is a significant concern for interview readiness.`,
+          categoryScores: {
+            technicalKnowledge: 0,
+            codingAbility: 0,
+            behavioralSkills: 0,
+            communication: 0
+          }
+        }
+      };
+    }
+
     console.time('overall-feedback-model-init');
     const model = genAI.getGenerativeModel({ 
       model: "gemini-1.5-flash",
@@ -2079,25 +2109,28 @@ async function generateOverallFeedback(responses) {
     console.timeEnd('overall-feedback-model-init');
 
     console.time('overall-feedback-data-prep');
-    const scores = responses.map(r => r.feedback?.score || 0);
+    const scores = answeredResponses.map(r => r.feedback?.score || 0);
     const averageScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
     
-    const behavioralCount = responses.filter(r => r.questionType === 'behavioral').length;
-    const technicalCount = responses.filter(r => r.questionType === 'technical').length;
-    const codingCount = responses.filter(r => r.questionType === 'coding').length;
+    const behavioralCount = answeredResponses.filter(r => r.questionType === 'behavioral').length;
+    const technicalCount = answeredResponses.filter(r => r.questionType === 'technical').length;
+    const codingCount = answeredResponses.filter(r => r.questionType === 'coding').length;
     console.timeEnd('overall-feedback-data-prep');
 
     const prompt = `You are a senior hiring manager conducting final assessment of an intern interview. Provide honest, constructive evaluation.
 
 INTERVIEW SUMMARY:
-- Questions Answered: ${responses.length}
-- Behavioral Questions: ${behavioralCount}
-- Technical Questions: ${technicalCount}  
-- Coding Questions: ${codingCount}
-- Average Score: ${averageScore.toFixed(1)}/100
+- Total Questions: ${responses.length}
+- Questions Answered: ${answeredResponses.length}
+- Questions Skipped: ${skippedCount}
+- Behavioral Questions Answered: ${behavioralCount}
+- Technical Questions Answered: ${technicalCount}  
+- Coding Questions Answered: ${codingCount}
+- Average Score (answered questions): ${averageScore.toFixed(1)}/100
 
 INDIVIDUAL QUESTION PERFORMANCE:
-${responses.map((r, i) => `Q${i+1} (${r.questionType}): ${r.feedback?.score || 0}/100`).join('\n')}
+${answeredResponses.map((r, i) => `Q${i+1} (${r.questionType}): ${r.feedback?.score || 0}/100`).join('\n')}
+${skippedCount > 0 ? `${skippedCount} questions were skipped` : ''}
 
 STRICT EVALUATION CRITERIA:
 - 85-100: Exceptional candidate, exceeds intern expectations
@@ -2106,22 +2139,24 @@ STRICT EVALUATION CRITERIA:
 - 40-54: Weak candidate, requires significant development
 - 0-39: Not ready for intern position
 
+NOTE: Skipped questions significantly impact overall assessment and readiness evaluation.
+
 Return ONLY this JSON:
 {
-  "overallScore": 62,
+  "overallScore": 45,
   "readinessLevel": "Needs Development Before Ready",
-  "keyStrengths": ["Specific strengths observed across questions"],
+  "keyStrengths": ["Specific strengths observed across answered questions"],
   "majorImprovements": ["Critical areas requiring focused improvement"],
   "recommendations": ["Specific, actionable steps for improvement"],
-  "generalFeedback": "Honest assessment of performance with specific examples from their responses",
+  "generalFeedback": "Honest assessment including impact of skipped questions",
   "hiringRecommendation": "Clear recommendation with justification"
 }
 
 readinessLevel options:
-- "Ready for Intern Position" (70+ average)
-- "Nearly Ready with Mentoring" (55-69 average)  
-- "Needs Development Before Ready" (40-54 average)
-- "Not Yet Ready for Intern Role" (below 40 average)
+- "Ready for Intern Position" (70+ average, no skips)
+- "Nearly Ready with Mentoring" (55-69 average, minimal skips)  
+- "Needs Development Before Ready" (40-54 average or significant skips)
+- "Not Yet Ready for Intern Role" (below 40 average or mostly skipped)
 
 hiringRecommendation options:
 - "Strong Hire" - Exceptional performance
@@ -2129,7 +2164,7 @@ hiringRecommendation options:
 - "Hire with Mentoring" - Has potential, needs support  
 - "No Hire - Reapply After Development" - Not ready currently
 
-Be honest about gaps while providing constructive guidance for improvement.`;
+Factor in skipped questions as a negative indicator of interview readiness.`;
 
     console.log('Generating overall interview feedback...');
     console.time('overall-feedback-api-call');
@@ -2151,8 +2186,8 @@ Be honest about gaps while providing constructive guidance for improvement.`;
         strengths: Array.isArray(aiAnalysis.keyStrengths) ? aiAnalysis.keyStrengths : ['Completed interview'],
         improvements: Array.isArray(aiAnalysis.majorImprovements) ? aiAnalysis.majorImprovements : ['Continue practicing'],
         recommendations: Array.isArray(aiAnalysis.recommendations) ? aiAnalysis.recommendations : ['Build experience'],
-        generalFeedback: aiAnalysis.generalFeedback || `Completed ${responses.length} questions with ${averageScore.toFixed(1)}% average.`,
-        categoryScores: calculateCategoryScores(responses)
+        generalFeedback: aiAnalysis.generalFeedback || `Answered ${answeredResponses.length}/${responses.length} questions with ${averageScore.toFixed(1)}% average.`,
+        categoryScores: calculateCategoryScores(answeredResponses)
       }
     };
 
@@ -2333,12 +2368,43 @@ export const getInterview = async (req, res) => {
 
 function calculateFinalResults(responses, totalDuration) {
   console.time('calculate-final-results');
-  const scores = responses.map(r => r.feedback?.score || 0);
+  
+  // Filter out skipped questions when calculating scores
+  const answeredResponses = responses.filter(r => !r.skipped && r.feedback);
+  const skippedCount = responses.filter(r => r.skipped).length;
+  
+  if (answeredResponses.length === 0) {
+    // All questions were skipped
+    console.timeEnd('calculate-final-results');
+    return {
+      score: 0,
+      duration: totalDuration,
+      categoryPercentages: {
+        behavioral: 0,
+        technical: 0,
+        coding: 0,
+        communication: 0,
+        technicalAccuracy: 0,
+        problemSolving: 0
+      },
+      breakdown: {
+        totalQuestions: responses.length,
+        answeredQuestions: 0,
+        skippedQuestions: skippedCount,
+        behavioralQuestions: 0,
+        technicalQuestions: 0,
+        codingQuestions: 0,
+        averageResponseTime: 0
+      }
+    };
+  }
+  
+  const scores = answeredResponses.map(r => r.feedback?.score || 0);
   const overallScore = scores.reduce((sum, score) => sum + score, 0) / scores.length;
   
-  const behavioralResponses = responses.filter(r => r.questionType === 'behavioral');
-  const technicalResponses = responses.filter(r => r.questionType === 'technical');
-  const codingResponses = responses.filter(r => r.questionType === 'coding');
+  const behavioralResponses = answeredResponses.filter(r => r.questionType === 'behavioral');
+  const technicalResponses = answeredResponses.filter(r => r.questionType === 'technical');
+  const codingResponses = answeredResponses.filter(r => r.questionType === 'coding');
 
   const categoryScores = {
     behavioral: behavioralResponses.length > 0 
@@ -2355,11 +2421,11 @@ function calculateFinalResults(responses, totalDuration) {
   };
 
   const communicationScore = Math.round(
-    responses.reduce((sum, r) => sum + (r.feedback?.communicationClarity || 5), 0) / responses.length
+    answeredResponses.reduce((sum, r) => sum + (r.feedback?.communicationClarity || 5), 0) / answeredResponses.length
   );
 
   const technicalAccuracyScore = Math.round(
-    responses.reduce((sum, r) => sum + (r.feedback?.technicalAccuracy || 5), 0) / responses.length
+    answeredResponses.reduce((sum, r) => sum + (r.feedback?.technicalAccuracy || 5), 0) / answeredResponses.length
   );
 
   const problemSolvingScore = Math.round(
@@ -2379,11 +2445,13 @@ function calculateFinalResults(responses, totalDuration) {
     },
     breakdown: {
       totalQuestions: responses.length,
+      answeredQuestions: answeredResponses.length,
+      skippedQuestions: skippedCount,
       behavioralQuestions: behavioralResponses.length,
       technicalQuestions: technicalResponses.length,
       codingQuestions: codingResponses.length,
-      averageResponseTime: responses.length > 0 
-        ? Math.round(responses.reduce((sum, r) => sum + (r.responseTime || 0), 0) / responses.length)
+      averageResponseTime: answeredResponses.length > 0 
+        ? Math.round(answeredResponses.reduce((sum, r) => sum + (r.responseTime || 0), 0) / answeredResponses.length)
         : 0
     }
   };
