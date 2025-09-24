@@ -1,6 +1,35 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit, Trash2, Save, X, User, BookOpen, Briefcase, Award, Calendar, Clock, Users, Link, CheckCircle, AlertCircle, GraduationCap, Key } from 'lucide-react';
 
+// Validation utilities
+const isValidURL = (string) => {
+  try {
+    new URL(string);
+    return true;
+  } catch (_) {
+    return false;
+  }
+};
+
+const isFutureDate = (dateString, timeString = null) => {
+  if (!dateString) return false;
+  
+  const selectedDate = new Date(dateString);
+  const now = new Date();
+  
+  // If time is provided, include it in the comparison
+  if (timeString) {
+    const [hours, minutes] = timeString.split(':');
+    selectedDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+  } else {
+    // For date-only comparison, set to start of day
+    selectedDate.setHours(0, 0, 0, 0);
+    now.setHours(0, 0, 0, 0);
+  }
+  
+  return selectedDate > now;
+};
+
 // Extracted form components to prevent heavy re-renders
 const TrainingFormFields = React.memo(({ 
   trainingForm, 
@@ -315,6 +344,57 @@ const TrainerDashboard = () => {
     fetchTrainerProfile();
   }, []);
 
+  // Validation functions
+  const validateTrainingForm = () => {
+    const errors = [];
+
+    if (!trainingForm.title?.trim()) {
+      errors.push('Title is required');
+    }
+
+    if (!trainingForm.trainingType) {
+      errors.push('Training type is required');
+    }
+
+    if (trainingForm.trainingType === 'technical') {
+      if (!trainingForm.startDate) {
+        errors.push('Date is required for technical training');
+      } else if (!isFutureDate(trainingForm.startDate, trainingForm.startTime)) {
+        errors.push('Training date and time must be in the future');
+      }
+
+      if (!trainingForm.startTime) {
+        errors.push('Time is required for technical training');
+      }
+    }
+
+    if (trainingForm.trainingType === 'soft skills') {
+      if (!trainingForm.timeSlots || trainingForm.timeSlots.length === 0) {
+        errors.push('At least one time slot is required for soft skills training');
+      }
+    }
+
+    if (trainingForm.onlineLink && trainingForm.onlineLink.trim() && !isValidURL(trainingForm.onlineLink)) {
+      errors.push('Please enter a valid URL for the online link');
+    }
+
+    return errors;
+  };
+
+  const validateTrainerForm = () => {
+    const errors = [];
+
+    if (!trainerForm.name?.trim()) {
+      errors.push('Name is required');
+    }
+
+    if (!trainerForm.email?.trim()) {
+      errors.push('Email is required');
+    }
+
+    return errors;
+  };
+
   // Fetch trainer profile - FIXED VERSION
   const fetchTrainerProfile = async () => {
     try {
@@ -342,6 +422,7 @@ const TrainerDashboard = () => {
         
         setTrainer(trainerData);
         setTrainings(data.data.trainingPrograms || []);
+        setError('');
       } else {
         setError(data.message || 'Failed to fetch trainer profile');
       }
@@ -355,8 +436,9 @@ const TrainerDashboard = () => {
 
   // FIXED: Use proper spread operator for state updates
   const updateTrainerProfile = async () => {
-    if (!trainerForm.name.trim() || !trainerForm.email.trim()) {
-      setError('Name and email are required');
+    const validationErrors = validateTrainerForm();
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join(', '));
       return;
     }
 
@@ -404,21 +486,10 @@ const TrainerDashboard = () => {
   };
 
   const addTraining = async () => {
-    if (!trainingForm.title || !trainingForm.title.trim() || !trainingForm.trainingType) {
-      setError('Title and training type are required');
+    const validationErrors = validateTrainingForm();
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join(', '));
       return;
-    }
-
-    if (trainingForm.trainingType === 'technical') {
-      if (!trainingForm.startDate || !trainingForm.startTime) {
-        setError('Date and time are required for technical training');
-        return;
-      }
-    } else if (trainingForm.trainingType === 'soft skills') {
-      if (trainingForm.timeSlots.length === 0) {
-        setError('At least one time slot is required for soft skills training');
-        return;
-      }
     }
 
     try {
@@ -456,8 +527,9 @@ const TrainerDashboard = () => {
   };
 
   const updateTraining = async () => {
-    if (!trainingForm.title || !trainingForm.title.trim() || !trainingForm.trainingType) {
-      setError('Title and training type are required');
+    const validationErrors = validateTrainingForm();
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join(', '));
       return;
     }
 

@@ -236,15 +236,21 @@ const TrainingBookingPage = () => {
         {/* Progress Indicator */}
         <div className="flex items-center justify-center mb-8">
           <div className="flex items-center space-x-4">
-            <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
-              bookingStep >= 1 ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-600'
-            }`}>
+            <div 
+              role="button"
+              className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                bookingStep >= 1 ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-600'
+              }`}
+            >
               1
             </div>
             <div className={`h-1 w-16 ${bookingStep >= 2 ? 'bg-blue-600' : 'bg-gray-300'}`}></div>
-            <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
-              bookingStep >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-600'
-            }`}>
+            <div 
+              role="button"
+              className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                bookingStep >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-600'
+              }`}
+            >
               2
             </div>
           </div>
@@ -366,6 +372,7 @@ const TrainingBookingPage = () => {
                                 ? 'border-blue-500 bg-blue-50 text-blue-700'
                                 : 'border-gray-200 hover:border-gray-300'
                             }`}
+                            data-testid={`time-slot-${slot}`}
                           >
                             <div className="flex items-center">
                               <Clock className="w-4 h-4 mr-2" />
@@ -504,7 +511,7 @@ const TrainingBookingPage = () => {
                   </div>
                 )}
 
-                {training.trainingType === 'soft skills' && selectedSlot && (
+                {training.trainingType === 'soft skills' && selectedSlot && bookingStep === 2 && (
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-600">Time Slot:</span>
                     <span className="font-medium text-xs">{selectedSlot}</span>
@@ -513,7 +520,7 @@ const TrainingBookingPage = () => {
 
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Available Spots:</span>
-                  <span className="font-medium">{availableSpots}</span>
+                  <span className="font-medium" data-testid="available-spots">{availableSpots}</span>
                 </div>
 
                 <hr className="border-gray-200" />

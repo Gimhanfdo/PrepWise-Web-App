@@ -31,39 +31,77 @@ const NoticesPage = () => {
     },
     {
       id: 2,
-      title: "Dialog Axiata Launches 5G Network Nationwide",
-      summary: "Complete 5G coverage now available across Colombo, with expansion to other provinces.",
+      title: "Dialog Axiata Launches 5G Network with AI Integration",
+      summary: "Complete 5G coverage now available across Colombo, powered by artificial intelligence for network optimization.",
       source: "Dialog Axiata",
       type: "industry",
       priority: "medium",
       time: "5 hours ago",
-      tags: ["5G", "Telecommunications", "Infrastructure"],
+      tags: ["5G", "AI", "Telecommunications", "Infrastructure"],
       url: "#",
       imageUrl: null
     },
     {
       id: 3,
-      title: "University of Colombo Opens New Computer Science Department",
+      title: "University of Colombo Opens New AI and Computer Science Department",
       summary: "State-of-the-art facilities with focus on AI, blockchain, and cybersecurity research.",
       source: "University of Colombo",
       type: "education",
       priority: "medium",
       time: "1 day ago",
-      tags: ["Education", "Computer Science", "Research"],
+      tags: ["Education", "AI", "Computer Science", "Research"],
       url: "#",
       imageUrl: null
     },
     {
       id: 4,
-      title: "Microsoft Azure Data Center Coming to Sri Lanka",
-      summary: "First cloud data center facility to be established in Colombo by 2025.",
+      title: "Microsoft Azure AI Data Center Coming to Sri Lanka",
+      summary: "First cloud data center facility with AI capabilities to be established in Colombo by 2025.",
       source: "Microsoft",
       type: "industry",
       priority: "high",
       time: "2 days ago",
-      tags: ["Cloud Computing", "Infrastructure", "Microsoft"],
+      tags: ["AI", "Cloud Computing", "Infrastructure", "Microsoft"],
       url: "#",
       imageUrl: null
+    }
+  ];
+
+  // Fallback events data
+  const fallbackEvents = [
+    {
+      id: 'event1',
+      title: 'AI Summit Sri Lanka 2025',
+      organizer: 'Tech Conference LK',
+      type: 'conference',
+      date: '2025-12-15',
+      endDate: null,
+      time: '09:00 AM',
+      location: 'Colombo Convention Centre',
+      mode: 'In-person',
+      participants: '500+',
+      fee: 'Free',
+      description: 'Join leading AI experts and researchers for a comprehensive summit on artificial intelligence trends and applications in Sri Lanka.',
+      tags: ['AI', 'Conference', 'Technology'],
+      registrationUrl: 'https://example.com/register',
+      featured: true
+    },
+    {
+      id: 'event2',
+      title: 'Machine Learning Workshop',
+      organizer: 'University of Moratuwa',
+      type: 'workshop',
+      date: '2025-11-20',
+      endDate: null,
+      time: '02:00 PM',
+      location: 'UoM Computer Lab',
+      mode: 'Hybrid',
+      participants: '50',
+      fee: 'LKR 2000',
+      description: 'Hands-on workshop covering machine learning fundamentals and practical implementations.',
+      tags: ['ML', 'Workshop', 'Education'],
+      registrationUrl: 'https://example.com/ml-workshop',
+      featured: false
     }
   ];
 
@@ -72,7 +110,9 @@ const NoticesPage = () => {
     try {
       const response = await fetch(`/api/notices/events`);
       if (!response.ok) {
-        throw new Error(`Failed to fetch events: ${response.status} ${response.statusText}`);
+        console.log('Database events not available, using fallback data');
+        setEvents(fallbackEvents);
+        return;
       }
       
       const data = await response.json();
@@ -83,62 +123,66 @@ const NoticesPage = () => {
         id: event._id || event.id,
         title: event.eventName || 'Untitled Event',
         organizer: event.otherInfo || "Event Organizer",
-        type: "conference", // Default type, you can modify this based on your needs
+        type: "conference", // Default type
         date: event.date ? new Date(event.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        endDate: null, // Add if you have end dates in your schema
+        endDate: null,
         time: event.time || "TBD",
         location: event.venue || "Venue TBD",
+        mode: "In-person", // Default mode
         participants: "TBD",
         fee: "Free", // Default fee
         description: event.eventDescription || "No description available",
-        tags: ["Event", "Tech"], // Default tags, you can enhance this
+        tags: ["Event", "Tech"],
         registrationUrl: event.registrationLink || "#",
-        featured: false // You can add a featured field to your schema if needed
+        featured: false
       }));
 
       console.log('Transformed events:', transformedEvents);
-      setEvents(transformedEvents);
+      
+      // If no events from DB, use fallback
+      if (transformedEvents.length === 0) {
+        setEvents(fallbackEvents);
+      } else {
+        setEvents(transformedEvents);
+      }
       
     } catch (err) {
       console.error("Error fetching events from DB:", err);
-      setError(`Failed to load events: ${err.message}`);
-      // Set empty array instead of leaving it undefined
-      setEvents([]);
+      console.log("Using fallback events data");
+      setEvents(fallbackEvents);
     }
   };
 
-  // Function to fetch news from NewsAPI
   // Function to fetch news from your backend (proxying NewsAPI)
-const fetchTechNews = async () => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/notices/news`); // 👈 Updated
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+  const fetchTechNews = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/notices/news`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const articles = data.articles || [];
+
+      const transformedNotices = articles.map((article, index) => ({
+        id: index + 1,
+        title: article.title,
+        summary: article.description || "No description available",
+        source: article.source.name,
+        type: getNoticeType(article.source.name),
+        priority: getPriority(article.title, article.description),
+        time: getTimeAgo(article.publishedAt),
+        tags: extractTags(article.title, article.description),
+        url: article.url,
+        imageUrl: article.urlToImage,
+      }));
+
+      return transformedNotices.length > 0 ? transformedNotices : fallbackNotices;
+    } catch (error) {
+      console.error("Error fetching tech news:", error);
+      return fallbackNotices;
     }
-
-    const data = await response.json();
-    const articles = data.articles || [];
-
-    const transformedNotices = articles.map((article, index) => ({
-      id: index + 1,
-      title: article.title,
-      summary: article.description || "No description available",
-      source: article.source.name,
-      type: getNoticeType(article.source.name),
-      priority: getPriority(article.title, article.description),
-      time: getTimeAgo(article.publishedAt),
-      tags: extractTags(article.title, article.description),
-      url: article.url,
-      imageUrl: article.urlToImage,
-    }));
-
-    return transformedNotices.length > 0 ? transformedNotices : fallbackNotices;
-  } catch (error) {
-    console.error("Error fetching tech news:", error);
-    return fallbackNotices;
-  }
-};
-
+  };
 
   // Helper function to determine notice type based on source
   const getNoticeType = (sourceName) => {
@@ -161,7 +205,7 @@ const fetchTechNews = async () => {
     const highPriorityKeywords = ['breaking', 'urgent', 'major', 'critical', 'launch', 'announce'];
     const mediumPriorityKeywords = ['new', 'update', 'release', 'introduces'];
     
-    const content = `${title} ${description}`.toLowerCase();
+    const content = `${title} ${description || ''}`.toLowerCase();
     
     if (highPriorityKeywords.some(keyword => content.includes(keyword))) {
       return 'high';
@@ -173,6 +217,8 @@ const fetchTechNews = async () => {
 
   // Helper function to get time ago from published date
   const getTimeAgo = (publishedAt) => {
+    if (!publishedAt) return 'Recently';
+    
     const now = new Date();
     const published = new Date(publishedAt);
     const diffInHours = Math.floor((now - published) / (1000 * 60 * 60));
@@ -189,7 +235,7 @@ const fetchTechNews = async () => {
 
   // Helper function to extract tags from title and description
   const extractTags = (title, description) => {
-    const content = `${title} ${description}`.toLowerCase();
+    const content = `${title} ${description || ''}`.toLowerCase();
     const possibleTags = [
       'AI', 'Machine Learning', 'Blockchain', 'Cryptocurrency', 'Cloud Computing',
       'Cybersecurity', 'Mobile', 'Web Development', 'Data Science', 'IoT',
@@ -216,12 +262,15 @@ const fetchTechNews = async () => {
         console.log('News data loaded:', newsData.length, 'items');
         setNotices(newsData);
         
-        // Fetch events from DB
+        // Fetch events from DB (with fallback)
         await fetchEventsFromDB();
         
       } catch (err) {
         console.error('Error in loadData:', err);
         setError(`Failed to load data: ${err.message}`);
+        // Set fallback data even on error
+        setNotices(fallbackNotices);
+        setEvents(fallbackEvents);
       } finally {
         setLoading(false);
       }
@@ -247,12 +296,17 @@ const fetchTechNews = async () => {
     }
 
     if (searchTerm) {
-      allData = allData.filter(item => 
-        item.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (item.organizer && item.organizer.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (item.source && item.source.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (item.tags && item.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase())))
-      );
+      allData = allData.filter(item => {
+        const searchLower = searchTerm.toLowerCase();
+        return (
+          item.title.toLowerCase().includes(searchLower) ||
+          (item.organizer && item.organizer.toLowerCase().includes(searchLower)) ||
+          (item.source && item.source.toLowerCase().includes(searchLower)) ||
+          (item.summary && item.summary.toLowerCase().includes(searchLower)) ||
+          (item.description && item.description.toLowerCase().includes(searchLower)) ||
+          (item.tags && item.tags.some(tag => tag.toLowerCase().includes(searchLower)))
+        );
+      });
     }
 
     return allData;
@@ -348,20 +402,20 @@ const fetchTechNews = async () => {
 
     return (
       <div className={`rounded-2xl p-6 text-white relative overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-xl ${
-        event.featured ? 'bg-gradient-to-br from-purple-600 to-indigo-700' : `bg-gradient-to-br ${typeGradients[event.type]}`
+        event.featured ? 'bg-gradient-to-br from-purple-600 to-indigo-700' : `bg-gradient-to-br ${typeGradients[event.type] || typeGradients.conference}`
       }`}>
-        {/* {event.featured && (
+        {event.featured && (
           <div className="absolute top-4 right-4">
             <div className="bg-yellow-400 text-yellow-900 px-2 py-1 rounded-full text-xs font-bold">
               FEATURED
             </div>
           </div>
-        )} */}
+        )}
 
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center space-x-3">
             <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
-              {typeIcons[event.type]}
+              {typeIcons[event.type] || typeIcons.conference}
             </div>
             <div>
               <h3 className="text-xl font-bold">{event.title}</h3>
@@ -383,26 +437,30 @@ const fetchTechNews = async () => {
           </div>
           <div className="flex items-center text-white/80 text-sm">
             <MapPin className="w-4 h-4 mr-2" />
-            {event.location} • {event.mode}
+            {event.location} {event.mode && `• ${event.mode}`}
           </div>
-          {/* <div className="flex items-center justify-between text-white/80 text-sm">
-            <div className="flex items-center">
-              <Users className="w-4 h-4 mr-2" />
-              {event.participants} participants
+          {event.participants && (
+            <div className="flex items-center justify-between text-white/80 text-sm">
+              <div className="flex items-center">
+                <Users className="w-4 h-4 mr-2" />
+                {event.participants} participants
+              </div>
+              <div className="font-semibold">
+                {event.fee}
+              </div>
             </div>
-            <div className="font-semibold">
-              {event.fee}
-            </div>
-          </div> */}
+          )}
         </div>
 
-        {/* <div className="flex flex-wrap gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-4">
           {event.tags.map((tag, index) => (
             <span key={index} className="px-2 py-1 bg-white/20 backdrop-blur-sm text-white rounded-lg text-xs font-medium">
               {tag}
             </span>
           ))}
-        </div> */}
+        </div>
+
+
       </div>
     );
   };
@@ -496,9 +554,8 @@ const fetchTechNews = async () => {
         {/* Debug Information */}
         {process.env.NODE_ENV === 'development' && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-            {/* <h4 className="font-medium text-yellow-800 mb-2">Debug Info:</h4> */}
             <p className="text-sm text-yellow-700">
-              Notices: {notices.length} | Events: {events.length} | Filtered: {filterData().length}
+              Notices: {notices.length} | Events: {events.length} | Filtered: {filterData().length} | Active Tab: {activeTab}
             </p>
             {error && <p className="text-sm text-red-600 mt-1">Error: {error}</p>}
           </div>

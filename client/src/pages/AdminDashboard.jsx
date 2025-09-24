@@ -22,6 +22,20 @@ const AdminDashboard = () => {
     checkAuthentication();
   }, []);
 
+  // Add keyboard event listener for Escape key
+  useEffect(() => {
+    const handleEscape = (event) => {
+      if (event.key === 'Escape' && showModal) {
+        closeModal();
+      }
+    };
+
+    if (showModal) {
+      document.addEventListener('keydown', handleEscape);
+      return () => document.removeEventListener('keydown', handleEscape);
+    }
+  }, [showModal]);
+
   const checkAuthentication = async () => {
     const token = localStorage.getItem('adminToken');
     
@@ -313,10 +327,15 @@ const AdminDashboard = () => {
     e.preventDefault();
     setError('');
     
-    if ((modalType === 'addNotice' || modalType === 'editNotice') && 
-        (!formData.eventName?.trim() || !formData.eventDescription?.trim())) {
-      setError('Event name and description are required');
-      return;
+    // Form validation for notice forms
+    if ((modalType === 'addNotice' || modalType === 'editNotice')) {
+      const eventName = formData.eventName?.trim();
+      const eventDescription = formData.eventDescription?.trim();
+      
+      if (!eventName || !eventDescription) {
+        setError('Event name and description are required');
+        return;
+      }
     }
     
     if (modalType === 'addNotice') handleAddNotice(formData);
@@ -839,9 +858,17 @@ const AdminDashboard = () => {
 
       {/* Enhanced Modal for viewing detailed information */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center p-6 border-b">
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={(e) => {
+            // Close modal when clicking on backdrop
+            if (e.target === e.currentTarget) {
+              closeModal();
+            }
+          }}
+        >
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto relative">
+            <div className="flex justify-between items-center p-6 border-b sticky top-0 bg-white z-10">
               <h3 className="text-xl font-semibold text-gray-900">
                 {modalType === 'addNotice' && 'Add Event Notice'}
                 {modalType === 'editNotice' && 'Edit Event Notice'}
@@ -849,7 +876,12 @@ const AdminDashboard = () => {
                 {modalType === 'viewInterview' && 'Interview Score Details'}
                 {modalType === 'viewTrainings' && 'Created Trainings'}
               </h3>
-              <button onClick={closeModal} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
+              <button 
+                onClick={closeModal} 
+                className="text-gray-400 hover:text-gray-600 text-2xl relative bg-white hover:bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center z-50"
+              >
+                ×
+              </button>
             </div>
 
             <div className="p-6">
