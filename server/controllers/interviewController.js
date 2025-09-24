@@ -14,7 +14,6 @@ console.log('🔑 Gemini API Key Status:', {
   prefix: process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.substring(0, 10) + '...' : 'Not found'
 });
 
-// JDoodle Code Execution Function
 export const executeCodeWithJDoodle = async (req, res) => {
   const startTime = Date.now();
   console.log('⏱️ Code execution started');
@@ -22,13 +21,46 @@ export const executeCodeWithJDoodle = async (req, res) => {
   try {
     const { script, language, versionIndex, stdin } = req.body;
 
-    if (!script || !language || !versionIndex) {
+    if (!script || !language || versionIndex === undefined) {
       console.log('❌ Missing required fields for code execution - Duration:', Date.now() - startTime, 'ms');
       return res.status(400).json({
         success: false,
         error: 'Missing required fields: script, language, versionIndex'
       });
     }
+
+    // FIXED: Corrected JDoodle language mapping with proper version indices
+   const languageMapping = {
+  // Primary language names
+  'javascript': { language: 'nodejs', versionIndex: '4' },
+  'python': { language: 'python3', versionIndex: '4' },
+  'java': { language: 'java', versionIndex: '4' },
+  'cpp': { language: 'cpp17', versionIndex: '0' },
+  'c': { language: 'c', versionIndex: '5' },
+  
+  // Alternative names that might be sent from frontend
+  'js': { language: 'nodejs', versionIndex: '4' },
+  'javascript': { language: 'nodejs', versionIndex: '4' },
+  'nodejs': { language: 'nodejs', versionIndex: '4' },
+  'node': { language: 'nodejs', versionIndex: '4' },
+  'python3': { language: 'python3', versionIndex: '4' },
+  'py': { language: 'python3', versionIndex: '4' },
+  'c++': { language: 'cpp17', versionIndex: '0' },
+  'cpp': { language: 'cpp17', versionIndex: '0' },
+  'java': { language: 'java', versionIndex: '4' }
+};
+
+
+    const mappedLanguage = languageMapping[language.toLowerCase()];
+    if (!mappedLanguage) {
+      console.log('❌ Unsupported language:', language);
+      return res.status(400).json({
+        success: false,
+        error: `Unsupported language: ${language}. Supported: javascript, python, java, cpp, c`
+      });
+    }
+
+    console.log(`📝 Language mapping: ${language} -> ${mappedLanguage.language}:${mappedLanguage.versionIndex}`);
 
     const JDOODLE_CLIENT_ID = process.env.JDOODLE_CLIENT_ID;
     const JDOODLE_CLIENT_SECRET = process.env.JDOODLE_CLIENT_SECRET;
@@ -43,14 +75,17 @@ export const executeCodeWithJDoodle = async (req, res) => {
 
     const jdoodleData = {
       script: script,
-      language: language,
-      versionIndex: versionIndex,
+      language: mappedLanguage.language,
+      versionIndex: mappedLanguage.versionIndex, // Use correct version index
       clientId: JDOODLE_CLIENT_ID,
       clientSecret: JDOODLE_CLIENT_SECRET,
       stdin: stdin || ''
     };
 
-    console.log('📤 Sending request to JDoodle API');
+    console.log('📤 Sending request to JDoodle API with:', {
+      language: mappedLanguage.language,
+      versionIndex: mappedLanguage.versionIndex
+    });
     const apiStartTime = Date.now();
     
     const jdoodleResponse = await axios.post(
@@ -69,7 +104,7 @@ export const executeCodeWithJDoodle = async (req, res) => {
 
     console.log('Code execution:', {
       userId: req.user.id || req.user.userId || req.user._id,
-      language: language,
+      language: mappedLanguage.language,
       success: !result.error,
       executionTime: result.cpuTime,
       memory: result.memory,
@@ -527,7 +562,6 @@ export const createInterviewWithProfileCV = async (req, res) => {
   }
 };
 
-// NEW: Generate personalized questions using full CV and JD content
 async function generatePersonalizedQuestionsWithFullContent(resumeText, jobDescription) {
   const startTime = Date.now();
   console.log('🚀 ENHANCED DEBUG: Starting API call to Gemini');
@@ -540,100 +574,94 @@ async function generatePersonalizedQuestionsWithFullContent(resumeText, jobDescr
     const model = genAI.getGenerativeModel({ 
       model: "gemini-1.5-flash",
       generationConfig: { 
-        temperature: 0.3,
-        maxOutputTokens: 2000,
-        topP: 0.8,
-        topK: 40,
+        temperature: 0.2, // Lower temperature for more focused questions
+        maxOutputTokens: 3000,
+        topP: 0.7,
+        topK: 30,
         candidateCount: 1,
       }
     });
     console.log('✅ Model configured - Duration:', Date.now() - modelStartTime, 'ms');
 
-    // Truncate inputs if too long to avoid token limits
-    const maxResumeLength = 3000;
-    const maxJobLength = 2000;
+    // Extract key information from CV and JD for better matching
+    const cvTechnologies = extractTechnologies(resumeText);
+    const jdRequirements = extractRequirements(jobDescription);
+    const cvProjects = extractProjects(resumeText);
     
-    console.log('✂️ Truncating content if needed');
-    const truncateStartTime = Date.now();
-    const truncatedResume = resumeText.length > maxResumeLength 
-      ? resumeText.substring(0, maxResumeLength) + "..." 
-      : resumeText;
-    const truncatedJob = jobDescription.length > maxJobLength 
-      ? jobDescription.substring(0, maxJobLength) + "..." 
-      : jobDescription;
-    const truncateDuration = Date.now() - truncateStartTime;
-    console.log('✅ Content truncated - Duration:', truncateDuration, 'ms');
+    console.log('📊 Extracted info:', { cvTechnologies, jdRequirements, projectCount: cvProjects.length });
 
-    console.log('✂️ Content truncated:', {
-      resumeOriginal: resumeText.length,
-      resumeTruncated: truncatedResume.length,
-      jobOriginal: jobDescription.length,
-      jobTruncated: truncatedJob.length
-    });
+    // More focused prompt for better relevance
+    const prompt = `You are a senior technical interviewer creating HIGHLY PERSONALIZED questions for a software engineering intern position.
 
-    const prompt = `You are a senior technical interviewer at a top tech company. Create highly specific, challenging interview questions for a software engineering intern position.
+CANDIDATE'S CV ANALYSIS:
+${resumeText.substring(0, 2500)}
 
-CANDIDATE'S CV:
-${truncatedResume}
+JOB REQUIREMENTS:
+${jobDescription.substring(0, 1500)}
 
-JOB DESCRIPTION:
-${truncatedJob}
+KEY CV TECHNOLOGIES: ${cvTechnologies.join(', ')}
+KEY JD REQUIREMENTS: ${jdRequirements.join(', ')}
+CV PROJECTS: ${cvProjects.length} identified
 
-CRITICAL REQUIREMENTS:
+CRITICAL PERSONALIZATION REQUIREMENTS:
 1. Generate exactly 10 questions (3 behavioral, 4 technical, 3 coding)
-2. Each question MUST reference SPECIFIC projects, technologies, or experiences from the CV
-3. Questions should test depth of understanding, not just surface knowledge
-4. Behavioral questions should probe problem-solving methodology and learning approach
-5. Technical questions should assess conceptual understanding with practical application
-6. Coding questions should be realistic problems they might face in this role
+2. Questions MUST be specifically tailored to the candidate's background
+3. Reference actual projects, technologies, and experiences from their CV
+4. Align with specific job requirements mentioned
+5. Use ONLY supported languages: javascript, python, java, cpp, c
 
-QUALITY STANDARDS:
-- Questions must be impossible to answer generically
-- Should reveal gaps in knowledge when candidate doesn't truly understand
-- Test both theoretical knowledge AND practical application
-- Include edge cases and real-world considerations
-- Assess communication of technical concepts
+BEHAVIORAL QUESTIONS (3) - MUST BE HIGHLY SPECIFIC:
+- Ask about SPECIFIC projects mentioned in their CV by name
+- Reference their actual experiences and technologies used
+- Focus on challenges they likely faced based on their background
+- Use STAR method prompting
+
+Example: "I see you built [specific project name] using [specific technology from CV]. Tell me about a specific technical challenge you faced while implementing [relevant feature]. What was the situation, what approach did you take, and what was the outcome?"
+
+TECHNICAL QUESTIONS (4) - MUST ALIGN WITH BOTH CV AND JD:
+- Focus on technologies they've actually used AND are required for the job
+- Ask about concepts relevant to their experience level
+- Reference their specific background and the job requirements
+- Keep at intern-appropriate difficulty
+
+Example: "You mentioned experience with [technology from CV] and this role requires [requirement from JD]. How would you [specific scenario relevant to both]?"
+
+CODING QUESTIONS (3) - MUST BE RELEVANT:
+- Choose problems that relate to their project experience
+- Use their strongest programming language from CV
+- Make problems relevant to the job domain
+- Keep difficulty appropriate for intern level
+
+STRICT REQUIREMENTS:
+- Every question must reference something specific from the CV or JD
+- Questions should feel like they were written specifically for this candidate
+- Default to JavaScript for coding questions unless CV shows stronger language preference
+- No generic questions - everything must be personalized
 
 Return ONLY valid JSON array:
 [
   {
     "questionId": "q1",
     "type": "behavioral",
-    "question": "You mentioned building [specific project from CV] using [specific tech stack]. Walk me through how you approached the [specific technical challenge - e.g., authentication, database design, API integration]. What specific problems did you encounter with [mentioned technology] and how did your debugging process evolve throughout the project?",
-    "category": "problem_solving_depth",
-    "difficulty": "medium",
+    "question": "[Highly specific question referencing actual CV content]",
+    "category": "project_experience",
+    "difficulty": "easy",
     "expectedDuration": 180,
     "followUpQuestions": [],
     "starterCode": null,
-    "language": null
-  },
-  {
-    "questionId": "q2",
-    "type": "technical", 
-    "question": "In your [specific project], you used [specific database/framework]. The job requires [specific job requirement]. Explain how you would handle [specific technical scenario relevant to both CV and job] - what are the trade-offs, potential issues, and how would you optimize for [specific performance/security concern]?",
-    "category": "system_design_thinking",
-    "difficulty": "medium",
-    "expectedDuration": 180,
-    "followUpQuestions": [],
-    "starterCode": null,
-    "language": null
-  },
-  {
-    "questionId": "q3",
-    "type": "coding",
-    "question": "Based on your experience with [specific technology from CV] and this role's focus on [job requirement], implement a function that [specific problem related to both]. Consider edge cases like [specific edge case] and explain your approach to [specific optimization/error handling concern].",
-    "category": "applied_programming",
-    "difficulty": "medium",
-    "expectedDuration": 300,
-    "followUpQuestions": [],
-    "starterCode": null,
-    "language": "[primary language from CV]"
+    "language": null,
+    "cvReference": "[What specific part of CV this references]",
+    "jdAlignment": "[How this aligns with job requirements]"
   }
 ]
 
-Make each question impossible to fake - they should reveal true understanding vs memorized responses.`;
+QUALITY CHECK:
+- Does each question reference specific CV content? ✓
+- Does each question align with JD requirements? ✓
+- Are coding questions in supported languages? ✓
+- Is difficulty appropriate for intern level? ✓`;
 
-    console.log('📤 Sending prompt to Gemini API');
+    console.log('📤 Sending enhanced personalization prompt to Gemini API');
     console.log('📏 Prompt length:', prompt.length);
 
     const apiCallStartTime = Date.now();
@@ -641,20 +669,14 @@ Make each question impossible to fake - they should reveal true understanding vs
     const apiCallDuration = Date.now() - apiCallStartTime;
     console.log('✅ API call completed - Duration:', apiCallDuration, 'ms');
 
-    console.log('📥 Processing API response');
-    const responseStartTime = Date.now();
     const response = await result.response;
     const rawText = response.text();
-    const responseDuration = Date.now() - responseStartTime;
-    console.log('✅ Response processed - Duration:', responseDuration, 'ms');
 
     console.log('📥 Raw API Response received:');
     console.log('📏 Response length:', rawText.length);
     console.log('🔍 Response preview (first 500 chars):', rawText.substring(0, 500));
 
-    // Clean the response
-    console.log('🧹 Cleaning response text');
-    const cleanStartTime = Date.now();
+    // Enhanced JSON extraction
     let cleanedText = rawText
       .trim()
       .replace(/```json\s*/gi, '')
@@ -662,14 +684,7 @@ Make each question impossible to fake - they should reveal true understanding vs
       .replace(/```\s*/g, '')
       .replace(/^```/gm, '')
       .replace(/```$/gm, '');
-    const cleanDuration = Date.now() - cleanStartTime;
-    console.log('✅ Text cleaned - Duration:', cleanDuration, 'ms');
 
-    console.log('🧹 Cleaned response preview:', cleanedText.substring(0, 500));
-
-    // Find JSON array bounds
-    console.log('🎯 Extracting JSON array');
-    const extractStartTime = Date.now();
     const arrayStart = cleanedText.indexOf('[');
     const arrayEnd = cleanedText.lastIndexOf(']');
     
@@ -678,129 +693,313 @@ Make each question impossible to fake - they should reveal true understanding vs
     }
 
     const jsonText = cleanedText.substring(arrayStart, arrayEnd + 1);
-    const extractDuration = Date.now() - extractStartTime;
-    console.log('✅ JSON extracted - Duration:', extractDuration, 'ms');
-    console.log('🎯 Extracted JSON:', jsonText.substring(0, 300) + '...');
 
     let questions;
-    console.log('📊 Parsing JSON');
-    const parseStartTime = Date.now();
     try {
       questions = JSON.parse(jsonText);
-      const parseDuration = Date.now() - parseStartTime;
-      console.log('✅ JSON parsed successfully - Duration:', parseDuration, 'ms');
+      console.log('✅ JSON parsed successfully');
       console.log('📊 Generated questions:', questions.length);
     } catch (parseError) {
-      const parseDuration = Date.now() - parseStartTime;
-      console.error('❌ JSON Parse Error - Duration:', parseDuration, 'ms', parseError.message);
-      console.log('🔧 Trying to fix malformed JSON...');
+      console.error('❌ JSON Parse Error:', parseError.message);
       
-      const fixStartTime = Date.now();
-      // Try to fix common JSON issues
+      // Enhanced JSON fixing
       let fixedJson = jsonText
-        .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas
-        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":') // Quote unquoted keys
-        .replace(/:\s*'([^']*)'/g, ': "$1"'); // Replace single quotes with double quotes
+        .replace(/,(\s*[}\]])/g, '$1')
+        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+        .replace(/:\s*'([^']*)'/g, ': "$1"')
+        .replace(/:\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*([,}])/g, ': "$1"$2');
       
       try {
         questions = JSON.parse(fixedJson);
-        const fixDuration = Date.now() - fixStartTime;
-        console.log('✅ Fixed JSON parsed successfully - Duration:', fixDuration, 'ms');
+        console.log('✅ Fixed JSON parsed successfully');
       } catch (fixError) {
-        const fixDuration = Date.now() - fixStartTime;
-        console.error('❌ Failed to fix JSON - Duration:', fixDuration, 'ms', fixError.message);
+        console.error('❌ Failed to fix JSON:', fixError.message);
         throw new Error('Could not parse AI response as JSON');
       }
     }
 
-    // Validate and process questions
     if (!Array.isArray(questions) || questions.length === 0) {
       throw new Error('Invalid questions array received from AI');
     }
 
-    // Process and validate each question
-    console.log('🔄 Processing questions');
-    const processStartTime = Date.now();
+    // Enhanced question processing with better language selection
     const processedQuestions = questions.slice(0, 10).map((q, index) => {
       const questionId = q.questionId || `q${index + 1}`;
       const type = normalizeQuestionType(q.type || 'technical');
-      const language = type === 'coding' ? (q.language || 'javascript').toLowerCase() : null;
       
-      console.log(`🔍 Processing question ${questionId}:`, {
-        type: type,
-        hasQuestion: !!q.question,
-        language: language
-      });
-
+      // Better language selection based on CV content
+      let language = null;
+      if (type === 'coding') {
+        language = selectBestLanguage(resumeText, q.language);
+      }
+      
       return {
         questionId: questionId,
         type: type,
-        question: q.question || 'Default question generated',
+        question: q.question || 'Generated question',
         category: q.category || 'general',
         difficulty: q.difficulty || 'easy',
         expectedDuration: type === 'coding' ? 300 : (type === 'behavioral' ? 180 : 150),
         followUpQuestions: q.followUpQuestions || [],
         starterCode: type === 'coding' ? generateStarterCode(q.question, language) : null,
-        language: language
+        language: language,
+        cvReference: q.cvReference || 'General experience',
+        jdAlignment: q.jdAlignment || 'Role requirements'
       };
     });
-    const processDuration = Date.now() - processStartTime;
-    console.log('✅ Questions processed - Duration:', processDuration, 'ms');
 
-    console.log('✅ SUCCESSFUL API GENERATION - Total Duration:', Date.now() - startTime, 'ms', 'Questions:', processedQuestions.length);
+    console.log('✅ SUCCESSFUL PERSONALIZED GENERATION - Total Duration:', Date.now() - startTime, 'ms', 'Questions:', processedQuestions.length);
     return processedQuestions;
 
   } catch (error) {
-    console.error('❌ GEMINI API ERROR - Duration:', Date.now() - startTime, 'ms', {
-      name: error.name,
-      message: error.message,
-      status: error.status,
-      statusText: error.statusText
-    });
-
-    // Log more details for debugging
-    if (error.response) {
-      console.error('❌ API Response Error:', error.response);
-    }
-    if (error.request) {
-      console.error('❌ API Request Error:', error.request);
-    }
-
+    console.error('❌ GEMINI API ERROR - Duration:', Date.now() - startTime, 'ms', error);
     throw error;
   }
 }
 
-// Generate starter code based on the question and language
+// Helper functions for better CV/JD analysis
+function extractTechnologies(resumeText) {
+  const techKeywords = [
+    'JavaScript', 'Python', 'Java', 'C++', 'C#', 'React', 'Node.js', 'Express',
+    'MongoDB', 'MySQL', 'PostgreSQL', 'HTML', 'CSS', 'Git', 'Docker', 'AWS',
+    'Vue.js', 'Angular', 'TypeScript', 'PHP', 'Ruby', 'Django', 'Flask',
+    'Spring', 'Bootstrap', 'jQuery', 'REST', 'API', 'GraphQL', 'Redis'
+  ];
+  
+  return techKeywords.filter(tech => 
+    new RegExp(`\\b${tech.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(resumeText)
+  );
+}
+
+function extractRequirements(jobDescription) {
+  const requirements = [];
+  const lines = jobDescription.split('\n');
+  
+  lines.forEach(line => {
+    if (/^[-•*]\s*|requirements?:|skills?:/i.test(line)) {
+      const cleaned = line.replace(/^[-•*]\s*|requirements?:|skills?:/i, '').trim();
+      if (cleaned.length > 5 && cleaned.length < 100) {
+        requirements.push(cleaned);
+      }
+    }
+  });
+  
+  return requirements.slice(0, 8); // Limit to most important requirements
+}
+
+function extractProjects(resumeText) {
+  const projects = [];
+  const lines = resumeText.split('\n');
+  
+  lines.forEach(line => {
+    // Look for project indicators
+    if (/project|built|developed|created|implemented/i.test(line) && 
+        !/(education|experience|skills)/i.test(line) &&
+        line.length > 20) {
+      projects.push(line.trim());
+    }
+  });
+  
+  return projects.slice(0, 5); // Limit to 5 most relevant projects
+}
+
+function selectBestLanguage(resumeText, suggestedLanguage) {
+  const supportedLanguages = ['javascript', 'python', 'java', 'cpp', 'c'];
+  
+  // Check if suggested language is supported
+  if (suggestedLanguage && supportedLanguages.includes(suggestedLanguage.toLowerCase())) {
+    return suggestedLanguage.toLowerCase();
+  }
+  
+  // Analyze CV for language preference
+  const languageCount = {};
+  supportedLanguages.forEach(lang => {
+    const patterns = {
+      'javascript': /javascript|js|node\.?js|react|vue|angular/i,
+      'python': /python|django|flask|pandas|numpy/i,
+      'java': /\bjava\b|spring|hibernate/i,
+      'cpp': /c\+\+|cpp/i,
+      'c': /\bc\b(?!\+)/i
+    };
+    
+    const matches = resumeText.match(patterns[lang]);
+    languageCount[lang] = matches ? matches.length : 0;
+  });
+  
+  // Return the most mentioned language, default to JavaScript
+  const bestLanguage = Object.keys(languageCount).reduce((a, b) => 
+    languageCount[a] > languageCount[b] ? a : b
+  );
+  
+  return languageCount[bestLanguage] > 0 ? bestLanguage : 'javascript';
+}
+
+// CORRECTED: Fixed scoring alignment with response type
+function mapScoreToResponseType(score) {
+  if (score >= 85) return 'perfectly-relevant';
+  if (score >= 65) return 'mostly-relevant';      // Adjusted threshold
+  if (score >= 45) return 'partially-relevant';   // Adjusted threshold
+  if (score >= 25) return 'mostly-irrelevant';    // Adjusted threshold
+  return 'completely-off-topic';
+}
+
+// Replace your existing template generation functions with these corrected versions:
+
 function generateStarterCode(questionText, language) {
   if (!language) return null;
 
   const starterCode = {};
   
-  // Basic templates for different languages
-  const templates = {
-    javascript: `function solution(input) {
+  // Extract problem context for better templates
+  const isArrayProblem = /array|list|numbers/i.test(questionText);
+  const isStringProblem = /string|text|word|character/i.test(questionText);
+  const isNumberProblem = /number|sum|count|calculate|even|odd/i.test(questionText);
+  
+  // Generate template based on language
+  let template;
+  switch (language.toLowerCase()) {
+    case 'javascript':
+    case 'js':
+    case 'nodejs':
+    case 'node':
+      template = generateJavaScriptTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
+      break;
+    case 'python':
+    case 'python3':
+    case 'py':
+      template = generatePythonTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
+      break;
+    case 'java':
+      template = generateJavaTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
+      break;
+    case 'cpp':
+    case 'c++':
+      template = generateCppTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
+      break;
+    case 'c':
+      template = generateCTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
+      break;
+    default:
+      template = generateJavaScriptTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
+  }
+
+  starterCode[language.toLowerCase()] = template;
+  return starterCode;
+}
+
+function generateJavaScriptTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem) {
+  const comment = `// ${questionText.length > 50 ? questionText.substring(0, 50) + '...' : questionText}`;
+  
+  if (isArrayProblem) {
+    return `function solution(arr) {
+    ${comment}
+    
     // Your code here
-    // ${questionText.length > 50 ? questionText.substring(0, 50) + '...' : questionText}
     
     return result;
 }
 
-// Test
-console.log(solution(testInput));`,
+// Test your solution
+console.log(solution([1, 2, 3, 4, 5]));`;
+  }
+  
+  if (isStringProblem) {
+    return `function solution(str) {
+    ${comment}
     
-    python: `def solution(input_data):
+    // Your code here
+    
+    return result;
+}
+
+// Test your solution
+console.log(solution("hello world"));`;
+  }
+
+  if (isNumberProblem) {
+    return `function solution(num) {
+    ${comment}
+    
+    // Your code here
+    
+    return result;
+}
+
+// Test your solution
+console.log(solution(10));`;
+  }
+  
+  return `function solution(input) {
+    ${comment}
+    
+    // Your code here
+    
+    return result;
+}
+
+// Test your solution
+console.log(solution("test input"));`;
+}
+
+function generatePythonTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem) {
+  const comment = `# ${questionText.length > 50 ? questionText.substring(0, 50) + '...' : questionText}`;
+  
+  if (isArrayProblem) {
+    return `def solution(arr):
+    ${comment}
+    
     # Your code here
-    # ${questionText.length > 50 ? questionText.substring(0, 50) + '...' : questionText}
     
     pass
 
-# Test
-print(solution(test_input))`,
+# Test your solution
+print(solution([1, 2, 3, 4, 5]))`;
+  }
+  
+  if (isStringProblem) {
+    return `def solution(text):
+    ${comment}
     
-    java: `public class Solution {
-    public static int solution(int[] input) {
+    # Your code here
+    
+    pass
+
+# Test your solution
+print(solution("hello world"))`;
+  }
+
+  if (isNumberProblem) {
+    return `def solution(num):
+    ${comment}
+    
+    # Your code here
+    
+    pass
+
+# Test your solution
+print(solution(10))`;
+  }
+  
+  return `def solution(input_data):
+    ${comment}
+    
+    # Your code here
+    
+    pass
+
+# Test your solution
+print(solution("test input"))`;
+}
+
+function generateJavaTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem) {
+  const comment = `// ${questionText.length > 40 ? questionText.substring(0, 40) + '...' : questionText}`;
+  
+  if (isArrayProblem) {
+    return `public class Solution {
+    public static int solution(int[] arr) {
+        ${comment}
+        
         // Your code here
-        // ${questionText.length > 50 ? questionText.substring(0, 50) + '...' : questionText}
         
         return 0;
     }
@@ -809,21 +1008,215 @@ print(solution(test_input))`,
         int[] test = {1, 2, 3, 4, 5};
         System.out.println(solution(test));
     }
-}`
-  };
+}`;
+  }
+  
+  if (isStringProblem) {
+    return `public class Solution {
+    public static String solution(String text) {
+        ${comment}
+        
+        // Your code here
+        
+        return "";
+    }
+    
+    public static void main(String[] args) {
+        System.out.println(solution("hello world"));
+    }
+}`;
+  }
 
-  starterCode[language] = templates[language] || templates.javascript;
-  return starterCode;
+  if (isNumberProblem) {
+    return `public class Solution {
+    public static int solution(int num) {
+        ${comment}
+        
+        // Your code here
+        
+        return 0;
+    }
+    
+    public static void main(String[] args) {
+        System.out.println(solution(10));
+    }
+}`;
+  }
+  
+  return `public class Solution {
+    public static String solution(String input) {
+        ${comment}
+        
+        // Your code here
+        
+        return "";
+    }
+    
+    public static void main(String[] args) {
+        System.out.println(solution("test input"));
+    }
+}`;
 }
 
-// Fallback questions if API fails
+function generateCppTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem) {
+  const comment = `// ${questionText.length > 40 ? questionText.substring(0, 40) + '...' : questionText}`;
+  
+  if (isArrayProblem) {
+    return `#include <iostream>
+#include <vector>
+using namespace std;
+
+int solution(vector<int>& arr) {
+    ${comment}
+    
+    // Your code here
+    
+    return 0;
+}
+
+int main() {
+    vector<int> test = {1, 2, 3, 4, 5};
+    cout << solution(test) << endl;
+    return 0;
+}`;
+  }
+  
+  if (isStringProblem) {
+    return `#include <iostream>
+#include <string>
+using namespace std;
+
+string solution(string text) {
+    ${comment}
+    
+    // Your code here
+    
+    return "";
+}
+
+int main() {
+    cout << solution("hello world") << endl;
+    return 0;
+}`;
+  }
+
+  if (isNumberProblem) {
+    return `#include <iostream>
+using namespace std;
+
+int solution(int num) {
+    ${comment}
+    
+    // Your code here
+    
+    return 0;
+}
+
+int main() {
+    cout << solution(10) << endl;
+    return 0;
+}`;
+  }
+  
+  return `#include <iostream>
+#include <string>
+using namespace std;
+
+string solution(string input) {
+    ${comment}
+    
+    // Your code here
+    
+    return "";
+}
+
+int main() {
+    cout << solution("test input") << endl;
+    return 0;
+}`;
+}
+
+function generateCTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem) {
+  const comment = `// ${questionText.length > 40 ? questionText.substring(0, 40) + '...' : questionText}`;
+  
+  if (isArrayProblem) {
+    return `#include <stdio.h>
+
+int solution(int arr[], int size) {
+    ${comment}
+    
+    // Your code here
+    
+    return 0;
+}
+
+int main() {
+    int test[] = {1, 2, 3, 4, 5};
+    printf("%d\\n", solution(test, 5));
+    return 0;
+}`;
+  }
+  
+  if (isStringProblem) {
+    return `#include <stdio.h>
+#include <string.h>
+
+void solution(char* text, char* result) {
+    ${comment}
+    
+    // Your code here
+    
+    strcpy(result, text);
+}
+
+int main() {
+    char result[100];
+    solution("hello world", result);
+    printf("%s\\n", result);
+    return 0;
+}`;
+  }
+
+  if (isNumberProblem) {
+    return `#include <stdio.h>
+
+int solution(int num) {
+    ${comment}
+    
+    // Your code here
+    
+    return 0;
+}
+
+int main() {
+    printf("%d\\n", solution(10));
+    return 0;
+}`;
+  }
+  
+  return `#include <stdio.h>
+
+int solution(char* input) {
+    ${comment}
+    
+    // Your code here
+    
+    return 0;
+}
+
+int main() {
+    printf("%d\\n", solution("test input"));
+    return 0;
+}`;
+}
+
 function getFallbackQuestions() {
   return [
     {
       questionId: "q1",
       type: "behavioral",
-      question: "Tell me about a challenging programming project you've worked on and how you approached solving the problems you encountered.",
-      category: "problem_solving",
+      question: "Tell me about a programming project you worked on recently. What was the project about, what challenges did you face, and how did you overcome them?",
+      category: "project_experience",
       difficulty: "easy",
       expectedDuration: 180,
       followUpQuestions: [],
@@ -833,8 +1226,8 @@ function getFallbackQuestions() {
     {
       questionId: "q2", 
       type: "behavioral",
-      question: "Describe a time when you had to learn a new programming language or technology quickly. What was your approach?",
-      category: "learning",
+      question: "Describe a time when you had to learn a new programming concept or technology for a project. How did you approach learning it?",
+      category: "learning_ability",
       difficulty: "easy",
       expectedDuration: 180,
       followUpQuestions: [],
@@ -844,7 +1237,7 @@ function getFallbackQuestions() {
     {
       questionId: "q3",
       type: "behavioral",
-      question: "Tell me about a time you collaborated on a coding project. How did you handle any conflicts or differences in approach?",
+      question: "Tell me about a time when you worked with others on a coding project. How did you collaborate and what role did you play?",
       category: "teamwork",
       difficulty: "easy", 
       expectedDuration: 180,
@@ -855,8 +1248,8 @@ function getFallbackQuestions() {
     {
       questionId: "q4",
       type: "technical",
-      question: "Explain the difference between frontend and backend development. What are the main responsibilities of each?",
-      category: "web_development",
+      question: "What is the difference between a frontend and backend in web development? Can you give an example of what each one handles?",
+      category: "web_basics",
       difficulty: "easy",
       expectedDuration: 150,
       followUpQuestions: [],
@@ -866,8 +1259,8 @@ function getFallbackQuestions() {
     {
       questionId: "q5",
       type: "technical", 
-      question: "What is version control and why is it important in software development? Can you explain Git basics?",
-      category: "tools",
+      question: "Explain what Git is and why it's useful for programmers. Have you used any version control before?",
+      category: "tools_basics",
       difficulty: "easy",
       expectedDuration: 150,
       followUpQuestions: [],
@@ -877,8 +1270,8 @@ function getFallbackQuestions() {
     {
       questionId: "q6",
       type: "technical",
-      question: "Explain what an API is and how it's used in web applications. Give an example of when you might use one.",
-      category: "apis",
+      question: "What is a function in programming? Why are functions useful when writing code?",
+      category: "programming_basics",
       difficulty: "easy",
       expectedDuration: 150,
       followUpQuestions: [],
@@ -888,8 +1281,8 @@ function getFallbackQuestions() {
     {
       questionId: "q7",
       type: "technical",
-      question: "What are the main differences between SQL and NoSQL databases? When would you choose one over the other?",
-      category: "databases",
+      question: "What is debugging? Describe a simple process you might follow when your code doesn't work as expected.",
+      category: "debugging_basics",
       difficulty: "easy",
       expectedDuration: 150,
       followUpQuestions: [],
@@ -899,34 +1292,65 @@ function getFallbackQuestions() {
     {
       questionId: "q8",
       type: "coding",
-      question: "Write a function that finds the maximum number in an array. Explain your approach and the time complexity.",
-      category: "algorithms",
+      question: "Write a function that takes an array of numbers and returns the largest number. Explain your approach.",
+      category: "basic_arrays",
       difficulty: "easy",
       expectedDuration: 300,
       followUpQuestions: [],
-      starterCode: generateStarterCode("find maximum number in array", "javascript"),
+      starterCode: {
+        javascript: `function findLargest(numbers) {
+    // Your code here
+    // Find and return the largest number in the array
+    
+    return 0;
+}
+
+// Test your function
+console.log(findLargest([3, 7, 2, 9, 1])); // Should return 9`
+      },
       language: "javascript"
     },
     {
       questionId: "q9",
       type: "coding",
-      question: "Create a function that checks if a string is a palindrome (reads the same forwards and backwards).",
-      category: "string_manipulation",
+      question: "Create a function that counts how many times a specific character appears in a string.",
+      category: "string_basics",
       difficulty: "easy",
       expectedDuration: 300,
       followUpQuestions: [],
-      starterCode: generateStarterCode("check if string is palindrome", "javascript"),
+      starterCode: {
+        javascript: `function countCharacter(text, char) {
+    // Your code here
+    // Count how many times 'char' appears in 'text'
+    
+    return 0;
+}
+
+// Test your function
+console.log(countCharacter("hello world", "l")); // Should return 3`
+      },
       language: "javascript"
     },
     {
       questionId: "q10",
       type: "coding",
-      question: "Write a function that counts the frequency of each character in a string and returns the result as an object.",
-      category: "data_structures",
-      difficulty: "medium",
+      question: "Write a function that checks if a number is even or odd and returns 'even' or 'odd'.",
+      category: "basic_logic",
+      difficulty: "easy",
       expectedDuration: 300,
       followUpQuestions: [],
-      starterCode: generateStarterCode("count character frequency", "javascript"),
+      starterCode: {
+        javascript: `function checkEvenOdd(number) {
+    // Your code here
+    // Return "even" if number is even, "odd" if number is odd
+    
+    return "";
+}
+
+// Test your function
+console.log(checkEvenOdd(4)); // Should return "even"
+console.log(checkEvenOdd(7)); // Should return "odd"`
+      },
       language: "javascript"
     }
   ];
@@ -945,71 +1369,6 @@ function normalizeQuestionType(type) {
   return typeMapping[normalized] || 'technical';
 }
 
-// Add the test endpoint for debugging
-export const testGeminiConnection = async (req, res) => {
-  const startTime = Date.now();
-  console.log('🧪 Testing Gemini connection started');
-  
-  try {
-    console.log('🔑 API Key Status:', {
-      exists: !!process.env.GEMINI_API_KEY,
-      length: process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.length : 0
-    });
-
-    console.log('🔧 Configuring model');
-    const model = genAI.getGenerativeModel({ 
-      model: "gemini-1.5-flash"
-    });
-
-    const testPrompt = `Test connection. Respond with exactly this JSON: {"status": "connected", "message": "Gemini API is working"}`;
-    
-    console.log('📤 Sending test prompt');
-    const apiStartTime = Date.now();
-    
-    const result = await model.generateContent(testPrompt);
-    const apiDuration = Date.now() - apiStartTime;
-    console.log('✅ API response received - Duration:', apiDuration, 'ms');
-    
-    const response = await result.response;
-    const text = response.text();
-    
-    console.log('✅ TEST RESPONSE - Total Duration:', Date.now() - startTime, 'ms', {
-      textLength: text.length,
-      text: text
-    });
-
-    res.json({
-      success: true,
-      message: 'Gemini API connection test successful',
-      data: {
-        responseTime: apiDuration + 'ms',
-        totalTime: (Date.now() - startTime) + 'ms',
-        apiKeyConfigured: true,
-        modelUsed: 'gemini-1.5-flash',
-        response: text
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ GEMINI CONNECTION TEST FAILED - Duration:', Date.now() - startTime, 'ms', {
-      name: error.name,
-      message: error.message,
-      status: error.status
-    });
-
-    res.status(500).json({
-      success: false,
-      error: 'Gemini API connection failed',
-      details: {
-        totalTime: (Date.now() - startTime) + 'ms',
-        errorName: error.name,
-        errorMessage: error.message,
-        hasApiKey: !!process.env.GEMINI_API_KEY,
-        apiKeyLength: process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.length : 0
-      }
-    });
-  }
-};
 
 export const startInterview = async (req, res) => {
   const startTime = Date.now();
@@ -1337,7 +1696,6 @@ export const submitAnswer = async (req, res) => {
   }
 };
 
-// Enhanced AI feedback with better debugging and strict validation
 async function generateEnhancedAIFeedback(question, questionType, responseText, code, language, executionResults = null) {
   console.time('ai-feedback-generation');
   console.log('🤖 ENHANCED AI FEEDBACK DEBUG:');
@@ -1348,22 +1706,19 @@ async function generateEnhancedAIFeedback(question, questionType, responseText, 
   console.log('🔧 Language:', language);
 
   try {
-    console.time('ai-model-initialization');
     const model = genAI.getGenerativeModel({ 
       model: "gemini-1.5-flash",
       generationConfig: { 
-        temperature: 0.2,
-        maxOutputTokens: 1000,
-        topP: 0.8,
+        temperature: 0.1, // Lower temperature for consistent scoring
+        maxOutputTokens: 1500,
+        topP: 0.6,
       }
     });
-    console.timeEnd('ai-model-initialization');
 
     // Truncate inputs for better API performance
-    console.time('input-processing');
-    const maxQuestionLength = 500;
-    const maxResponseLength = 1000;
-    const maxCodeLength = 1000;
+    const maxQuestionLength = 800;
+    const maxResponseLength = 1500;
+    const maxCodeLength = 1500;
 
     const truncatedQuestion = question.length > maxQuestionLength 
       ? question.substring(0, maxQuestionLength) + "..." 
@@ -1376,85 +1731,84 @@ async function generateEnhancedAIFeedback(question, questionType, responseText, 
     const truncatedCode = code && code.length > maxCodeLength 
       ? code.substring(0, maxCodeLength) + "..." 
       : code;
-    console.timeEnd('input-processing');
 
-    console.log('✂️ Content truncated for API call');
-
-    const prompt = `You are a strict senior technical interviewer evaluating an intern candidate's response. Be rigorous and honest in your assessment.
+    // IMPROVED PROMPT with stricter scoring alignment
+    const prompt = `You are evaluating an INTERN candidate's interview response. Provide CONSISTENT scoring where the numerical score EXACTLY matches the response type.
 
 QUESTION: "${truncatedQuestion}"
 QUESTION TYPE: ${questionType}
 CANDIDATE RESPONSE: "${truncatedResponse}"
 ${truncatedCode ? `CODE SUBMITTED: "${truncatedCode}"` : ''}
 ${language ? `PROGRAMMING LANGUAGE: ${language}` : ''}
-${executionResults ? `CODE OUTPUT: "${executionResults.output || 'None'}"` : ''}
+${executionResults ? `CODE EXECUTION RESULT: "${executionResults.output || 'No output'}"${executionResults.error ? ' | ERROR: ' + executionResults.error : ''}` : ''}
 
-EVALUATION CRITERIA:
-- 0-20: Completely irrelevant, wrong, or no real attempt
-- 21-40: Shows minimal understanding but significant gaps/errors
-- 41-60: Basic understanding with some correct elements but lacks depth
-- 61-75: Good understanding with minor gaps or communication issues  
-- 76-85: Strong understanding with clear explanation
-- 86-100: Exceptional insight, thorough understanding, excellent communication
+STRICT SCORING GUIDELINES (MUST BE CONSISTENT):
+- 85-100 points = "perfectly-relevant" (Exceptional intern performance)
+- 65-84 points = "mostly-relevant" (Good intern performance) 
+- 45-64 points = "partially-relevant" (Acceptable intern performance)
+- 25-44 points = "mostly-irrelevant" (Below expectations)
+- 0-24 points = "completely-off-topic" (Inadequate response)
 
-STRICT REQUIREMENTS:
-- If response is completely off-topic or doesn't address the question at all: 0-20 points
-- If code doesn't compile or has major logical errors: Maximum 40 points
-- If explanation lacks technical depth or accuracy: Maximum 60 points
-- If communication is unclear or missing key concepts: Deduct 10-20 points
-- Reward specific examples, edge case consideration, and clear reasoning
+SCORING CRITERIA BY TYPE:
+BEHAVIORAL (0-100):
+- 85-100: Perfect STAR structure, specific examples, clear learning, excellent communication
+- 65-84: Good example, some structure, shows growth, clear communication
+- 45-64: Has example, basic structure, some learning shown, adequate communication  
+- 25-44: Vague example, poor structure, minimal learning, unclear communication
+- 0-24: Off-topic or completely inadequate
 
-RESPONSE RELEVANCE CLASSIFICATION:
-- "perfectly-relevant": Response directly and completely addresses all aspects of the question (80+ score)
-- "mostly-relevant": Response addresses main question but missing some details (60-79 score)
-- "partially-relevant": Response addresses some aspects but significant gaps (40-59 score)
-- "mostly-irrelevant": Response barely relates to question or has major errors (20-39 score)
-- "completely-off-topic": Response doesn't address the question at all (0-19 score)
+TECHNICAL (0-100):
+- 85-100: Deep understanding, accurate explanations, excellent examples, clear communication
+- 65-84: Good understanding, mostly accurate, some examples, clear explanations
+- 45-64: Basic understanding, generally correct, simple explanations, adequate knowledge
+- 25-44: Limited understanding, some correct elements, unclear explanations, gaps in knowledge
+- 0-24: No understanding, completely wrong, or off-topic
 
-BEHAVIORAL QUESTIONS: Look for specific examples, structured thinking (STAR method), learning from experience, and clear communication.
+CODING (0-100):
+- 85-100: Working solution, efficient, handles edge cases, clean code, excellent explanation
+- 65-84: Working solution, reasonable approach, good structure, clear explanation
+- 45-64: Working solution with minor issues, basic approach, adequate explanation
+- 25-44: Partial solution, logical issues, syntax problems, but shows attempt
+- 0-24: No working code, completely wrong approach, or no attempt
 
-TECHNICAL QUESTIONS: Assess conceptual understanding, practical application, consideration of trade-offs, and ability to explain complex topics clearly.
+CRITICAL: The score MUST correspond exactly to these ranges. responseType MUST match the score range.
 
-CODING QUESTIONS: Evaluate algorithm correctness, code quality, edge case handling, time/space complexity awareness, and explanation of approach.
-
-Return ONLY this JSON (ensure responseType matches allowed values):
+Return ONLY this JSON format:
 {
-  "score": 45,
-  "responseType": "partially-relevant",
-  "strengths": ["Identified core concept", "Attempted structured approach"],
-  "improvements": ["Missed key technical details", "Code has logical errors", "Didn't consider edge cases", "Explanation lacks depth"],
-  "detailedAnalysis": "Rigorous 2-3 sentence assessment explaining the score and highlighting specific technical gaps or strengths. Be specific about what they got right and wrong.",
-  "overallAssessment": "Honest evaluation of performance with specific areas for improvement. Reference specific parts of their response.",
-  "questionRelevance": 4,
-  "correctness": 3,
-  "communicationClarity": 5,
-  "technicalAccuracy": 3
+  "score": 67,
+  "responseType": "mostly-relevant",
+  "strengths": [
+    "Specific strength observed",
+    "Another concrete positive"
+  ],
+  "improvements": [
+    "Specific improvement needed",
+    "Another actionable item",
+    "Third improvement area"
+  ],
+  "detailedAnalysis": "Response shows [specific analysis]. Score of 67/100 reflects [specific reasoning]. The candidate demonstrated [specific observations] but needs improvement in [specific areas].",
+  "overallAssessment": "Assessment that matches the score level and responseType",
+  "questionRelevance": 7,
+  "correctness": 7,
+  "communicationClarity": 7,
+  "technicalAccuracy": 6
 }
 
-CRITICAL: responseType MUST be one of: "perfectly-relevant", "mostly-relevant", "partially-relevant", "mostly-irrelevant", or "completely-off-topic"
-
-BE STRICT: Don't inflate scores. Most intern responses should be 40-70 range unless truly exceptional.`;
+ENSURE:
+- Score and responseType are perfectly aligned
+- Detailed analysis explains the exact score
+- All ratings (1-10) are consistent with the overall score
+- Feedback is specific and actionable`;
 
     console.log('📤 Sending enhanced feedback request...');
-    console.log('📏 Prompt length:', prompt.length);
 
-    console.time('ai-api-call');
-    const startTime = Date.now();
     const result = await model.generateContent(prompt);
-    const responseTime = Date.now() - startTime;
-    console.timeEnd('ai-api-call');
-
-    console.log('⏱️ AI Feedback Response time:', responseTime + 'ms');
-
-    console.time('ai-response-processing');
     const response = await result.response;
     const rawText = response.text();
 
-    console.log('📥 AI Feedback Raw Response:');
-    console.log('📏 Response length:', rawText.length);
-    console.log('🔍 Response preview:', rawText.substring(0, 300) + '...');
+    console.log('📥 AI Feedback Raw Response length:', rawText.length);
 
-    // Clean and parse the JSON response
+    // Enhanced JSON cleaning
     let cleanText = rawText
       .trim()
       .replace(/```json\s*/gi, '')
@@ -1462,107 +1816,74 @@ BE STRICT: Don't inflate scores. Most intern responses should be 40-70 range unl
       .replace(/^```/gm, '')
       .replace(/```$/gm, '');
 
-    console.log('🧹 Cleaned response preview:', cleanText.substring(0, 200) + '...');
-
     let aiAnalysis;
     try {
-      aiAnalysis = JSON.parse(cleanText);
-      console.log('✅ AI feedback JSON parsed successfully');
-      console.log('📊 Parsed score:', aiAnalysis.score);
-      console.log('🏷️ Response type:', aiAnalysis.responseType);
-    } catch (parseError) {
-      console.error('❌ JSON Parse Error:', parseError.message);
-      console.log('🔧 Attempting JSON repair...');
-      
-      // Try to find and extract valid JSON
       const jsonStart = cleanText.indexOf('{');
       const jsonEnd = cleanText.lastIndexOf('}');
       
       if (jsonStart !== -1 && jsonEnd !== -1) {
         const jsonOnly = cleanText.substring(jsonStart, jsonEnd + 1);
-        try {
-          aiAnalysis = JSON.parse(jsonOnly);
-          console.log('✅ Repaired JSON parsed successfully');
-        } catch (repairError) {
-          console.error('❌ JSON repair failed:', repairError.message);
-          throw new Error('Could not parse AI feedback JSON');
-        }
+        aiAnalysis = JSON.parse(jsonOnly);
+        console.log('✅ AI feedback JSON parsed successfully');
+        console.log('📊 Parsed score:', aiAnalysis.score);
+        console.log('🏷️ Response type:', aiAnalysis.responseType);
       } else {
-        throw new Error('No valid JSON found in AI response');
+        throw new Error('No valid JSON found in response');
       }
+    } catch (parseError) {
+      console.error('❌ JSON Parse Error:', parseError.message);
+      return generateEnhancedFallbackFeedback(questionType, responseText, code, language, executionResults);
     }
 
-    // Validate and normalize responseType - CRITICAL FIX
-    const validResponseTypes = [
-      'perfectly-relevant', 
-      'mostly-relevant', 
-      'partially-relevant', 
-      'mostly-irrelevant', 
-      'completely-off-topic'
-    ];
-    
-    let normalizedResponseType = aiAnalysis.responseType;
-    
-    // Map common AI variations to valid enum values
-    const responseTypeMapping = {
-      'irrelevant': 'mostly-irrelevant',
-      'off-topic': 'completely-off-topic',
-      'relevant': 'mostly-relevant',
-      'partially_relevant': 'partially-relevant',
-      'mostly_relevant': 'mostly-relevant',
-      'perfectly_relevant': 'perfectly-relevant',
-      'completely_off_topic': 'completely-off-topic',
-      'mostly_irrelevant': 'mostly-irrelevant'
-    };
-    
-    if (responseTypeMapping[normalizedResponseType]) {
-      normalizedResponseType = responseTypeMapping[normalizedResponseType];
-    }
-    
-    if (!validResponseTypes.includes(normalizedResponseType)) {
-      console.warn(`⚠️ Invalid responseType '${aiAnalysis.responseType}', mapping to valid type based on score`);
-      // Map based on score if responseType is invalid
-      const score = Math.max(0, Math.min(100, aiAnalysis.score || 50));
-      if (score >= 80) normalizedResponseType = 'perfectly-relevant';
-      else if (score >= 60) normalizedResponseType = 'mostly-relevant';
-      else if (score >= 40) normalizedResponseType = 'partially-relevant';
-      else if (score >= 20) normalizedResponseType = 'mostly-irrelevant';
-      else normalizedResponseType = 'completely-off-topic';
-    }
-
-    console.log('✅ Normalized response type:', normalizedResponseType);
-
-    // Validate and structure the response with enhanced scoring logic
+    // CORRECTED: Ensure strict alignment between score and responseType
     const score = Math.max(0, Math.min(100, aiAnalysis.score || 50));
+    let responseType = aiAnalysis.responseType;
+    
+    // Force alignment if inconsistent
+    const expectedResponseType = mapScoreToResponseType(score);
+    if (responseType !== expectedResponseType) {
+      console.warn(`⚠️ Fixed responseType alignment: ${responseType} -> ${expectedResponseType} (score: ${score})`);
+      responseType = expectedResponseType;
+    }
+
+    // CORRECTED: Ensure all ratings align with the score
+    const baseRating = Math.max(1, Math.min(10, Math.floor(score / 10)));
     
     const structuredFeedback = {
       score: score,
-      questionRelevance: Math.max(0, Math.min(10, aiAnalysis.questionRelevance || Math.floor(score / 10))),
-      responseType: normalizedResponseType, // Use normalized type
-      correctness: Math.max(0, Math.min(10, aiAnalysis.correctness || Math.floor(score / 10))),
-      syntax: questionType === 'coding' ? Math.max(0, Math.min(10, aiAnalysis.correctness || Math.floor(score / 10))) : Math.floor(score / 10),
-      languageBestPractices: questionType === 'coding' ? Math.max(0, Math.min(10, aiAnalysis.technicalAccuracy || Math.floor(score / 10))) : Math.floor(score / 10),
-      efficiency: questionType === 'coding' ? Math.max(0, Math.min(10, Math.floor(score / 10))) : Math.floor(score / 15),
-      structureAndReadability: Math.max(0, Math.min(10, aiAnalysis.communicationClarity || Math.floor(score / 10))),
-      edgeCaseHandling: questionType === 'coding' ? Math.max(0, Math.min(10, Math.floor(score / 12))) : Math.floor(score / 15),
+      questionRelevance: Math.max(1, Math.min(10, aiAnalysis.questionRelevance || baseRating)),
+      responseType: responseType,
+      correctness: Math.max(1, Math.min(10, aiAnalysis.correctness || baseRating)),
+      syntax: questionType === 'coding' ? Math.max(1, Math.min(10, baseRating)) : Math.floor(score / 15),
+      languageBestPractices: questionType === 'coding' ? Math.max(1, Math.min(10, baseRating)) : Math.floor(score / 15),
+      efficiency: questionType === 'coding' ? Math.max(1, Math.min(10, Math.floor(score / 12))) : Math.floor(score / 15),
+      structureAndReadability: Math.max(1, Math.min(10, aiAnalysis.communicationClarity || baseRating)),
+      edgeCaseHandling: questionType === 'coding' ? Math.max(1, Math.min(10, Math.floor(score / 15))) : Math.floor(score / 20),
+      
       strengths: Array.isArray(aiAnalysis.strengths) && aiAnalysis.strengths.length > 0 
-        ? aiAnalysis.strengths.slice(0, 4) 
+        ? aiAnalysis.strengths.slice(0, 4).filter(s => s && s.length > 10)
         : generateContextualStrengths(questionType, score, responseText, code),
+        
       improvements: Array.isArray(aiAnalysis.improvements) && aiAnalysis.improvements.length > 0 
-        ? aiAnalysis.improvements.slice(0, 4) 
+        ? aiAnalysis.improvements.slice(0, 5).filter(i => i && i.length > 10)
         : generateContextualImprovements(questionType, score, responseText, code),
-      detailedAnalysis: aiAnalysis.detailedAnalysis || generateDetailedAnalysis(questionType, score, responseText, code, question),
-      overallAssessment: aiAnalysis.overallAssessment || generateOverallAssessment(score, questionType),
-      communicationClarity: Math.max(0, Math.min(10, aiAnalysis.communicationClarity || Math.floor(score / 10))),
-      technicalAccuracy: Math.max(0, Math.min(10, aiAnalysis.technicalAccuracy || Math.floor(score / 10)))
+        
+      detailedAnalysis: aiAnalysis.detailedAnalysis && aiAnalysis.detailedAnalysis.length > 50
+        ? aiAnalysis.detailedAnalysis
+        : generateDetailedAnalysis(questionType, score, responseText, code, question),
+        
+      overallAssessment: aiAnalysis.overallAssessment && aiAnalysis.overallAssessment.length > 30
+        ? aiAnalysis.overallAssessment
+        : generateOverallAssessment(score, questionType),
+        
+      communicationClarity: Math.max(1, Math.min(10, aiAnalysis.communicationClarity || baseRating)),
+      technicalAccuracy: Math.max(1, Math.min(10, aiAnalysis.technicalAccuracy || baseRating))
     };
-    console.timeEnd('ai-response-processing');
 
     console.log('✅ ENHANCED AI FEEDBACK SUCCESS:', {
       score: structuredFeedback.score,
       responseType: structuredFeedback.responseType,
-      strengthsCount: structuredFeedback.strengths.length,
-      improvementsCount: structuredFeedback.improvements.length
+      aligned: mapScoreToResponseType(structuredFeedback.score) === structuredFeedback.responseType
     });
 
     console.timeEnd('ai-feedback-generation');
@@ -1570,13 +1891,292 @@ BE STRICT: Don't inflate scores. Most intern responses should be 40-70 range unl
 
   } catch (error) {
     console.timeEnd('ai-feedback-generation');
-    console.error('❌ ENHANCED AI FEEDBACK ERROR:', {
-      name: error.name,
-      message: error.message,
-      status: error.status
-    });
-    throw error;
+    console.error('❌ ENHANCED AI FEEDBACK ERROR:', error);
+    return generateEnhancedFallbackFeedback(questionType, responseText, code, language, executionResults);
   }
+}
+
+function analyzeCodeQuality(code) {
+  const analysis = {
+    hasBasicStructure: /function|def|class|public|void/i.test(code),
+    hasControlFlow: /if|else|for|while|switch/i.test(code),
+    hasReturnStatement: /return/i.test(code),
+    hasComments: /\/\/|\/\*|\#/i.test(code),
+    hasVariables: /let|const|var|int|string|=/.test(code),
+    hasLogic: code.length > 50 && /[{}();]/g.test(code),
+    syntaxErrors: checkBasicSyntax(code),
+    length: code.length
+  };
+  return analysis;
+}
+
+
+function checkBasicSyntax(code) {
+  const errors = [];
+  const openBraces = (code.match(/{/g) || []).length;
+  const closeBraces = (code.match(/}/g) || []).length;
+  const openParens = (code.match(/\(/g) || []).length;
+  const closeParens = (code.match(/\)/g) || []).length;
+  
+  if (openBraces !== closeBraces) errors.push('Unmatched braces');
+  if (openParens !== closeParens) errors.push('Unmatched parentheses');
+  
+  return errors;
+}
+
+function analyzeExecutionResults(executionResults) {
+  if (!executionResults) return { hasOutput: false, hasError: false, score: 0 };
+  
+  return {
+    hasOutput: !!(executionResults.output && executionResults.output.trim()),
+    hasError: !!(executionResults.error && executionResults.error.trim()),
+    outputLength: executionResults.output ? executionResults.output.length : 0,
+    score: executionResults.error ? 0 : (executionResults.output ? 20 : 5)
+  };
+}
+
+function analyzeTechnicalResponse(responseText) {
+  return {
+    hasTechnicalTerms: /\b(algorithm|function|variable|array|object|server|client|database|API|framework|library|HTTP|JSON|CSS|HTML|JavaScript|Python|Java)\b/i.test(responseText),
+    hasExamples: /\b(example|instance|such as|like|for example)\b/i.test(responseText),
+    hasExplanation: /\b(because|therefore|thus|since|reason|due to|this means|which allows)\b/i.test(responseText),
+    hasStructure: responseText.includes('.') && responseText.length > 100,
+    mentionsTools: /\b(Git|GitHub|VS Code|IDE|browser|command line|terminal)\b/i.test(responseText)
+  };
+}
+
+function analyzeBehavioralResponse(responseText) {
+  return {
+    hasSituation: /\b(project|work|team|experience|situation|when|during|time)\b/i.test(responseText),
+    hasAction: /\b(I did|I implemented|I decided|I approached|I solved|I learned|I worked|I used)\b/i.test(responseText),
+    hasResult: /\b(result|outcome|success|completed|achieved|learned|improved|solved)\b/i.test(responseText),
+    hasReflection: /\b(learned|realize|understand|discovered|found out|next time)\b/i.test(responseText),
+    hasSpecifics: /\b(\d+|specific|particular|exactly|precisely)\b/i.test(responseText)
+  };
+}
+
+
+function calculateCodingScore(codeAnalysis, executionAnalysis, responseText) {
+  let score = 20; // Base score for attempting
+  
+  if (codeAnalysis.hasBasicStructure) score += 15;
+  if (codeAnalysis.hasControlFlow) score += 15;
+  if (codeAnalysis.hasReturnStatement) score += 10;
+  if (codeAnalysis.hasVariables) score += 10;
+  if (codeAnalysis.hasLogic) score += 10;
+  if (codeAnalysis.syntaxErrors.length === 0) score += 15;
+  if (executionAnalysis.hasOutput && !executionAnalysis.hasError) score += 20;
+  if (responseText && responseText.length > 50) score += 5; // Explanation provided
+  
+  return Math.min(100, score);
+}
+
+function calculateTechnicalScore(technicalAnalysis, responseLength) {
+  let score = 25; // Base score
+  
+  if (responseLength < 50) return 15;
+  if (responseLength < 100) score = 35;
+  else if (responseLength < 200) score = 45;
+  else score = 55;
+  
+  if (technicalAnalysis.hasTechnicalTerms) score += 15;
+  if (technicalAnalysis.hasExamples) score += 10;
+  if (technicalAnalysis.hasExplanation) score += 10;
+  if (technicalAnalysis.hasStructure) score += 5;
+  if (technicalAnalysis.mentionsTools) score += 5;
+  
+  return Math.min(100, score);
+}
+
+function calculateBehavioralScore(behavioralAnalysis, responseLength) {
+  let score = 25; // Base score
+  
+  if (responseLength < 100) return 20;
+  else if (responseLength < 200) score = 40;
+  else score = 50;
+  
+  const starElements = [
+    behavioralAnalysis.hasSituation,
+    behavioralAnalysis.hasAction,
+    behavioralAnalysis.hasResult
+  ].filter(Boolean).length;
+  
+  score += starElements * 10; // 10 points per STAR element
+  
+  if (behavioralAnalysis.hasReflection) score += 10;
+  if (behavioralAnalysis.hasSpecifics) score += 10;
+  
+  return Math.min(100, score);
+}
+
+function generateCodingStrengths(codeAnalysis, executionAnalysis) {
+  const strengths = [];
+  
+  if (codeAnalysis.hasBasicStructure) strengths.push('Provided proper function structure');
+  if (codeAnalysis.hasControlFlow) strengths.push('Used appropriate control flow logic');
+  if (codeAnalysis.hasReturnStatement) strengths.push('Included return statement');
+  if (codeAnalysis.hasVariables) strengths.push('Used variables effectively');
+  if (codeAnalysis.syntaxErrors.length === 0) strengths.push('Code has correct basic syntax');
+  if (executionAnalysis.hasOutput && !executionAnalysis.hasError) strengths.push('Code executes successfully');
+  
+  return strengths.length > 0 ? strengths : ['Made an attempt to write code'];
+}
+
+function generateCodingImprovements(codeAnalysis, executionAnalysis) {
+  const improvements = [];
+  
+  if (!codeAnalysis.hasBasicStructure) improvements.push('Use proper function or class structure');
+  if (!codeAnalysis.hasControlFlow) improvements.push('Add logical control flow (if/else, loops)');
+  if (!codeAnalysis.hasReturnStatement) improvements.push('Include return statement for function output');
+  if (codeAnalysis.syntaxErrors.length > 0) improvements.push('Fix syntax errors: ' + codeAnalysis.syntaxErrors.join(', '));
+  if (executionAnalysis.hasError) improvements.push('Debug and fix runtime errors');
+  if (!executionAnalysis.hasOutput) improvements.push('Ensure code produces expected output');
+  if (codeAnalysis.length < 30) improvements.push('Provide more complete implementation');
+  
+  improvements.push('Add comments to explain your logic');
+  improvements.push('Test your solution with different inputs');
+  
+  return improvements;
+}
+
+function generateTechnicalStrengths(technicalAnalysis, responseLength) {
+  const strengths = [];
+  
+  if (responseLength > 100) strengths.push('Provided detailed explanation');
+  if (technicalAnalysis.hasTechnicalTerms) strengths.push('Used relevant technical terminology');
+  if (technicalAnalysis.hasExamples) strengths.push('Included helpful examples');
+  if (technicalAnalysis.hasExplanation) strengths.push('Explained reasoning and connections');
+  if (technicalAnalysis.mentionsTools) strengths.push('Referenced relevant tools and technologies');
+  
+  return strengths.length > 0 ? strengths : ['Attempted to explain technical concepts'];
+}
+
+function generateTechnicalImprovements(technicalAnalysis, score) {
+  const improvements = [];
+  
+  if (!technicalAnalysis.hasTechnicalTerms) improvements.push('Use more specific technical terminology');
+  if (!technicalAnalysis.hasExamples) improvements.push('Include concrete examples to illustrate points');
+  if (!technicalAnalysis.hasExplanation) improvements.push('Explain the reasoning behind statements');
+  if (score < 50) improvements.push('Demonstrate deeper understanding of core concepts');
+  
+  improvements.push('Practice explaining technical concepts clearly');
+  improvements.push('Study fundamental computer science principles');
+  
+  return improvements;
+}
+
+function generateBehavioralStrengths(behavioralAnalysis, responseLength) {
+  const strengths = [];
+  
+  if (responseLength > 150) strengths.push('Provided comprehensive response');
+  if (behavioralAnalysis.hasSituation) strengths.push('Described the context and situation clearly');
+  if (behavioralAnalysis.hasAction) strengths.push('Explained specific actions taken');
+  if (behavioralAnalysis.hasResult) strengths.push('Mentioned outcomes and results');
+  if (behavioralAnalysis.hasReflection) strengths.push('Showed learning and reflection');
+  if (behavioralAnalysis.hasSpecifics) strengths.push('Included specific details and examples');
+  
+  return strengths.length > 0 ? strengths : ['Provided personal example'];
+}
+
+function generateBehavioralImprovements(behavioralAnalysis, score) {
+  const improvements = [];
+  
+  if (!behavioralAnalysis.hasSituation) improvements.push('Start by clearly describing the situation and context');
+  if (!behavioralAnalysis.hasAction) improvements.push('Explain the specific actions you took');
+  if (!behavioralAnalysis.hasResult) improvements.push('Describe the outcomes and results achieved');
+  if (!behavioralAnalysis.hasReflection) improvements.push('Include what you learned from the experience');
+  if (!behavioralAnalysis.hasSpecifics) improvements.push('Add more specific details and measurable outcomes');
+  
+  improvements.push('Structure responses using the STAR method');
+  improvements.push('Practice telling compelling stories about your experiences');
+  
+  return improvements;
+}
+
+function generateEnhancedDetailedAnalysis(questionType, score, responseLength, hasCode, hasExecutionResults) {
+  if (score >= 80) {
+    return `Excellent ${questionType} response scoring ${score}/100. The candidate demonstrated strong understanding with ${responseLength} characters of relevant content${hasCode ? ' and functional code' : ''}${hasExecutionResults ? ' that executes successfully' : ''}. This performance exceeds typical intern expectations and shows great potential.`;
+  } else if (score >= 60) {
+    return `Good ${questionType} response scoring ${score}/100. The candidate showed solid understanding with ${responseLength} characters of content${hasCode ? ' and reasonable code attempt' : ''}. Performance meets intern-level expectations with room for improvement in technical depth and clarity.`;
+  } else if (score >= 40) {
+    return `Basic ${questionType} response scoring ${score}/100. The candidate demonstrated some understanding with ${responseLength} characters${hasCode ? ' and attempted code solution' : ''}, but lacks depth and technical accuracy expected for the role. Shows potential but needs development.`;
+  } else if (score >= 20) {
+    return `Below-average ${questionType} response scoring ${score}/100. The ${responseLength}-character response shows minimal understanding${hasCode ? ' with poor code quality' : ''} and significant gaps in knowledge. Substantial improvement needed for intern readiness.`;
+  } else {
+    return `Poor ${questionType} response scoring ${score}/100. The response demonstrates insufficient understanding and preparation${hasCode ? ' with non-functional code' : ''}. Requires fundamental skill development before being interview-ready.`;
+  }
+}
+
+function generateEnhancedOverallAssessment(score, questionType) {
+  if (score >= 80) return `Excellent ${questionType} performance - exceeds intern expectations with strong technical foundation and communication skills`;
+  if (score >= 65) return `Good ${questionType} performance - meets intern expectations with solid understanding and clear potential for growth`;
+  if (score >= 50) return `Acceptable ${questionType} performance - shows basic competency but needs continued development and mentoring`;
+  if (score >= 35) return `Below expectations - requires focused improvement in fundamental concepts and communication before intern readiness`;
+  return `Significantly below intern level - needs substantial preparation and skill development in ${questionType} areas`;
+}
+
+function generateEnhancedFallbackFeedback(questionType, responseText, code, language, executionResults) {
+  console.log('🔄 Generating enhanced fallback feedback');
+  const hasCode = code && code.trim().length > 0;
+  const responseLength = responseText?.length || 0;
+  const hasExecutionResults = executionResults && (executionResults.output || executionResults.error);
+  
+  let score = 35; // Start with a reasonable baseline
+  let strengths = [];
+  let improvements = [];
+  let responseType = 'partially-relevant';
+  
+  // Enhanced evaluation logic based on question type
+  if (questionType === 'coding') {
+    if (!hasCode || code.trim().length < 20) {
+      score = 15;
+      strengths = ['Submitted a response'];
+      improvements = ['Provide actual working code', 'Implement the required function', 'Show your problem-solving approach', 'Test your solution before submitting'];
+      responseType = 'mostly-irrelevant';
+    } else {
+      // Analyze code quality with multiple factors
+      const codeAnalysis = analyzeCodeQuality(code);
+      const executionAnalysis = analyzeExecutionResults(executionResults);
+      
+      score = calculateCodingScore(codeAnalysis, executionAnalysis, responseText);
+      strengths = generateCodingStrengths(codeAnalysis, executionAnalysis);
+      improvements = generateCodingImprovements(codeAnalysis, executionAnalysis);
+      responseType = mapScoreToResponseType(score);
+    }
+  } else if (questionType === 'technical') {
+    const technicalAnalysis = analyzeTechnicalResponse(responseText);
+    score = calculateTechnicalScore(technicalAnalysis, responseLength);
+    strengths = generateTechnicalStrengths(technicalAnalysis, responseLength);
+    improvements = generateTechnicalImprovements(technicalAnalysis, score);
+    responseType = mapScoreToResponseType(score);
+  } else if (questionType === 'behavioral') {
+    const behavioralAnalysis = analyzeBehavioralResponse(responseText);
+    score = calculateBehavioralScore(behavioralAnalysis, responseLength);
+    strengths = generateBehavioralStrengths(behavioralAnalysis, responseLength);
+    improvements = generateBehavioralImprovements(behavioralAnalysis, score);
+    responseType = mapScoreToResponseType(score);
+  }
+
+  // Ensure alignment between score and responseType
+  responseType = mapScoreToResponseType(score);
+
+  return {
+    score: Math.max(0, Math.min(100, score)),
+    questionRelevance: Math.max(1, Math.min(10, Math.floor(score / 10))),
+    responseType: responseType,
+    correctness: Math.max(1, Math.min(10, Math.floor(score / 10))),
+    syntax: hasCode ? Math.max(1, Math.min(10, Math.floor(score / 12))) : Math.floor(score / 15),
+    languageBestPractices: Math.max(1, Math.min(10, Math.floor(score / 15))),
+    efficiency: Math.max(1, Math.min(10, Math.floor(score / 20))),
+    structureAndReadability: Math.max(1, Math.min(10, Math.floor(score / 15))),
+    edgeCaseHandling: Math.max(1, Math.min(10, Math.floor(score / 25))),
+    strengths: strengths.length > 0 ? strengths : ['Made an attempt to answer'],
+    improvements: improvements.length > 0 ? improvements : ['Practice fundamental concepts', 'Provide more detailed explanations'],
+    detailedAnalysis: generateEnhancedDetailedAnalysis(questionType, score, responseLength, hasCode, hasExecutionResults),
+    overallAssessment: generateEnhancedOverallAssessment(score, questionType),
+    communicationClarity: Math.max(1, Math.min(10, Math.floor(score / 15))),
+    technicalAccuracy: Math.max(1, Math.min(10, Math.floor(score / 15)))
+  };
 }
 
 // Helper functions for better contextual feedback
@@ -1916,69 +2516,6 @@ export const skipQuestion = async (req, res) => {
     res.status(500).json({ 
       success: false,
       error: 'Failed to skip question',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
-
-export const analyzeResponse = async (req, res) => {
-  console.time('analyze-response-total');
-  try {
-    const { question, questionType, responseText, code, language } = req.body;
-    const userId = req.user?.userId || req.user?.id || req.user?._id;
-
-    if (!userId) {
-      console.timeEnd('analyze-response-total');
-      return res.status(401).json({
-        success: false,
-        error: 'User not authenticated'
-      });
-    }
-
-    console.time('input-validation');
-    const sanitizedResponseText = validateAndSanitizeInput(responseText);
-    const sanitizedCode = validateAndSanitizeInput(code);
-    const validatedLanguage = validateLanguage(language);
-    console.timeEnd('input-validation');
-
-    if (!question || !sanitizedResponseText) {
-      console.timeEnd('analyze-response-total');
-      return res.status(400).json({
-        success: false,
-        error: 'Question and response text are required'
-      });
-    }
-
-    let feedback;
-    console.time('feedback-generation');
-    try {
-      feedback = await generateEnhancedAIFeedback(
-        question, 
-        questionType, 
-        sanitizedResponseText, 
-        sanitizedCode, 
-        validatedLanguage
-      );
-    } catch (error) {
-      console.error('AI Analysis failed, using fallback:', error.message);
-      console.time('fallback-feedback');
-      feedback = generateFallbackFeedback(questionType, sanitizedResponseText, sanitizedCode);
-      console.timeEnd('fallback-feedback');
-    }
-    console.timeEnd('feedback-generation');
-
-    console.timeEnd('analyze-response-total');
-    res.json({
-      success: true,
-      feedback
-    });
-
-  } catch (error) {
-    console.timeEnd('analyze-response-total');
-    console.error('Analyze response error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to analyze response',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -2459,179 +2996,4 @@ function calculateFinalResults(responses, totalDuration) {
   return result;
 }
 
-// Additional debugging endpoint for testing the complete flow
-export const debugInterviewFlow = async (req, res) => {
-  console.time('debug-interview-flow-total');
-  try {
-    console.log('Debug interview flow test');
-    
-    const testResumeText = `John Doe
-Software Engineering Student
-Email: john@example.com
 
-EDUCATION
-Bachelor of Computer Science, University of Technology (2021-2025)
-Relevant Coursework: Data Structures, Algorithms, Web Development, Database Systems
-
-TECHNICAL SKILLS
-Programming Languages: JavaScript, Python, Java
-Web Technologies: HTML, CSS, React, Node.js
-Databases: MySQL, MongoDB
-Tools: Git, VS Code, Docker
-
-PROJECTS
-E-commerce Website (2024)
-- Built a full-stack web application using React and Node.js
-- Implemented user authentication and payment processing
-- Used MongoDB for data storage
-
-Personal Portfolio (2023)
-- Created responsive portfolio website using HTML, CSS, and JavaScript
-- Deployed on GitHub Pages
-
-EXPERIENCE
-Software Development Intern, TechCorp (Summer 2024)
-- Collaborated with development team on web applications
-- Fixed bugs and implemented new features
-- Gained experience with Agile methodology`;
-
-    const testJobDescription = `Software Engineering Intern Position
-
-We are seeking a motivated Software Engineering Intern to join our backend development team. 
-
-Requirements:
-- Currently pursuing Computer Science degree
-- Experience with JavaScript, Python, or Java
-- Understanding of web development concepts
-- Familiarity with databases and APIs
-- Git version control experience
-- Strong problem-solving skills
-
-Responsibilities:
-- Develop and maintain backend APIs
-- Work with databases and data processing
-- Collaborate with frontend developers
-- Participate in code reviews
-- Debug and fix issues
-
-This is a great opportunity for students to gain real-world experience in backend development and work with modern technologies like Node.js, Express, and MongoDB.`;
-
-    console.log('Test inputs prepared');
-    console.log('Testing question generation...');
-    
-    console.time('question-generation');
-    const questions = await generatePersonalizedQuestionsWithFullContent(testResumeText, testJobDescription);
-    console.timeEnd('question-generation');
-    
-    console.log('Questions generated successfully:', questions.length);
-    
-    console.timeEnd('debug-interview-flow-total');
-    res.json({
-      success: true,
-      message: 'Debug test completed successfully',
-      data: {
-        questionsGenerated: questions.length,
-        questions: questions.map(q => ({
-          id: q.questionId,
-          type: q.type,
-          category: q.category,
-          questionPreview: q.question.substring(0, 100) + '...'
-        })),
-        testInputs: {
-          resumeLength: testResumeText.length,
-          jobDescriptionLength: testJobDescription.length
-        }
-      }
-    });
-    
-  } catch (error) {
-    console.timeEnd('debug-interview-flow-total');
-    console.error('Debug flow error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Debug test failed',
-      details: {
-        message: error.message,
-        name: error.name
-      }
-    });
-  }
-};
-
-// Test endpoint to verify Gemini API connectivity and environment setup
-export const testEnvironmentSetup = async (req, res) => {
-  console.time('test-environment-setup-total');
-  try {
-    console.log('Testing environment setup');
-    
-    console.time('environment-check');
-    const environmentCheck = {
-      geminiApiKey: {
-        exists: !!process.env.GEMINI_API_KEY,
-        length: process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.length : 0,
-        valid: process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.startsWith('AIza') : false
-      },
-      jdoodleCredentials: {
-        clientId: !!process.env.JDOODLE_CLIENT_ID,
-        clientSecret: !!process.env.JDOODLE_CLIENT_SECRET
-      },
-      nodeEnv: process.env.NODE_ENV || 'development'
-    };
-    console.timeEnd('environment-check');
-
-    console.log('Environment check results:', environmentCheck);
-
-    if (!environmentCheck.geminiApiKey.exists) {
-      console.timeEnd('test-environment-setup-total');
-      return res.status(500).json({
-        success: false,
-        error: 'Gemini API key not found in environment variables',
-        environmentCheck
-      });
-    }
-
-    if (!environmentCheck.geminiApiKey.valid) {
-      console.timeEnd('test-environment-setup-total');
-      return res.status(500).json({
-        success: false,
-        error: 'Gemini API key format appears invalid',
-        environmentCheck
-      });
-    }
-
-    // Test actual API connection
-    console.time('api-connection-test');
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    const testResult = await model.generateContent("Respond with: API_TEST_SUCCESS");
-    const response = await testResult.response;
-    const text = response.text();
-    console.timeEnd('api-connection-test');
-
-    console.log('API test response:', text);
-
-    console.timeEnd('test-environment-setup-total');
-    res.json({
-      success: true,
-      message: 'Environment setup verified successfully',
-      environmentCheck,
-      apiTest: {
-        response: text,
-        success: text.includes('API_TEST_SUCCESS')
-      }
-    });
-
-  } catch (error) {
-    console.timeEnd('test-environment-setup-total');
-    console.error('Environment test failed:', error);
-    
-    res.status(500).json({
-      success: false,
-      error: 'Environment test failed',
-      details: {
-        message: error.message,
-        name: error.name,
-        code: error.code
-      }
-    });
-  }
-};
