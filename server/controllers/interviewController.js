@@ -7,13 +7,6 @@ import axios from 'axios';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// DEBUG: Add API key validation
-console.log('🔑 Gemini API Key Status:', {
-  exists: !!process.env.GEMINI_API_KEY,
-  length: process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.length : 0,
-  prefix: process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.substring(0, 10) + '...' : 'Not found'
-});
-
 export const executeCodeWithJDoodle = async (req, res) => {
   const startTime = Date.now();
   console.log('⏱️ Code execution started');
@@ -21,42 +14,58 @@ export const executeCodeWithJDoodle = async (req, res) => {
   try {
     const { script, language, versionIndex, stdin } = req.body;
 
-    if (!script || !language || versionIndex === undefined) {
+    if (!script || !language) {
       console.log('❌ Missing required fields for code execution - Duration:', Date.now() - startTime, 'ms');
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: script, language, versionIndex'
+        error: 'Missing required fields: script and language are required'
       });
     }
 
-    // FIXED: Corrected JDoodle language mapping with proper version indices
-   const languageMapping = {
-  // Primary language names
-  'javascript': { language: 'nodejs', versionIndex: '4' },
-  'python': { language: 'python3', versionIndex: '4' },
-  'java': { language: 'java', versionIndex: '4' },
-  'cpp': { language: 'cpp17', versionIndex: '0' },
-  'c': { language: 'c', versionIndex: '5' },
-  
-  // Alternative names that might be sent from frontend
-  'js': { language: 'nodejs', versionIndex: '4' },
-  'javascript': { language: 'nodejs', versionIndex: '4' },
-  'nodejs': { language: 'nodejs', versionIndex: '4' },
-  'node': { language: 'nodejs', versionIndex: '4' },
-  'python3': { language: 'python3', versionIndex: '4' },
-  'py': { language: 'python3', versionIndex: '4' },
-  'c++': { language: 'cpp17', versionIndex: '0' },
-  'cpp': { language: 'cpp17', versionIndex: '0' },
-  'java': { language: 'java', versionIndex: '4' }
-};
-
+    // FIXED: Comprehensive JDoodle language mapping with working version indices
+    const languageMapping = {
+      // JavaScript variants (Node.js)
+      'javascript': { language: 'nodejs', versionIndex: '4' },
+      'js': { language: 'nodejs', versionIndex: '4' },
+      'nodejs': { language: 'nodejs', versionIndex: '4' },
+      'node': { language: 'nodejs', versionIndex: '4' },
+      'node.js': { language: 'nodejs', versionIndex: '4' },
+      
+      // Python variants  
+      'python': { language: 'python3', versionIndex: '4' },
+      'python3': { language: 'python3', versionIndex: '4' },
+      'py': { language: 'python3', versionIndex: '4' },
+      
+      // Java
+      'java': { language: 'java', versionIndex: '4' },
+      
+      // C++ variants
+      'cpp': { language: 'cpp17', versionIndex: '0' },
+      'c++': { language: 'cpp17', versionIndex: '0' },
+      'cpp17': { language: 'cpp17', versionIndex: '0' },
+      
+      // C
+      'c': { language: 'c', versionIndex: '5' },
+      
+      // C# variants
+      'c#': { language: 'csharp', versionIndex: '4' },
+      'csharp': { language: 'csharp', versionIndex: '4' },
+      'cs': { language: 'csharp', versionIndex: '4' },
+      
+      // PHP variants
+      'php': { language: 'php', versionIndex: '4' },
+      
+      // Go variants
+      'go': { language: 'go', versionIndex: '4' },
+      'golang': { language: 'go', versionIndex: '4' }
+    };
 
     const mappedLanguage = languageMapping[language.toLowerCase()];
     if (!mappedLanguage) {
       console.log('❌ Unsupported language:', language);
       return res.status(400).json({
         success: false,
-        error: `Unsupported language: ${language}. Supported: javascript, python, java, cpp, c`
+        error: `Unsupported language: ${language}. Supported languages: JavaScript, Python, Java, C++, C, C#, PHP, Go`
       });
     }
 
@@ -76,7 +85,7 @@ export const executeCodeWithJDoodle = async (req, res) => {
     const jdoodleData = {
       script: script,
       language: mappedLanguage.language,
-      versionIndex: mappedLanguage.versionIndex, // Use correct version index
+      versionIndex: mappedLanguage.versionIndex,
       clientId: JDOODLE_CLIENT_ID,
       clientSecret: JDOODLE_CLIENT_SECRET,
       stdin: stdin || ''
@@ -84,8 +93,10 @@ export const executeCodeWithJDoodle = async (req, res) => {
 
     console.log('📤 Sending request to JDoodle API with:', {
       language: mappedLanguage.language,
-      versionIndex: mappedLanguage.versionIndex
+      versionIndex: mappedLanguage.versionIndex,
+      scriptLength: script.length
     });
+    
     const apiStartTime = Date.now();
     
     const jdoodleResponse = await axios.post(
@@ -101,11 +112,23 @@ export const executeCodeWithJDoodle = async (req, res) => {
     console.log('✅ JDoodle API response received - Duration:', apiDuration, 'ms');
 
     const result = jdoodleResponse.data;
+    
+    // Better error handling for JDoodle responses
+    if (result.error && result.error.trim()) {
+      console.log('❌ JDoodle execution error:', result.error);
+      return res.json({
+        success: false,
+        output: result.output || '',
+        error: result.error,
+        executionTime: result.cpuTime || null,
+        memory: result.memory || null,
+        statusCode: result.statusCode || null
+      });
+    }
 
-    console.log('Code execution:', {
-      userId: req.user.id || req.user.userId || req.user._id,
-      language: mappedLanguage.language,
-      success: !result.error,
+    console.log('✅ Code execution successful:', {
+      hasOutput: !!(result.output && result.output.trim()),
+      outputLength: result.output ? result.output.length : 0,
       executionTime: result.cpuTime,
       memory: result.memory,
       totalDuration: Date.now() - startTime + 'ms'
@@ -131,9 +154,10 @@ export const executeCodeWithJDoodle = async (req, res) => {
     }
 
     if (error.response) {
+      console.error('JDoodle API Error Response:', error.response.data);
       return res.status(500).json({
         success: false,
-        error: `JDoodle API error: ${error.response.data.error || 'Unknown error'}`
+        error: `JDoodle API error: ${error.response.data.error || error.response.data.message || 'Unknown error'}`
       });
     }
 
@@ -804,24 +828,30 @@ function extractProjects(resumeText) {
 }
 
 function selectBestLanguage(resumeText, suggestedLanguage) {
-  const supportedLanguages = ['javascript', 'python', 'java', 'cpp', 'c'];
+  const supportedLanguages = ['javascript', 'python', 'java', 'cpp', 'c', 'csharp', 'php', 'go'];
   
-  // Check if suggested language is supported
-  if (suggestedLanguage && supportedLanguages.includes(suggestedLanguage.toLowerCase())) {
-    return suggestedLanguage.toLowerCase();
+  // Check if suggested language is supported (normalize first)
+  const normalizedSuggested = normalizeLanguageName(suggestedLanguage);
+  if (suggestedLanguage && supportedLanguages.includes(normalizedSuggested)) {
+    return normalizedSuggested;
   }
   
-  // Analyze CV for language preference
+  // Analyze CV for language preference with comprehensive patterns
   const languageCount = {};
+  
+  // Comprehensive language detection patterns
+  const patterns = {
+    'javascript': /javascript|js|node\.?js|react|vue|angular|express|npm|typescript/i,
+    'python': /python|django|flask|pandas|numpy|scipy|tensorflow|pytorch|pip/i,
+    'java': /\bjava\b(?!script)|spring|hibernate|maven|gradle|jvm|android/i,
+    'cpp': /c\+\+|cpp|std::|boost|qt|cmake/i,
+    'c': /\bc\b(?!\+|#)|gcc|glibc|posix|embedded/i,
+    'csharp': /c#|csharp|\.net|asp\.net|visual studio|nuget|xamarin/i,
+    'php': /php|laravel|symfony|composer|wordpress|drupal/i,
+    'go': /\bgo\b|golang|goroutine|gin|echo|docker|kubernetes/i
+  };
+  
   supportedLanguages.forEach(lang => {
-    const patterns = {
-      'javascript': /javascript|js|node\.?js|react|vue|angular/i,
-      'python': /python|django|flask|pandas|numpy/i,
-      'java': /\bjava\b|spring|hibernate/i,
-      'cpp': /c\+\+|cpp/i,
-      'c': /\bc\b(?!\+)/i
-    };
-    
     const matches = resumeText.match(patterns[lang]);
     languageCount[lang] = matches ? matches.length : 0;
   });
@@ -833,7 +863,6 @@ function selectBestLanguage(resumeText, suggestedLanguage) {
   
   return languageCount[bestLanguage] > 0 ? bestLanguage : 'javascript';
 }
-
 // CORRECTED: Fixed scoring alignment with response type
 function mapScoreToResponseType(score) {
   if (score >= 85) return 'perfectly-relevant';
@@ -842,65 +871,98 @@ function mapScoreToResponseType(score) {
   if (score >= 25) return 'mostly-irrelevant';    // Adjusted threshold
   return 'completely-off-topic';
 }
-
-// Replace your existing template generation functions with these corrected versions:
-
 function generateStarterCode(questionText, language) {
   if (!language) return null;
 
   const starterCode = {};
+  
+  // Normalize language name
+  const normalizedLanguage = normalizeLanguageName(language);
   
   // Extract problem context for better templates
   const isArrayProblem = /array|list|numbers/i.test(questionText);
   const isStringProblem = /string|text|word|character/i.test(questionText);
   const isNumberProblem = /number|sum|count|calculate|even|odd/i.test(questionText);
   
-  // Generate template based on language
+  // Generate template based on normalized language
   let template;
-  switch (language.toLowerCase()) {
+  switch (normalizedLanguage) {
     case 'javascript':
-    case 'js':
-    case 'nodejs':
-    case 'node':
       template = generateJavaScriptTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
       break;
     case 'python':
-    case 'python3':
-    case 'py':
       template = generatePythonTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
       break;
     case 'java':
       template = generateJavaTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
       break;
     case 'cpp':
-    case 'c++':
       template = generateCppTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
       break;
     case 'c':
       template = generateCTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
       break;
+    case 'csharp':
+      template = generateCSharpTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
+      break;
+    case 'php':
+      template = generatePhpTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
+      break;
+    case 'go':
+      template = generateGoTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
+      break;
     default:
       template = generateJavaScriptTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem);
   }
 
-  starterCode[language.toLowerCase()] = template;
+  starterCode[normalizedLanguage] = template;
   return starterCode;
 }
 
+// Helper function to normalize language names
+function normalizeLanguageName(language) {
+  const normalizedMap = {
+    'javascript': 'javascript',
+    'js': 'javascript', 
+    'nodejs': 'javascript',
+    'node': 'javascript',
+    'node.js': 'javascript',
+    'python': 'python',
+    'python3': 'python',
+    'py': 'python',
+    'java': 'java',
+    'cpp': 'cpp',
+    'c++': 'cpp',
+    'cpp17': 'cpp',
+    'c': 'c',
+    'c#': 'csharp',
+    'csharp': 'csharp',
+    'cs': 'csharp',
+    'php': 'php',
+    'go': 'go',
+    'golang': 'go'
+  };
+  
+  return normalizedMap[language.toLowerCase()] || 'javascript';
+}
+
+// FIXED: Better JavaScript templates
 function generateJavaScriptTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem) {
-  const comment = `// ${questionText.length > 50 ? questionText.substring(0, 50) + '...' : questionText}`;
+  const comment = `// ${questionText.length > 60 ? questionText.substring(0, 60) + '...' : questionText}`;
   
   if (isArrayProblem) {
     return `function solution(arr) {
     ${comment}
     
     // Your code here
+    // Example: iterate through array, process elements
     
-    return result;
+    return arr; // Replace with your result
 }
 
 // Test your solution
-console.log(solution([1, 2, 3, 4, 5]));`;
+const testArray = [1, 2, 3, 4, 5];
+console.log(solution(testArray));`;
   }
   
   if (isStringProblem) {
@@ -908,12 +970,14 @@ console.log(solution([1, 2, 3, 4, 5]));`;
     ${comment}
     
     // Your code here
+    // Example: process the string, return result
     
-    return result;
+    return str; // Replace with your result
 }
 
 // Test your solution
-console.log(solution("hello world"));`;
+const testString = "hello world";
+console.log(solution(testString));`;
   }
 
   if (isNumberProblem) {
@@ -921,39 +985,45 @@ console.log(solution("hello world"));`;
     ${comment}
     
     // Your code here
+    // Example: perform calculation, return result
     
-    return result;
+    return num; // Replace with your result
 }
 
 // Test your solution
-console.log(solution(10));`;
+const testNumber = 10;
+console.log(solution(testNumber));`;
   }
   
   return `function solution(input) {
     ${comment}
     
     // Your code here
+    // Write your solution logic
     
-    return result;
+    return input; // Replace with your result
 }
 
 // Test your solution
 console.log(solution("test input"));`;
 }
 
+// FIXED: Better Python templates
 function generatePythonTemplate(questionText, isArrayProblem, isStringProblem, isNumberProblem) {
-  const comment = `# ${questionText.length > 50 ? questionText.substring(0, 50) + '...' : questionText}`;
+  const comment = `# ${questionText.length > 60 ? questionText.substring(0, 60) + '...' : questionText}`;
   
   if (isArrayProblem) {
     return `def solution(arr):
     ${comment}
     
     # Your code here
+    # Example: iterate through list, process elements
     
-    pass
+    return arr  # Replace with your result
 
 # Test your solution
-print(solution([1, 2, 3, 4, 5]))`;
+test_array = [1, 2, 3, 4, 5]
+print(solution(test_array))`;
   }
   
   if (isStringProblem) {
@@ -961,11 +1031,13 @@ print(solution([1, 2, 3, 4, 5]))`;
     ${comment}
     
     # Your code here
+    # Example: process the string, return result
     
-    pass
+    return text  # Replace with your result
 
 # Test your solution
-print(solution("hello world"))`;
+test_string = "hello world"
+print(solution(test_string))`;
   }
 
   if (isNumberProblem) {
@@ -973,19 +1045,22 @@ print(solution("hello world"))`;
     ${comment}
     
     # Your code here
+    # Example: perform calculation, return result
     
-    pass
+    return num  # Replace with your result
 
 # Test your solution
-print(solution(10))`;
+test_number = 10
+print(solution(test_number))`;
   }
   
   return `def solution(input_data):
     ${comment}
     
     # Your code here
+    # Write your solution logic
     
-    pass
+    return input_data  # Replace with your result
 
 # Test your solution
 print(solution("test input"))`;
