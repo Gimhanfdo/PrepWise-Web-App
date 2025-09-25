@@ -1437,6 +1437,8 @@ Note: The actual CV text extraction would require server-side processing of the 
   }
 }, [uploadedFile]);
 
+
+
 // Enhanced CV section component
 const CVSection = useMemo(() => (
   <div className="mb-4">
@@ -1768,9 +1770,13 @@ const CVSection = useMemo(() => (
   ), [user, interviewData, debugMode, debugLogs, audioPermission, audioError, error, loading, isSetupValid, createInterview, handleJobDescriptionChange, CVSection]);
 
   const InterviewPhase = useMemo(() => {
+    
     const isCodingQuestion = currentQuestion?.type === 'coding' || currentQuestion?.type === 'technical_coding';
     
     return (
+      <div className="min-h-screen bg-gray-50">
+                      <NavBar/>
+    <div className="space-y-6 md:space-y-8"></div>
       <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
         <div className="bg-white border-b border-gray-200 shadow-sm">
           <div className="max-w-7xl mx-auto px-6 py-3">
@@ -2195,6 +2201,7 @@ const CVSection = useMemo(() => (
             )}
           </div>
         </div>
+        </div>
 
         <audio ref={audioPlaybackRef} className="hidden" />
       </div>
@@ -2203,6 +2210,9 @@ const CVSection = useMemo(() => (
 
 // UPDATED: FeedbackPhase component (same as before, no changes needed)
 const FeedbackPhase = useMemo(() => (
+  <div className="min-h-screen bg-gray-50">
+                      <NavBar/>
+    <div className="space-y-6 md:space-y-8"></div>
   <div className="min-h-screen bg-gradient-to-br from-green-50 via-blue-50 to-indigo-50">
     <div className="container mx-auto px-6 py-8">
       <div className="max-w-6xl mx-auto">
@@ -2449,6 +2459,7 @@ const FeedbackPhase = useMemo(() => (
         </div>
       </div>
     </div>
+    </div>
   </div>
 ), [feedback, responses, questions, questionFeedbacks, timer, resetInterview]);
 
@@ -2462,6 +2473,7 @@ const FeedbackPhase = useMemo(() => (
           <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading Interview System</h2>
           <p className="text-gray-600 text-sm">Preparing your personalized mock interview...</p>
         </div>
+        
       </div>
     );
   }
