@@ -7,7 +7,6 @@ import axios from 'axios';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// DEBUG: Add API key validation
 console.log('🔑 Gemini API Key Status:', {
   exists: !!process.env.GEMINI_API_KEY,
   length: process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.length : 0,
@@ -29,40 +28,30 @@ export const executeCodeWithJDoodle = async (req, res) => {
       });
     }
 
-    // FIXED: Comprehensive JDoodle language mapping with working version indices
     const languageMapping = {
-      // JavaScript variants (Node.js)
       'javascript': { language: 'nodejs', versionIndex: '4' },
       'js': { language: 'nodejs', versionIndex: '4' },
       'nodejs': { language: 'nodejs', versionIndex: '4' },
       'node': { language: 'nodejs', versionIndex: '4' },
       'node.js': { language: 'nodejs', versionIndex: '4' },
-      
-      // Python variants  
       'python': { language: 'python3', versionIndex: '4' },
       'python3': { language: 'python3', versionIndex: '4' },
       'py': { language: 'python3', versionIndex: '4' },
-      
-      // Java
+
       'java': { language: 'java', versionIndex: '4' },
-      
-      // C++ variants
+
       'cpp': { language: 'cpp17', versionIndex: '0' },
       'c++': { language: 'cpp17', versionIndex: '0' },
       'cpp17': { language: 'cpp17', versionIndex: '0' },
-      
-      // C
+
       'c': { language: 'c', versionIndex: '5' },
-      
-      // C# variants
+
       'c#': { language: 'csharp', versionIndex: '4' },
       'csharp': { language: 'csharp', versionIndex: '4' },
       'cs': { language: 'csharp', versionIndex: '4' },
-      
-      // PHP variants
+ 
       'php': { language: 'php', versionIndex: '4' },
-      
-      // Go variants
+
       'go': { language: 'go', versionIndex: '4' },
       'golang': { language: 'go', versionIndex: '4' }
     };
