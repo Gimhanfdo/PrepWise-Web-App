@@ -7,6 +7,13 @@ import axios from 'axios';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// DEBUG: Add API key validation
+console.log('🔑 Gemini API Key Status:', {
+  exists: !!process.env.GEMINI_API_KEY,
+  length: process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.length : 0,
+  prefix: process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.substring(0, 10) + '...' : 'Not found'
+});
+
 export const executeCodeWithJDoodle = async (req, res) => {
   const startTime = Date.now();
   console.log('⏱️ Code execution started');
@@ -596,10 +603,10 @@ async function generatePersonalizedQuestionsWithFullContent(resumeText, jobDescr
     console.log('🔧 Configuring Gemini model');
     const modelStartTime = Date.now();
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-pro",
       generationConfig: { 
-        temperature: 0.2, // Lower temperature for more focused questions
-        maxOutputTokens: 3000,
+        temperature: 0.2,
+        maxOutputTokens: 4000, // Increased for more complete responses
         topP: 0.7,
         topK: 30,
         candidateCount: 1,
@@ -614,78 +621,67 @@ async function generatePersonalizedQuestionsWithFullContent(resumeText, jobDescr
     
     console.log('📊 Extracted info:', { cvTechnologies, jdRequirements, projectCount: cvProjects.length });
 
-    // More focused prompt for better relevance
-    const prompt = `You are a senior technical interviewer creating HIGHLY PERSONALIZED questions for a software engineering intern position.
+    // Simplified and more robust prompt
+    const prompt = `You are creating personalized interview questions for a software engineering intern position.
 
-CANDIDATE'S CV ANALYSIS:
-${resumeText.substring(0, 2500)}
+CANDIDATE'S CV (first 2000 chars):
+${resumeText.substring(0, 2000)}
 
-JOB REQUIREMENTS:
-${jobDescription.substring(0, 1500)}
+JOB REQUIREMENTS (first 1000 chars):
+${jobDescription.substring(0, 1000)}
 
-KEY CV TECHNOLOGIES: ${cvTechnologies.join(', ')}
-KEY JD REQUIREMENTS: ${jdRequirements.join(', ')}
-CV PROJECTS: ${cvProjects.length} identified
+REQUIREMENTS:
+- Generate exactly 10 questions
+- 3 behavioral, 4 technical, 3 coding questions
+- Reference specific CV content where possible
+- Use only supported languages: javascript, python, java, cpp, c
+- Keep questions concise and clear
 
-CRITICAL PERSONALIZATION REQUIREMENTS:
-1. Generate exactly 10 questions (3 behavioral, 4 technical, 3 coding)
-2. Questions MUST be specifically tailored to the candidate's background
-3. Reference actual projects, technologies, and experiences from their CV
-4. Align with specific job requirements mentioned
-5. Use ONLY supported languages: javascript, python, java, cpp, c
+CRITICAL: Return ONLY a valid JSON array with this EXACT structure:
 
-BEHAVIORAL QUESTIONS (3) - MUST BE HIGHLY SPECIFIC:
-- Ask about SPECIFIC projects mentioned in their CV by name
-- Reference their actual experiences and technologies used
-- Focus on challenges they likely faced based on their background
-- Use STAR method prompting
-
-Example: "I see you built [specific project name] using [specific technology from CV]. Tell me about a specific technical challenge you faced while implementing [relevant feature]. What was the situation, what approach did you take, and what was the outcome?"
-
-TECHNICAL QUESTIONS (4) - MUST ALIGN WITH BOTH CV AND JD:
-- Focus on technologies they've actually used AND are required for the job
-- Ask about concepts relevant to their experience level
-- Reference their specific background and the job requirements
-- Keep at intern-appropriate difficulty
-
-Example: "You mentioned experience with [technology from CV] and this role requires [requirement from JD]. How would you [specific scenario relevant to both]?"
-
-CODING QUESTIONS (3) - MUST BE RELEVANT:
-- Choose problems that relate to their project experience
-- Use their strongest programming language from CV
-- Make problems relevant to the job domain
-- Keep difficulty appropriate for intern level
-
-STRICT REQUIREMENTS:
-- Every question must reference something specific from the CV or JD
-- Questions should feel like they were written specifically for this candidate
-- Default to JavaScript for coding questions unless CV shows stronger language preference
-- No generic questions - everything must be personalized
-
-Return ONLY valid JSON array:
 [
   {
     "questionId": "q1",
     "type": "behavioral",
-    "question": "[Highly specific question referencing actual CV content]",
+    "question": "Tell me about a challenging project you worked on. What was the situation and how did you handle it?",
     "category": "project_experience",
     "difficulty": "easy",
     "expectedDuration": 180,
     "followUpQuestions": [],
     "starterCode": null,
-    "language": null,
-    "cvReference": "[What specific part of CV this references]",
-    "jdAlignment": "[How this aligns with job requirements]"
+    "language": null
+  },
+  {
+    "questionId": "q2",
+    "type": "technical", 
+    "question": "Explain the difference between frontend and backend development.",
+    "category": "web_basics",
+    "difficulty": "easy",
+    "expectedDuration": 150,
+    "followUpQuestions": [],
+    "starterCode": null,
+    "language": null
+  },
+  {
+    "questionId": "q3",
+    "type": "coding",
+    "question": "Write a function that finds the largest number in an array.",
+    "category": "arrays",
+    "difficulty": "easy", 
+    "expectedDuration": 300,
+    "followUpQuestions": [],
+    "starterCode": null,
+    "language": "javascript"
   }
 ]
 
-QUALITY CHECK:
-- Does each question reference specific CV content? ✓
-- Does each question align with JD requirements? ✓
-- Are coding questions in supported languages? ✓
-- Is difficulty appropriate for intern level? ✓`;
+IMPORTANT: 
+- Do NOT include any text before or after the JSON array
+- Ensure all strings are properly escaped
+- Keep questions under 200 characters
+- Do NOT use newlines within question strings`;
 
-    console.log('📤 Sending enhanced personalization prompt to Gemini API');
+    console.log('📤 Sending simplified prompt to Gemini API');
     console.log('📏 Prompt length:', prompt.length);
 
     const apiCallStartTime = Date.now();
@@ -698,25 +694,37 @@ QUALITY CHECK:
 
     console.log('📥 Raw API Response received:');
     console.log('📏 Response length:', rawText.length);
-    console.log('🔍 Response preview (first 500 chars):', rawText.substring(0, 500));
+    console.log('🔍 Response preview (first 200 chars):', rawText.substring(0, 200));
 
-    // Enhanced JSON extraction
+    // Enhanced JSON extraction with better error handling
     let cleanedText = rawText
       .trim()
       .replace(/```json\s*/gi, '')
       .replace(/```javascript\s*/gi, '')
       .replace(/```\s*/g, '')
       .replace(/^```/gm, '')
-      .replace(/```$/gm, '');
+      .replace(/```$/gm, '')
+      .replace(/^\s*[\r\n]/gm, ''); // Remove empty lines
 
+    // Find the JSON array bounds more carefully
     const arrayStart = cleanedText.indexOf('[');
     const arrayEnd = cleanedText.lastIndexOf(']');
     
     if (arrayStart === -1 || arrayEnd === -1) {
+      console.error('❌ No JSON array found in response');
       throw new Error('No JSON array found in response');
     }
 
-    const jsonText = cleanedText.substring(arrayStart, arrayEnd + 1);
+    let jsonText = cleanedText.substring(arrayStart, arrayEnd + 1);
+
+    // Additional JSON cleaning
+    jsonText = jsonText
+      .replace(/,\s*}/g, '}')  // Remove trailing commas in objects
+      .replace(/,\s*]/g, ']')  // Remove trailing commas in arrays
+      .replace(/\r\n|\r|\n/g, ' ')  // Replace all newlines with spaces
+      .replace(/\s+/g, ' ')  // Normalize whitespace
+      .replace(/"\s*:\s*"/g, '": "')  // Normalize spacing around colons
+      .replace(/",\s*"/g, '", "');  // Normalize spacing around commas
 
     let questions;
     try {
@@ -725,15 +733,23 @@ QUALITY CHECK:
       console.log('📊 Generated questions:', questions.length);
     } catch (parseError) {
       console.error('❌ JSON Parse Error:', parseError.message);
+      console.error('❌ Problematic JSON (first 500 chars):', jsonText.substring(0, 500));
       
-      // Enhanced JSON fixing
-      let fixedJson = jsonText
-        .replace(/,(\s*[}\]])/g, '$1')
-        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
-        .replace(/:\s*'([^']*)'/g, ': "$1"')
-        .replace(/:\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*([,}])/g, ': "$1"$2');
-      
+      // Try to fix common JSON issues
       try {
+        let fixedJson = jsonText;
+        
+        // Fix unescaped quotes in strings
+        fixedJson = fixedJson.replace(/"([^"]*)"([^"]*)"([^"]*)":/g, '"$1\\"$2\\"$3":');
+        
+        // Fix incomplete objects at the end
+        if (!fixedJson.trim().endsWith(']')) {
+          const lastCommaIndex = fixedJson.lastIndexOf(',');
+          if (lastCommaIndex > -1) {
+            fixedJson = fixedJson.substring(0, lastCommaIndex) + ']';
+          }
+        }
+        
         questions = JSON.parse(fixedJson);
         console.log('✅ Fixed JSON parsed successfully');
       } catch (fixError) {
@@ -746,12 +762,12 @@ QUALITY CHECK:
       throw new Error('Invalid questions array received from AI');
     }
 
-    // Enhanced question processing with better language selection
+    // Process and validate questions
     const processedQuestions = questions.slice(0, 10).map((q, index) => {
       const questionId = q.questionId || `q${index + 1}`;
       const type = normalizeQuestionType(q.type || 'technical');
       
-      // Better language selection based on CV content
+      // Better language selection based on CV content and question type
       let language = null;
       if (type === 'coding') {
         language = selectBestLanguage(resumeText, q.language);
@@ -760,12 +776,12 @@ QUALITY CHECK:
       return {
         questionId: questionId,
         type: type,
-        question: q.question || 'Generated question',
+        question: (q.question || 'Generated question').replace(/\n/g, ' ').trim(),
         category: q.category || 'general',
         difficulty: q.difficulty || 'easy',
         expectedDuration: type === 'coding' ? 300 : (type === 'behavioral' ? 180 : 150),
-        followUpQuestions: q.followUpQuestions || [],
-        starterCode: type === 'coding' ? generateStarterCode(q.question, language) : null,
+        followUpQuestions: Array.isArray(q.followUpQuestions) ? q.followUpQuestions : [],
+        starterCode: type === 'coding' ? generateStarterCode(q.question || '', language) : null,
         language: language,
         cvReference: q.cvReference || 'General experience',
         jdAlignment: q.jdAlignment || 'Role requirements'
@@ -836,33 +852,37 @@ function selectBestLanguage(resumeText, suggestedLanguage) {
     return normalizedSuggested;
   }
   
-  // Analyze CV for language preference with comprehensive patterns
+  // Analyze CV for language preference with improved patterns
   const languageCount = {};
   
-  // Comprehensive language detection patterns
+  // More comprehensive language detection patterns
   const patterns = {
-    'javascript': /javascript|js|node\.?js|react|vue|angular|express|npm|typescript/i,
-    'python': /python|django|flask|pandas|numpy|scipy|tensorflow|pytorch|pip/i,
-    'java': /\bjava\b(?!script)|spring|hibernate|maven|gradle|jvm|android/i,
-    'cpp': /c\+\+|cpp|std::|boost|qt|cmake/i,
-    'c': /\bc\b(?!\+|#)|gcc|glibc|posix|embedded/i,
-    'csharp': /c#|csharp|\.net|asp\.net|visual studio|nuget|xamarin/i,
-    'php': /php|laravel|symfony|composer|wordpress|drupal/i,
-    'go': /\bgo\b|golang|goroutine|gin|echo|docker|kubernetes/i
+    'javascript': /javascript|js\b|node\.?js|react|vue|angular|express|npm|typescript|jquery|es6|babel|webpack/i,
+    'python': /python|django|flask|pandas|numpy|scipy|tensorflow|pytorch|pip|conda|jupyter|fastapi/i,
+    'java': /\bjava\b(?!script)|spring|hibernate|maven|gradle|jvm|android|servlet|jsp|struts/i,
+    'cpp': /c\+\+|cpp|std::|boost|qt|cmake|g\+\+|clang\+\+|visual\s?studio/i,
+    'c': /\bc\b(?!\+|#)|gcc|glibc|posix|embedded|arduino|microcontroller/i,
+    'csharp': /c#|csharp|\.net|asp\.net|visual\s?studio|unity|xamarin|mvc|web\s?api/i,
+    'php': /php|laravel|symfony|composer|wordpress|drupal|codeigniter|zend/i,
+    'go': /\bgo\b|golang|goroutine|gin|echo|buffalo|beego|revel/i
   };
   
+  // Count matches for each language
   supportedLanguages.forEach(lang => {
     const matches = resumeText.match(patterns[lang]);
     languageCount[lang] = matches ? matches.length : 0;
   });
   
-  // Return the most mentioned language, default to JavaScript
+  // Find the language with the most mentions
   const bestLanguage = Object.keys(languageCount).reduce((a, b) => 
     languageCount[a] > languageCount[b] ? a : b
   );
   
+  // Return the most mentioned language if it has any mentions, otherwise default to JavaScript
   return languageCount[bestLanguage] > 0 ? bestLanguage : 'javascript';
 }
+
+
 // CORRECTED: Fixed scoring alignment with response type
 function mapScoreToResponseType(score) {
   if (score >= 85) return 'perfectly-relevant';
@@ -919,8 +939,9 @@ function generateStarterCode(questionText, language) {
   return starterCode;
 }
 
-// Helper function to normalize language names
 function normalizeLanguageName(language) {
+  if (!language || typeof language !== 'string') return 'javascript';
+  
   const normalizedMap = {
     'javascript': 'javascript',
     'js': 'javascript', 
@@ -1432,18 +1453,27 @@ console.log(checkEvenOdd(7)); // Should return "odd"`
 }
 
 function normalizeQuestionType(type) {
+  if (!type || typeof type !== 'string') return 'technical';
+  
   const typeMapping = {
     'behavioral': 'behavioral',
+    'behaviour': 'behavioral',
+    'behavioural': 'behavioral',
     'technical': 'technical', 
+    'tech': 'technical',
     'coding': 'coding',
-    'problem-solving': 'problem-solving',
-    'system_design': 'system_design'
+    'code': 'coding',
+    'programming': 'coding',
+    'problem-solving': 'coding',
+    'algorithm': 'coding',
+    'system_design': 'technical',
+    'system-design': 'technical',
+    'design': 'technical'
   };
 
-  const normalized = type ? type.toLowerCase().replace(/[^a-z-]/g, '') : '';
+  const normalized = type.toLowerCase().replace(/[^a-z-]/g, '');
   return typeMapping[normalized] || 'technical';
 }
-
 
 export const startInterview = async (req, res) => {
   const startTime = Date.now();
@@ -1782,7 +1812,7 @@ async function generateEnhancedAIFeedback(question, questionType, responseText, 
 
   try {
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-pro",
       generationConfig: { 
         temperature: 0.1, // Lower temperature for consistent scoring
         maxOutputTokens: 1500,
@@ -2712,7 +2742,7 @@ async function generateOverallFeedback(responses) {
 
     console.time('overall-feedback-model-init');
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-1.5-flash",
+      model: "gemini-2.5-pro",
       generationConfig: { 
         temperature: 0.3,
         maxOutputTokens: 800,
